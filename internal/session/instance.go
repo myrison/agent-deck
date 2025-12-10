@@ -130,7 +130,42 @@ func (i *Instance) UpdateStatus() error {
 		i.Status = StatusError
 	}
 
+	// Update Claude session tracking (non-blocking, best-effort)
+	i.UpdateClaudeSession()
+
 	return nil
+}
+
+// UpdateClaudeSession updates the Claude session ID if Claude is running
+func (i *Instance) UpdateClaudeSession() {
+	// Only track if tool is Claude
+	if i.Tool != "claude" {
+		return
+	}
+
+	// Get the session's working directory
+	if i.tmuxSession == nil {
+		return
+	}
+
+	workDir := i.tmuxSession.GetWorkDir()
+	if workDir == "" {
+		workDir = i.ProjectPath
+	}
+
+	// Try to get session ID from Claude config
+	sessionID, err := GetClaudeSessionID(workDir)
+	if err != nil {
+		// No session found - clear if stale
+		if time.Since(i.ClaudeDetectedAt) > 5*time.Minute {
+			i.ClaudeSessionID = ""
+		}
+		return
+	}
+
+	// Update session ID
+	i.ClaudeSessionID = sessionID
+	i.ClaudeDetectedAt = time.Now()
 }
 
 // Preview returns the last 3 lines of terminal output

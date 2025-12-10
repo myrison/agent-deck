@@ -76,3 +76,16 @@ func TestInstance_CanFork(t *testing.T) {
 		t.Error("CanFork() should be false with stale ClaudeSessionID")
 	}
 }
+
+// TestInstance_UpdateClaudeSession tests the UpdateClaudeSession method
+func TestInstance_UpdateClaudeSession(t *testing.T) {
+	inst := NewInstance("test", "/tmp/test")
+	inst.Tool = "claude"
+
+	// Mock: In real test, would need actual Claude running
+	// For now, just test the method exists and doesn't crash
+	inst.UpdateClaudeSession()
+
+	// After update with no Claude running, should have no session ID
+	// (In integration test, would verify actual detection)
+}

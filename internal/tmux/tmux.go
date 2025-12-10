@@ -1365,9 +1365,19 @@ func (s *Session) SendEnter() error {
 	return cmd.Run()
 }
 
-// GetWorkDir returns the working directory of the session
+// GetWorkDir returns the current working directory of the tmux pane
+// This is the live directory from the pane, not the initial WorkDir
 func (s *Session) GetWorkDir() string {
-	return s.WorkDir
+	if !s.Exists() {
+		return ""
+	}
+
+	cmd := exec.Command("tmux", "display-message", "-t", s.Name, "-p", "#{pane_current_path}")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
 }
 
 // ListAllSessions returns all Agent Deck tmux sessions
