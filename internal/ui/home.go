@@ -1194,11 +1194,25 @@ func (h *Home) createSessionInGroup(name, path, command, groupPath string) tea.C
 			return sessionCreatedMsg{err: fmt.Errorf("cannot create session: %w", err)}
 		}
 
+		// Determine tool from command for proper session initialization
+		// When tool is "claude", a UUID will be pre-assigned for reliable fork support
+		tool := "shell"
+		switch command {
+		case "claude":
+			tool = "claude"
+		case "gemini":
+			tool = "gemini"
+		case "aider":
+			tool = "aider"
+		case "codex":
+			tool = "codex"
+		}
+
 		var inst *session.Instance
 		if groupPath != "" {
-			inst = session.NewInstanceWithGroup(name, path, groupPath)
+			inst = session.NewInstanceWithGroupAndTool(name, path, groupPath, tool)
 		} else {
-			inst = session.NewInstance(name, path)
+			inst = session.NewInstanceWithTool(name, path, tool)
 		}
 		inst.Command = command
 		if err := inst.Start(); err != nil {
@@ -1250,6 +1264,13 @@ func (h *Home) forkSessionCmd(source *session.Instance, title, groupPath string)
 		if err := inst.Start(); err != nil {
 			return sessionForkedMsg{err: err}
 		}
+
+		// Wait for Claude to create the new session file (fork creates new UUID)
+		// Give Claude up to 3 seconds to initialize and write the session file
+		if inst.Tool == "claude" {
+			_ = inst.WaitForClaudeSession(3 * time.Second)
+		}
+
 		return sessionForkedMsg{instance: inst}
 	}
 }
