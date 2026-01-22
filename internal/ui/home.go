@@ -91,9 +91,9 @@ const (
 type PreviewMode int
 
 const (
-	PreviewModeBoth     PreviewMode = iota // Show both analytics and output (default)
-	PreviewModeOutput                      // Show output only (content preview)
-	PreviewModeAnalytics                   // Show analytics only
+	PreviewModeBoth      PreviewMode = iota // Show both analytics and output (default)
+	PreviewModeOutput                       // Show output only (content preview)
+	PreviewModeAnalytics                    // Show analytics only
 )
 
 // Responsive breakpoints for empty state content tiers
@@ -128,46 +128,46 @@ type Home struct {
 	flatItems    []session.Item // Flattened view for cursor navigation
 
 	// Components
-	search        *Search
-	globalSearch  *GlobalSearch              // Global session search across all Claude conversations
+	search            *Search
+	globalSearch      *GlobalSearch              // Global session search across all Claude conversations
 	globalSearchIndex *session.GlobalSearchIndex // Search index (nil if disabled)
-	newDialog     *NewDialog
-	groupDialog   *GroupDialog   // For creating/renaming groups
-	forkDialog    *ForkDialog    // For forking sessions
-	confirmDialog *ConfirmDialog // For confirming destructive actions
-	helpOverlay   *HelpOverlay   // For showing keyboard shortcuts
-	mcpDialog      *MCPDialog      // For managing MCPs
-	setupWizard    *SetupWizard    // For first-run setup
-	settingsPanel  *SettingsPanel  // For editing settings
-	analyticsPanel *AnalyticsPanel // For displaying session analytics
+	newDialog         *NewDialog
+	groupDialog       *GroupDialog    // For creating/renaming groups
+	forkDialog        *ForkDialog     // For forking sessions
+	confirmDialog     *ConfirmDialog  // For confirming destructive actions
+	helpOverlay       *HelpOverlay    // For showing keyboard shortcuts
+	mcpDialog         *MCPDialog      // For managing MCPs
+	setupWizard       *SetupWizard    // For first-run setup
+	settingsPanel     *SettingsPanel  // For editing settings
+	analyticsPanel    *AnalyticsPanel // For displaying session analytics
 
 	// Analytics cache (async fetching with TTL)
-	currentAnalytics       *session.SessionAnalytics             // Current analytics for selected session (Claude)
-	currentGeminiAnalytics *session.GeminiSessionAnalytics       // Current analytics for selected session (Gemini)
-	analyticsSessionID     string                                // Session ID for current analytics
-	analyticsFetchingID    string                                // ID currently being fetched (prevents duplicates)
-	analyticsCache         map[string]*session.SessionAnalytics  // TTL cache: sessionID -> analytics (Claude)
+	currentAnalytics       *session.SessionAnalytics                  // Current analytics for selected session (Claude)
+	currentGeminiAnalytics *session.GeminiSessionAnalytics            // Current analytics for selected session (Gemini)
+	analyticsSessionID     string                                     // Session ID for current analytics
+	analyticsFetchingID    string                                     // ID currently being fetched (prevents duplicates)
+	analyticsCache         map[string]*session.SessionAnalytics       // TTL cache: sessionID -> analytics (Claude)
 	geminiAnalyticsCache   map[string]*session.GeminiSessionAnalytics // TTL cache: sessionID -> analytics (Gemini)
-	analyticsCacheTime     map[string]time.Time                  // TTL cache: sessionID -> cache timestamp
+	analyticsCacheTime     map[string]time.Time                       // TTL cache: sessionID -> cache timestamp
 
 	// State
-	cursor        int            // Selected item index in flatItems
-	viewOffset    int            // First visible item index (for scrolling)
-	isAttaching   atomic.Bool   // Prevents View() output during attach (fixes Bubble Tea Issue #431) - atomic for thread safety
-	statusFilter  session.Status // Filter sessions by status ("" = all, or specific status)
-	previewMode   PreviewMode    // What to show in preview pane (both, output-only, analytics-only)
-	err           error
-	errTime       time.Time // When error occurred (for auto-dismiss)
-	isReloading    bool      // Visual feedback during auto-reload
-	initialLoading bool      // True until first loadSessionsMsg received (shows splash screen)
-	reloadVersion  uint64    // Incremented on each reload to prevent stale background saves
+	cursor         int            // Selected item index in flatItems
+	viewOffset     int            // First visible item index (for scrolling)
+	isAttaching    atomic.Bool    // Prevents View() output during attach (fixes Bubble Tea Issue #431) - atomic for thread safety
+	statusFilter   session.Status // Filter sessions by status ("" = all, or specific status)
+	previewMode    PreviewMode    // What to show in preview pane (both, output-only, analytics-only)
+	err            error
+	errTime        time.Time  // When error occurred (for auto-dismiss)
+	isReloading    bool       // Visual feedback during auto-reload
+	initialLoading bool       // True until first loadSessionsMsg received (shows splash screen)
+	reloadVersion  uint64     // Incremented on each reload to prevent stale background saves
 	reloadMu       sync.Mutex // Protects reloadVersion and isReloading for thread-safe access
 
 	// Preview cache (async fetching - View() must be pure, no blocking I/O)
-	previewCache       map[string]string    // sessionID -> cached preview content
-	previewCacheTime   map[string]time.Time // sessionID -> when cached (for expiration)
-	previewCacheMu     sync.RWMutex         // Protects previewCache for thread-safety
-	previewFetchingID  string               // ID currently being fetched (prevents duplicate fetches)
+	previewCache      map[string]string    // sessionID -> cached preview content
+	previewCacheTime  map[string]time.Time // sessionID -> when cached (for expiration)
+	previewCacheMu    sync.RWMutex         // Protects previewCache for thread-safety
+	previewFetchingID string               // ID currently being fetched (prevents duplicate fetches)
 
 	// Preview debouncing (PERFORMANCE: prevents subprocess spawn on every keystroke)
 	// During rapid navigation, we delay preview fetch by 150ms to let navigation settle
@@ -325,8 +325,8 @@ type analyticsFetchedMsg struct {
 
 // statusUpdateRequest is sent to the background worker with current viewport info
 type statusUpdateRequest struct {
-	viewOffset    int   // Current scroll position
-	visibleHeight int   // How many items fit on screen
+	viewOffset    int      // Current scroll position
+	visibleHeight int      // How many items fit on screen
 	flatItemIDs   []string // IDs of sessions in current flatItems order (for visible detection)
 }
 
@@ -355,40 +355,40 @@ func NewHomeWithProfile(profile string) *Home {
 	}
 
 	h := &Home{
-		profile:           actualProfile,
-		storage:           storage,
-		storageWarning:    storageWarning,
-		search:            NewSearch(),
-		newDialog:         NewNewDialog(),
-		groupDialog:       NewGroupDialog(),
-		forkDialog:        NewForkDialog(),
-		confirmDialog:     NewConfirmDialog(),
-		helpOverlay:       NewHelpOverlay(),
-		mcpDialog:         NewMCPDialog(),
-		setupWizard:       NewSetupWizard(),
-		settingsPanel:     NewSettingsPanel(),
-		analyticsPanel:    NewAnalyticsPanel(),
-		cursor:            0,
-		initialLoading:    true, // Show splash until sessions load
-		ctx:               ctx,
-		cancel:            cancel,
-		instances:         []*session.Instance{},
-		instanceByID:      make(map[string]*session.Instance),
-		groupTree:         session.NewGroupTree([]*session.Instance{}),
-		flatItems:         []session.Item{},
+		profile:              actualProfile,
+		storage:              storage,
+		storageWarning:       storageWarning,
+		search:               NewSearch(),
+		newDialog:            NewNewDialog(),
+		groupDialog:          NewGroupDialog(),
+		forkDialog:           NewForkDialog(),
+		confirmDialog:        NewConfirmDialog(),
+		helpOverlay:          NewHelpOverlay(),
+		mcpDialog:            NewMCPDialog(),
+		setupWizard:          NewSetupWizard(),
+		settingsPanel:        NewSettingsPanel(),
+		analyticsPanel:       NewAnalyticsPanel(),
+		cursor:               0,
+		initialLoading:       true, // Show splash until sessions load
+		ctx:                  ctx,
+		cancel:               cancel,
+		instances:            []*session.Instance{},
+		instanceByID:         make(map[string]*session.Instance),
+		groupTree:            session.NewGroupTree([]*session.Instance{}),
+		flatItems:            []session.Item{},
 		previewCache:         make(map[string]string),
 		previewCacheTime:     make(map[string]time.Time),
 		analyticsCache:       make(map[string]*session.SessionAnalytics),
 		geminiAnalyticsCache: make(map[string]*session.GeminiSessionAnalytics),
 		analyticsCacheTime:   make(map[string]time.Time),
 		launchingSessions:    make(map[string]time.Time),
-		resumingSessions:   make(map[string]time.Time),
-		mcpLoadingSessions: make(map[string]time.Time),
-		forkingSessions:    make(map[string]time.Time),
-		lastLogActivity:    make(map[string]time.Time),
-		statusTrigger:     make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
-		statusWorkerDone:  make(chan struct{}),
-		boundKeys:         make(map[string]string),
+		resumingSessions:     make(map[string]time.Time),
+		mcpLoadingSessions:   make(map[string]time.Time),
+		forkingSessions:      make(map[string]time.Time),
+		lastLogActivity:      make(map[string]time.Time),
+		statusTrigger:        make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
+		statusWorkerDone:     make(chan struct{}),
+		boundKeys:            make(map[string]string),
 	}
 
 	// Initialize notification manager if enabled in config
@@ -960,7 +960,6 @@ func (h *Home) Init() tea.Cmd {
 
 	return tea.Batch(cmds...)
 }
-
 
 // checkForUpdate checks for updates asynchronously
 func (h *Home) checkForUpdate() tea.Cmd {
@@ -5105,7 +5104,12 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 		}
 	}
 
-	title := titleStyle.Render(inst.Title)
+	// Remote indicator for sessions on remote hosts
+	displayTitle := inst.Title
+	if inst.IsRemote() {
+		displayTitle = "[" + inst.GetHostID() + "] " + inst.Title
+	}
+	title := titleStyle.Render(displayTitle)
 	tool := toolStyle.Render(" " + inst.Tool)
 
 	// YOLO badge for Gemini sessions with YOLO mode enabled
@@ -5352,10 +5356,14 @@ func (h *Home) renderSessionInfoCard(inst *session.Instance, width, height int) 
 
 	// Header with tool icon
 	icon := ToolIcon(inst.Tool)
+	displayTitle := inst.Title
+	if inst.IsRemote() {
+		displayTitle = "[" + inst.GetHostID() + "] " + inst.Title
+	}
 	header := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(ColorAccent).
-		Render(fmt.Sprintf("%s %s", icon, inst.Title))
+		Render(fmt.Sprintf("%s %s", icon, displayTitle))
 	b.WriteString(header)
 	b.WriteString("\n")
 	b.WriteString(strings.Repeat("─", max(0, min(width-4, 40))))
@@ -5363,6 +5371,11 @@ func (h *Home) renderSessionInfoCard(inst *session.Instance, width, height int) 
 
 	labelStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
 	valueStyle := lipgloss.NewStyle().Foreground(ColorText)
+
+	// Host (for remote sessions)
+	if inst.IsRemote() {
+		b.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render("Host:"), valueStyle.Render(inst.GetHostID())))
+	}
 
 	// Path
 	b.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render("Path:"), valueStyle.Render(inst.ProjectPath)))
@@ -5814,7 +5827,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	case PreviewModeAnalytics:
 		// showAnalytics keeps its default value (only available for Claude/Gemini)
 		showOutput = false
-	// PreviewModeBoth: use config settings (default)
+		// PreviewModeBoth: use config settings (default)
 	}
 
 	// Check if session is launching/resuming (for animation priority)

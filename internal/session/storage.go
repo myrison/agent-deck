@@ -89,6 +89,10 @@ type InstanceData struct {
 
 	// MCP tracking (persisted for sync status display)
 	LoadedMCPNames []string `json:"loaded_mcp_names,omitempty"`
+
+	// Remote session support
+	RemoteHost     string `json:"remote_host,omitempty"`      // SSH host identifier
+	RemoteTmuxName string `json:"remote_tmux_name,omitempty"` // tmux session name on remote
 }
 
 // GroupData represents serializable group data
@@ -230,6 +234,8 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 			GeminiYoloMode:   inst.GeminiYoloMode,
 			LatestPrompt:     inst.LatestPrompt,
 			LoadedMCPNames:   inst.LoadedMCPNames,
+			RemoteHost:       inst.RemoteHost,
+			RemoteTmuxName:   inst.RemoteTmuxName,
 		}
 	}
 
@@ -494,20 +500,46 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			// Convert Status enum to string for tmux package
 			// This restores the exact status across app restarts
 			previousStatus := statusToString(instData.Status)
-			tmuxSess = tmux.ReconnectSessionWithStatus(
-				instData.TmuxSession,
-				instData.Title,
-				instData.ProjectPath,
-				instData.Command,
-				previousStatus,
-			)
-			// Pass instance ID for activity hooks (enables real-time status updates)
-			tmuxSess.InstanceID = instData.ID
-			// Enable mouse mode for proper scrolling (only if session still exists)
-			// Sessions may no longer exist after tmux server restart
-			if tmuxSess.Exists() {
-				// Ignore errors - non-fatal, older tmux versions may not support all options
-				_ = tmuxSess.EnableMouseMode()
+
+			// Check if this is a remote session
+			if instData.RemoteHost != "" {
+				// Remote session - get SSH executor
+				sshExec, err := tmux.NewSSHExecutorFromPool(instData.RemoteHost)
+				if err != nil {
+					// Log warning but continue with nil tmuxSession
+					// The session will show as disconnected
+					log.Printf("Warning: failed to connect to remote host %s for session %s: %v",
+						instData.RemoteHost, instData.Title, err)
+				} else {
+					tmuxSess = tmux.ReconnectSessionWithStatusAndExecutor(
+						instData.TmuxSession,
+						instData.Title,
+						instData.ProjectPath,
+						instData.Command,
+						previousStatus,
+						sshExec,
+					)
+				}
+			} else {
+				// Local session
+				tmuxSess = tmux.ReconnectSessionWithStatus(
+					instData.TmuxSession,
+					instData.Title,
+					instData.ProjectPath,
+					instData.Command,
+					previousStatus,
+				)
+			}
+
+			if tmuxSess != nil {
+				// Pass instance ID for activity hooks (enables real-time status updates)
+				tmuxSess.InstanceID = instData.ID
+				// Enable mouse mode for proper scrolling (only if session still exists)
+				// Sessions may no longer exist after tmux server restart
+				if tmuxSess.Exists() {
+					// Ignore errors - non-fatal, older tmux versions may not support all options
+					_ = tmuxSess.EnableMouseMode()
+				}
 			}
 		}
 
@@ -541,6 +573,8 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			GeminiYoloMode:   instData.GeminiYoloMode,
 			LatestPrompt:     instData.LatestPrompt,
 			LoadedMCPNames:   instData.LoadedMCPNames,
+			RemoteHost:       instData.RemoteHost,
+			RemoteTmuxName:   instData.RemoteTmuxName,
 			tmuxSession:      tmuxSess,
 		}
 

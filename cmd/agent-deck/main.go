@@ -176,6 +176,10 @@ func initColorProfile() {
 }
 
 func main() {
+	// Initialize SSH connection pool from config
+	// This registers all SSH hosts for potential use without connecting yet
+	session.InitSSHPool()
+
 	// Extract global -p/--profile flag before subcommand dispatch
 	profile, args := extractProfileFlag(os.Args[1:])
 
@@ -347,6 +351,7 @@ func reorderArgsForFlagParsing(args []string) []string {
 		"-p": true, "--parent": true,
 		"--mcp": true,
 		"-w": true, "--worktree": true,
+		"-H": true, "--host": true,
 	}
 
 	var flags []string
@@ -440,6 +445,10 @@ func handleAdd(profile string, args []string) {
 	parent := fs.String("parent", "", "Parent session (creates sub-session, inherits group)")
 	parentShort := fs.String("p", "", "Parent session (short)")
 
+	// Remote host flag
+	remoteHost := fs.String("host", "", "SSH host from config.toml (creates remote session)")
+	remoteHostShort := fs.String("H", "", "SSH host (short)")
+
 	// Worktree flags
 	worktreeBranch := fs.String("w", "", "Create session in git worktree for branch")
 	worktreeBranchLong := fs.String("worktree", "", "Create session in git worktree for branch")
@@ -460,6 +469,7 @@ func handleAdd(profile string, args []string) {
 		fmt.Println()
 		fmt.Println("Arguments:")
 		fmt.Println("  [path]    Project directory (defaults to current directory)")
+		fmt.Println("            For remote sessions: path on the remote host")
 		fmt.Println()
 		fmt.Println("Options:")
 		fs.PrintDefaults()
@@ -477,6 +487,10 @@ func handleAdd(profile string, args []string) {
 		fmt.Println("  agent-deck add -w feature/login .    # Create worktree for existing branch")
 		fmt.Println("  agent-deck add -w feature/new -b .   # Create worktree with new branch")
 		fmt.Println("  agent-deck add --worktree fix/bug-123 --new-branch /path/to/repo")
+		fmt.Println()
+		fmt.Println("Remote Session Examples:")
+		fmt.Println("  agent-deck add --host dev-server ~/project     # Create on remote host")
+		fmt.Println("  agent-deck add -H prod -c claude /opt/project  # Remote with Claude")
 	}
 
 	// Reorder args: move path to end so flags are parsed correctly
@@ -488,35 +502,71 @@ func handleAdd(profile string, args []string) {
 		os.Exit(1)
 	}
 
+	// Merge host flags
+	sessionHost := mergeFlags(*remoteHost, *remoteHostShort)
+
+	// Validate host if specified
+	if sessionHost != "" {
+		hostDef := session.GetSSHHostDef(sessionHost)
+		if hostDef == nil {
+			fmt.Printf("Error: SSH host '%s' not found in config.toml\n", sessionHost)
+			hosts := session.GetAvailableSSHHostNames()
+			if len(hosts) > 0 {
+				fmt.Println("\nAvailable hosts:")
+				for _, h := range hosts {
+					fmt.Printf("  • %s\n", h)
+				}
+			} else {
+				fmt.Println("\nNo SSH hosts configured. Add to ~/.agent-deck/config.toml:")
+				fmt.Println("  [ssh_hosts.my-server]")
+				fmt.Println("  host = \"example.com\"")
+				fmt.Println("  user = \"myuser\"")
+			}
+			os.Exit(1)
+		}
+		// Initialize SSH pool with this host
+		session.InitSSHPool()
+	}
+
 	// Get path argument (defaults to current directory)
 	// Fix: sanitize input to remove surrounding quotes that cause issues
 	// Users sometimes pass paths like '"/path/with spaces"' which stores literal quotes
 	path := strings.Trim(fs.Arg(0), "'\"")
-	if path == "" || path == "." {
-		var err error
-		path, err = os.Getwd()
-		if err != nil {
-			fmt.Printf("Error: failed to get current directory: %v\n", err)
-			os.Exit(1)
+
+	// For remote sessions, path is on the remote host - no local validation
+	if sessionHost != "" {
+		// Remote path - default to home directory if not specified
+		if path == "" || path == "." {
+			path = "~"
 		}
 	} else {
-		var err error
-		path, err = filepath.Abs(path)
+		// Local path - validate it exists
+		if path == "" || path == "." {
+			var err error
+			path, err = os.Getwd()
+			if err != nil {
+				fmt.Printf("Error: failed to get current directory: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			var err error
+			path, err = filepath.Abs(path)
+			if err != nil {
+				fmt.Printf("Error: failed to resolve path: %v\n", err)
+				os.Exit(1)
+			}
+		}
+
+		// Verify path exists and is a directory
+		info, err := os.Stat(path)
 		if err != nil {
-			fmt.Printf("Error: failed to resolve path: %v\n", err)
+			fmt.Printf("Error: path does not exist: %s\n", path)
 			os.Exit(1)
 		}
-	}
-
-	// Verify path exists and is a directory
-	info, err := os.Stat(path)
-	if err != nil {
-		fmt.Printf("Error: path does not exist: %s\n", path)
-		os.Exit(1)
-	}
-	if !info.IsDir() {
-		fmt.Printf("Error: path is not a directory: %s\n", path)
-		os.Exit(1)
+		if !info.IsDir() {
+			fmt.Printf("Error: path is not a directory: %s\n", path)
+			os.Exit(1)
+		}
 	}
 
 	// Resolve worktree flags
@@ -635,7 +685,23 @@ func handleAdd(profile string, args []string) {
 
 	// Create new instance (without starting tmux)
 	var newInstance *session.Instance
-	if sessionGroup != "" {
+	if sessionHost != "" {
+		// Remote session
+		var err error
+		tool := "shell"
+		if sessionCommand != "" {
+			tool = detectTool(sessionCommand)
+		}
+		if sessionGroup != "" {
+			newInstance, err = session.NewRemoteInstanceWithGroup(sessionTitle, path, sessionGroup, tool, sessionHost)
+		} else {
+			newInstance, err = session.NewRemoteInstance(sessionTitle, path, tool, sessionHost)
+		}
+		if err != nil {
+			fmt.Printf("Error: failed to create remote session: %v\n", err)
+			os.Exit(1)
+		}
+	} else if sessionGroup != "" {
 		newInstance = session.NewInstanceWithGroup(sessionTitle, path, sessionGroup)
 	} else {
 		newInstance = session.NewInstance(sessionTitle, path)
@@ -808,7 +874,12 @@ func handleList(profile string, args []string) {
 	fmt.Printf("%-*s %-*s %-*s %s\n", tableColTitle, "TITLE", tableColGroup, "GROUP", tableColPath, "PATH", "ID")
 	fmt.Println(strings.Repeat("-", tableColTitle+tableColGroup+tableColPath+tableColIDDisplay+5))
 	for _, inst := range instances {
-		title := truncate(inst.Title, tableColTitle)
+		// Add remote indicator prefix to title if remote session
+		displayTitle := inst.Title
+		if inst.IsRemote() {
+			displayTitle = "[" + inst.GetHostID() + "] " + inst.Title
+		}
+		title := truncate(displayTitle, tableColTitle)
 		group := truncate(inst.GroupPath, tableColGroup)
 		path := truncate(inst.ProjectPath, tableColPath)
 		// Safe ID display with bounds check to prevent panic

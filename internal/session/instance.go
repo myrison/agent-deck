@@ -32,11 +32,11 @@ const (
 
 // Instance represents a single agent/shell session
 type Instance struct {
-	ID             string    `json:"id"`
-	Title          string    `json:"title"`
-	ProjectPath    string    `json:"project_path"`
-	GroupPath      string    `json:"group_path"` // e.g., "projects/devops"
-	ParentSessionID   string `json:"parent_session_id,omitempty"`    // Links to parent session (makes this a sub-session)
+	ID                string `json:"id"`
+	Title             string `json:"title"`
+	ProjectPath       string `json:"project_path"`
+	GroupPath         string `json:"group_path"`                    // e.g., "projects/devops"
+	ParentSessionID   string `json:"parent_session_id,omitempty"`   // Links to parent session (makes this a sub-session)
 	ParentProjectPath string `json:"parent_project_path,omitempty"` // Parent's project path (for --add-dir access)
 
 	// Git worktree support
@@ -57,8 +57,8 @@ type Instance struct {
 	// Gemini CLI integration
 	GeminiSessionID  string                  `json:"gemini_session_id,omitempty"`
 	GeminiDetectedAt time.Time               `json:"gemini_detected_at,omitempty"`
-	GeminiYoloMode   *bool                   `json:"gemini_yolo_mode,omitempty"`   // Per-session override (nil = use global config)
-	GeminiAnalytics  *GeminiSessionAnalytics `json:"gemini_analytics,omitempty"`   // Per-session analytics
+	GeminiYoloMode   *bool                   `json:"gemini_yolo_mode,omitempty"` // Per-session override (nil = use global config)
+	GeminiAnalytics  *GeminiSessionAnalytics `json:"gemini_analytics,omitempty"` // Per-session analytics
 
 	// OpenCode CLI integration
 	OpenCodeSessionID  string    `json:"opencode_session_id,omitempty"`
@@ -75,6 +75,10 @@ type Instance struct {
 	// ToolOptions stores tool-specific launch options (Claude, Codex, Gemini, etc.)
 	// JSON structure: {"tool": "claude", "options": {...}}
 	ToolOptionsJSON json.RawMessage `json:"tool_options,omitempty"`
+
+	// Remote session support
+	RemoteHost     string `json:"remote_host,omitempty"`      // SSH host identifier from config
+	RemoteTmuxName string `json:"remote_tmux_name,omitempty"` // tmux session name on remote host
 
 	tmuxSession *tmux.Session // Internal tmux session
 
@@ -133,6 +137,35 @@ func (inst *Instance) IsSubSession() bool {
 // IsWorktree returns true if this session is running in a git worktree
 func (inst *Instance) IsWorktree() bool {
 	return inst.WorktreePath != ""
+}
+
+// IsRemote returns true if this session is running on a remote host
+func (inst *Instance) IsRemote() bool {
+	return inst.RemoteHost != ""
+}
+
+// GetHostID returns the host identifier for this session
+// Returns empty string for local sessions
+func (inst *Instance) GetHostID() string {
+	return inst.RemoteHost
+}
+
+// IsDisconnected checks if a remote session's host is disconnected
+// Always returns false for local sessions
+func (inst *Instance) IsDisconnected() bool {
+	if !inst.IsRemote() {
+		return false
+	}
+	// Check if the SSH executor is connected
+	if inst.tmuxSession != nil {
+		exec := inst.tmuxSession.GetExecutor()
+		if exec != nil && exec.IsRemote() {
+			// Try to verify connection by checking if we can communicate
+			_, err := exec.ListSessions()
+			return err != nil
+		}
+	}
+	return false
 }
 
 // SetParent sets the parent session ID
@@ -206,6 +239,44 @@ func NewInstanceWithGroupAndTool(title, projectPath, groupPath, tool string) *In
 	inst := NewInstanceWithTool(title, projectPath, tool)
 	inst.GroupPath = groupPath
 	return inst
+}
+
+// NewRemoteInstance creates a new session on a remote host
+// The hostID should match a key in config.toml [ssh_hosts] section
+func NewRemoteInstance(title, projectPath, tool, hostID string) (*Instance, error) {
+	// Get SSH executor for this host
+	sshExec, err := tmux.NewSSHExecutorFromPool(hostID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to remote host %s: %w", hostID, err)
+	}
+
+	id := generateID()
+	tmuxSess := tmux.NewSessionWithExecutor(title, projectPath, sshExec)
+	tmuxSess.InstanceID = id
+
+	inst := &Instance{
+		ID:          id,
+		Title:       title,
+		ProjectPath: projectPath,
+		GroupPath:   extractGroupPath(projectPath),
+		Tool:        tool,
+		Status:      StatusIdle,
+		CreatedAt:   time.Now(),
+		RemoteHost:  hostID,
+		tmuxSession: tmuxSess,
+	}
+
+	return inst, nil
+}
+
+// NewRemoteInstanceWithGroup creates a new remote session with explicit group
+func NewRemoteInstanceWithGroup(title, projectPath, groupPath, tool, hostID string) (*Instance, error) {
+	inst, err := NewRemoteInstance(title, projectPath, tool, hostID)
+	if err != nil {
+		return nil, err
+	}
+	inst.GroupPath = groupPath
+	return inst, nil
 }
 
 // extractGroupPath extracts a group path from project path
@@ -866,7 +937,7 @@ func (i *Instance) sendMessageWhenReady(message string) error {
 	// Track state transitions: we need to see "active" before accepting "waiting"
 	// This ensures we don't send the message during initial startup (false "waiting")
 	sawActive := false
-	waitingCount := 0 // Track consecutive "waiting" states to detect already-ready sessions
+	waitingCount := 0  // Track consecutive "waiting" states to detect already-ready sessions
 	maxAttempts := 300 // 60 seconds max (300 * 200ms) - Claude with MCPs can take 40-60s
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
@@ -1508,14 +1579,14 @@ func parseGeminiLastAssistantMessage(data []byte) (*ResponseOutput, error) {
 	var session struct {
 		SessionID string `json:"sessionId"` // VERIFIED: camelCase
 		Messages  []struct {
-			ID        string          `json:"id"`
-			Timestamp string          `json:"timestamp"`
-			Type      string          `json:"type"` // VERIFIED: "user" or "gemini"
-			Content   string          `json:"content"`
+			ID        string            `json:"id"`
+			Timestamp string            `json:"timestamp"`
+			Type      string            `json:"type"` // VERIFIED: "user" or "gemini"
+			Content   string            `json:"content"`
 			ToolCalls []json.RawMessage `json:"toolCalls,omitempty"`
 			Thoughts  []json.RawMessage `json:"thoughts,omitempty"`
-			Model     string          `json:"model,omitempty"`
-			Tokens    json.RawMessage `json:"tokens,omitempty"`
+			Model     string            `json:"model,omitempty"`
+			Tokens    json.RawMessage   `json:"tokens,omitempty"`
 		} `json:"messages"`
 	}
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/asheshgoplani/agent-deck/internal/platform"
+	sshpkg "github.com/asheshgoplani/agent-deck/internal/ssh"
 )
 
 // UserConfigFileName is the TOML config file for user preferences
@@ -32,6 +33,10 @@ type UserConfig struct {
 	// MCPs defines available MCP servers for the MCP Manager
 	// These can be attached/detached per-project via the MCP Manager (M key)
 	MCPs map[string]MCPDef `toml:"mcps"`
+
+	// SSHHosts defines remote SSH hosts for managing sessions on remote machines
+	// Use the --host flag or TUI host selector to create sessions on these hosts
+	SSHHosts map[string]SSHHostDef `toml:"ssh_hosts"`
 
 	// Claude defines Claude Code integration settings
 	Claude ClaudeSettings `toml:"claude"`
@@ -387,10 +392,33 @@ type MCPDef struct {
 	Headers map[string]string `toml:"headers"`
 }
 
+// SSHHostDef defines an SSH host for remote session management
+type SSHHostDef struct {
+	// Host is the hostname or IP address
+	Host string `toml:"host"`
+
+	// User is the SSH username (optional, uses current user if empty)
+	User string `toml:"user"`
+
+	// Port is the SSH port (default: 22)
+	Port int `toml:"port"`
+
+	// IdentityFile is the path to the SSH private key (optional)
+	// Supports ~ expansion
+	IdentityFile string `toml:"identity_file"`
+
+	// JumpHost is a reference to another ssh_hosts entry to use as a bastion/jump host
+	JumpHost string `toml:"jump_host"`
+
+	// Description is optional help text shown in the host selector
+	Description string `toml:"description"`
+}
+
 // Default user config (empty maps)
 var defaultUserConfig = UserConfig{
-	Tools: make(map[string]ToolDef),
-	MCPs:  make(map[string]MCPDef),
+	Tools:    make(map[string]ToolDef),
+	MCPs:     make(map[string]MCPDef),
+	SSHHosts: make(map[string]SSHHostDef),
 }
 
 // Cache for user config (loaded once per session)
@@ -1030,4 +1058,55 @@ func GetMCPDef(name string) *MCPDef {
 		return &def
 	}
 	return nil
+}
+
+// GetAvailableSSHHosts returns SSH hosts from config.toml as a map
+func GetAvailableSSHHosts() map[string]SSHHostDef {
+	config, err := LoadUserConfig()
+	if err != nil || config == nil {
+		return make(map[string]SSHHostDef)
+	}
+	if config.SSHHosts == nil {
+		return make(map[string]SSHHostDef)
+	}
+	return config.SSHHosts
+}
+
+// GetAvailableSSHHostNames returns sorted list of SSH host names from config.toml
+func GetAvailableSSHHostNames() []string {
+	hosts := GetAvailableSSHHosts()
+	names := make([]string, 0, len(hosts))
+	for name := range hosts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// GetSSHHostDef returns a specific SSH host definition by name
+// Returns nil if not found
+func GetSSHHostDef(name string) *SSHHostDef {
+	hosts := GetAvailableSSHHosts()
+	if def, ok := hosts[name]; ok {
+		return &def
+	}
+	return nil
+}
+
+// InitSSHPool initializes the SSH connection pool with hosts from config
+// This should be called at application startup
+func InitSSHPool() {
+	hosts := GetAvailableSSHHosts()
+	pool := sshpkg.DefaultPool()
+
+	for hostID, def := range hosts {
+		cfg := sshpkg.Config{
+			Host:         def.Host,
+			User:         def.User,
+			Port:         def.Port,
+			IdentityFile: def.IdentityFile,
+			JumpHost:     def.JumpHost,
+		}
+		pool.Register(hostID, cfg)
+	}
 }
