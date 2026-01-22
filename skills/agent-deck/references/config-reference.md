@@ -198,6 +198,8 @@ port = 22
 identity_file = "~/.ssh/id_rsa"
 jump_host = "bastion"
 auto_discover = true
+group_name = "DevServer"
+session_prefix = "DEV"
 tmux_path = "/opt/homebrew/bin/tmux"
 description = "Development server"
 ```
@@ -210,8 +212,10 @@ description = "Development server"
 | `identity_file` | string | No | Path to SSH private key (supports `~` expansion). |
 | `jump_host` | string | No | Reference to another ssh_hosts entry for bastion/proxy. |
 | `auto_discover` | bool | No | Enable automatic discovery of agentdeck sessions (default: false). |
+| `group_name` | string | No | Display name for the group in TUI (default: hostID). Example: "MacBook" instead of "host195". |
+| `session_prefix` | string | No | Prefix shown before session titles (default: group_name or hostID). Example: "[MBP] My Session". |
 | `tmux_path` | string | No | Full path to tmux binary on remote host (default: "tmux"). |
-| `description` | string | No | Help text shown in host selector. |
+| `description` | string | No | Help text shown in host selector when creating sessions. |
 
 ## [remote_discovery] Section
 

@@ -880,7 +880,7 @@ func handleList(profile string, args []string) {
 		// Add remote indicator prefix to title if remote session
 		displayTitle := inst.Title
 		if inst.IsRemote() {
-			displayTitle = "[" + inst.GetHostID() + "] " + inst.Title
+			displayTitle = "[" + inst.GetSessionPrefix() + "] " + inst.Title
 		}
 		title := truncate(displayTitle, tableColTitle)
 		group := truncate(inst.GroupPath, tableColGroup)

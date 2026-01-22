@@ -120,6 +120,12 @@ func DiscoverRemoteSessionsForHost(hostID string, existing []*Instance) ([]*Inst
 		groupPrefix = "remote"
 	}
 
+	// Get host definition for display names (use hostID as fallback if not found)
+	groupName := hostID
+	if hostDef := GetSSHHostDef(hostID); hostDef != nil {
+		groupName = hostDef.GetGroupName(hostID)
+	}
+
 	var discovered []*Instance
 
 	for _, rs := range remoteSessions {
@@ -144,7 +150,7 @@ func DiscoverRemoteSessionsForHost(hostID string, existing []*Instance) ([]*Inst
 			ID:             remoteID,
 			Title:          title,
 			ProjectPath:    rs.WorkingDir,
-			GroupPath:      groupPrefix + "/" + hostID,
+			GroupPath:      groupPrefix + "/" + groupName,
 			Tool:           "claude", // Assume Claude since it's agentdeck_*
 			Status:         StatusIdle,
 			CreatedAt:      time.Now(),

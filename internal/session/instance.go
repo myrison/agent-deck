@@ -150,6 +150,20 @@ func (inst *Instance) GetHostID() string {
 	return inst.RemoteHost
 }
 
+// GetSessionPrefix returns the display prefix for remote session titles
+// Returns the configured session_prefix, or group_name, or hostID as fallback
+// Returns empty string for local sessions
+func (inst *Instance) GetSessionPrefix() string {
+	if !inst.IsRemote() {
+		return ""
+	}
+	hostID := inst.RemoteHost
+	if hostDef := GetSSHHostDef(hostID); hostDef != nil {
+		return hostDef.GetSessionPrefix(hostID)
+	}
+	return hostID
+}
+
 // IsDisconnected checks if a remote session's host is disconnected
 // Always returns false for local sessions
 func (inst *Instance) IsDisconnected() bool {

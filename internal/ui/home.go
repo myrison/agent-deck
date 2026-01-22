@@ -5265,7 +5265,7 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 	// Remote indicator for sessions on remote hosts
 	displayTitle := inst.Title
 	if inst.IsRemote() {
-		displayTitle = "[" + inst.GetHostID() + "] " + inst.Title
+		displayTitle = "[" + inst.GetSessionPrefix() + "] " + inst.Title
 	}
 	title := titleStyle.Render(displayTitle)
 	tool := toolStyle.Render(" " + inst.Tool)
@@ -5516,7 +5516,7 @@ func (h *Home) renderSessionInfoCard(inst *session.Instance, width, height int) 
 	icon := ToolIcon(inst.Tool)
 	displayTitle := inst.Title
 	if inst.IsRemote() {
-		displayTitle = "[" + inst.GetHostID() + "] " + inst.Title
+		displayTitle = "[" + inst.GetSessionPrefix() + "] " + inst.Title
 	}
 	header := lipgloss.NewStyle().
 		Bold(true).

@@ -416,8 +416,18 @@ type SSHHostDef struct {
 	// Description is optional help text shown in the host selector
 	Description string `toml:"description"`
 
+	// GroupName is the display name for the group in the TUI (e.g., "MacBook" instead of "host195")
+	// Used in the group path: "{group_prefix}/{GroupName}"
+	// Default: hostID (the key in [ssh_hosts.X])
+	GroupName string `toml:"group_name"`
+
+	// SessionPrefix is the prefix shown before session titles for remote sessions
+	// Example: "[MBP] My Session" instead of "[host195] My Session"
+	// Default: GroupName if set, otherwise hostID
+	SessionPrefix string `toml:"session_prefix"`
+
 	// AutoDiscover enables automatic discovery of agentdeck_* sessions on this host
-	// Discovered sessions appear in the local session list under remote/<hostID> group
+	// Discovered sessions appear in the local session list under remote/<GroupName> group
 	// Default: false
 	AutoDiscover bool `toml:"auto_discover"`
 
@@ -425,6 +435,27 @@ type SSHHostDef struct {
 	// Use this for non-standard installations (e.g., Homebrew on macOS: /opt/homebrew/bin/tmux)
 	// Default: "tmux" (uses PATH)
 	TmuxPath string `toml:"tmux_path"`
+}
+
+// GetGroupName returns the display name for the group.
+// Returns GroupName if set, otherwise falls back to hostID.
+func (h SSHHostDef) GetGroupName(hostID string) string {
+	if h.GroupName != "" {
+		return h.GroupName
+	}
+	return hostID
+}
+
+// GetSessionPrefix returns the prefix to show before session titles.
+// Returns SessionPrefix if set, otherwise GroupName if set, otherwise hostID.
+func (h SSHHostDef) GetSessionPrefix(hostID string) string {
+	if h.SessionPrefix != "" {
+		return h.SessionPrefix
+	}
+	if h.GroupName != "" {
+		return h.GroupName
+	}
+	return hostID
 }
 
 // RemoteDiscoverySettings defines settings for automatic remote session discovery

@@ -322,6 +322,8 @@ agent-deck worktree cleanup --force   # Remove orphans
   host = "192.168.1.100"
   user = "developer"
   auto_discover = true
+  group_name = "DevServer"        # Group displays as "remote/DevServer"
+  session_prefix = "DEV"          # Sessions show as "[DEV] My Session"
   description = "Development server"
 
 [ssh_hosts.cloud-vm]
@@ -329,12 +331,14 @@ agent-deck worktree cleanup --force   # Remove orphans
   port = 2222
   identity_file = "~/.ssh/cloud-key"
   auto_discover = true
+  group_name = "Cloud"            # Group displays as "remote/Cloud"
+  # session_prefix defaults to group_name if not set
   description = "Cloud VM"
 
 [remote_discovery]
   enabled = true
   interval_seconds = 60    # Scan every 60 seconds
-  group_prefix = "remote"  # Sessions appear under "remote/dev-server", etc.
+  group_prefix = "remote"  # Sessions appear under "remote/DevServer", "remote/Cloud", etc.
 ```
 
 **How it works:**
@@ -354,6 +358,8 @@ agent-deck worktree cleanup --force   # Remove orphans
   jump_host = "bastion"           # Jump through another SSH host
   tmux_path = "/opt/homebrew/bin/tmux"  # Non-standard tmux location
   auto_discover = true
+  group_name = "Internal"         # Custom group name (default: hostID)
+  session_prefix = "INT"          # Custom session prefix (default: group_name)
   description = "Internal server via bastion"
 ```
 

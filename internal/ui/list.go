@@ -126,7 +126,7 @@ func (l *List) View() string {
 				icon := ToolIcon(inst.Tool)
 				remoteIndicator := ""
 				if inst.IsRemote() {
-					remoteIndicator = "[" + inst.GetHostID() + "] "
+					remoteIndicator = "[" + inst.GetSessionPrefix() + "] "
 				}
 
 				line := style.Render(prefix + icon + " " + remoteIndicator + inst.Title + " " + status)
