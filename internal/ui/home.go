@@ -26,6 +26,15 @@ import (
 // Version is set by main.go for update checking
 var Version = "0.0.0"
 
+// Hostname is cached at startup for display in the header
+var Hostname = "unknown"
+
+func init() {
+	if h, err := os.Hostname(); err == nil {
+		Hostname = h
+	}
+}
+
 // SetVersion sets the current version for update checking
 func SetVersion(v string) {
 	Version = v
@@ -4165,19 +4174,19 @@ func (h *Home) View() string {
 		stats = lipgloss.NewStyle().Foreground(ColorText).Render("no sessions")
 	}
 
-	// Version badge (right-aligned, subtle inline style - no border to keep single line)
-	versionStyle := lipgloss.NewStyle().
+	// Right side: hostname and version (subtle inline style - no border to keep single line)
+	rightStyle := lipgloss.NewStyle().
 		Foreground(ColorComment).
 		Faint(true)
-	versionBadge := versionStyle.Render("v" + Version)
+	headerRight := rightStyle.Render(Hostname + " · v" + Version)
 
 	// Fill remaining header space
 	headerLeft := lipgloss.JoinHorizontal(lipgloss.Left, logo, "  ", title, "  ", stats)
-	headerPadding := h.width - lipgloss.Width(headerLeft) - lipgloss.Width(versionBadge) - 2
+	headerPadding := h.width - lipgloss.Width(headerLeft) - lipgloss.Width(headerRight) - 2
 	if headerPadding < 1 {
 		headerPadding = 1
 	}
-	headerContent := headerLeft + strings.Repeat(" ", headerPadding) + versionBadge
+	headerContent := headerLeft + strings.Repeat(" ", headerPadding) + headerRight
 
 	headerBar := lipgloss.NewStyle().
 		Background(ColorSurface).
