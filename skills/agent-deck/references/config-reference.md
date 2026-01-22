@@ -11,6 +11,8 @@ All options for `~/.agent-deck/config.toml`.
 - [[global_search] Section](#global_search-section)
 - [[mcp_pool] Section](#mcp_pool-section)
 - [[mcps.*] Section](#mcps-section)
+- [[ssh_hosts.*] Section](#ssh_hosts-section)
+- [[remote_discovery] Section](#remote_discovery-section)
 - [[tools.*] Section](#tools-section)
 
 ## Top-Level
@@ -183,6 +185,56 @@ args = ["-y", "@anthropics/playwright-mcp"]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-memory"]
 ```
+
+## [ssh_hosts.*] Section
+
+Define remote SSH hosts for managing sessions on remote machines.
+
+```toml
+[ssh_hosts.dev-server]
+host = "192.168.1.100"
+user = "developer"
+port = 22
+identity_file = "~/.ssh/id_rsa"
+jump_host = "bastion"
+auto_discover = true
+tmux_path = "/opt/homebrew/bin/tmux"
+description = "Development server"
+```
+
+| Key | Type | Required | Description |
+|-----|------|----------|-------------|
+| `host` | string | Yes | Hostname or IP address. |
+| `user` | string | No | SSH username (defaults to current user). |
+| `port` | int | No | SSH port (default: 22). |
+| `identity_file` | string | No | Path to SSH private key (supports `~` expansion). |
+| `jump_host` | string | No | Reference to another ssh_hosts entry for bastion/proxy. |
+| `auto_discover` | bool | No | Enable automatic discovery of agentdeck sessions (default: false). |
+| `tmux_path` | string | No | Full path to tmux binary on remote host (default: "tmux"). |
+| `description` | string | No | Help text shown in host selector. |
+
+## [remote_discovery] Section
+
+Settings for automatic remote session discovery.
+
+```toml
+[remote_discovery]
+enabled = true
+interval_seconds = 60
+group_prefix = "remote"
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Master switch for auto-discovery (auto-enabled if any host has auto_discover). |
+| `interval_seconds` | int | `60` | How often to scan remote hosts for sessions. |
+| `group_prefix` | string | `"remote"` | Prefix for discovered session groups (e.g., "remote/dev-server"). |
+
+**How it works:**
+- Scans SSH hosts with `auto_discover = true` at the specified interval
+- Discovers `agentdeck_*` tmux sessions on remote hosts
+- Groups discovered sessions under `{group_prefix}/{host-id}`
+- Automatically removes stale sessions that no longer exist on remote
 
 ## [tools.*] Section
 

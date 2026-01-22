@@ -312,6 +312,68 @@ agent-deck worktree cleanup --force   # Remove orphans
 
 **Why this matters:** No more stashing changes or juggling branches. Each agent gets its own isolated workspace while sharing git history.
 
+### 🌐 Auto-Discover Remote Sessions
+
+**Manage agent-deck sessions running on remote machines as if they were local.** Connect to development servers, cloud instances, or any SSH-accessible machine - discovered sessions appear automatically in your local TUI.
+
+```toml
+# ~/.agent-deck/config.toml
+[ssh_hosts.dev-server]
+  host = "192.168.1.100"
+  user = "developer"
+  auto_discover = true
+  description = "Development server"
+
+[ssh_hosts.cloud-vm]
+  host = "cloud.example.com"
+  port = 2222
+  identity_file = "~/.ssh/cloud-key"
+  auto_discover = true
+  description = "Cloud VM"
+
+[remote_discovery]
+  enabled = true
+  interval_seconds = 60    # Scan every 60 seconds
+  group_prefix = "remote"  # Sessions appear under "remote/dev-server", etc.
+```
+
+**How it works:**
+- **Automatic scanning**: Polls configured hosts every 60 seconds (configurable) for `agentdeck_*` tmux sessions
+- **Organized grouping**: Discovered sessions appear under `remote/{hostname}` groups
+- **Stale cleanup**: Sessions that no longer exist on remote hosts are automatically removed
+- **Deterministic IDs**: Each remote session gets a consistent ID based on `hostID:tmuxName` to prevent duplicates
+- **Parallel discovery**: All hosts scanned concurrently for speed
+
+**Optional SSH features:**
+```toml
+[ssh_hosts.internal]
+  host = "10.0.0.50"
+  user = "developer"
+  port = 22
+  identity_file = "~/.ssh/id_rsa"
+  jump_host = "bastion"           # Jump through another SSH host
+  tmux_path = "/opt/homebrew/bin/tmux"  # Non-standard tmux location
+  auto_discover = true
+  description = "Internal server via bastion"
+```
+
+**Creating sessions on remote hosts:**
+```bash
+# Create a new session on remote host
+agent-deck add --host dev-server ~/project -c claude
+
+# Or from the TUI, press 'n' and select the remote host
+```
+
+| Use Case | Benefit |
+|----------|---------|
+| **Multi-machine development** | Manage sessions across workstations, servers, VMs from one interface |
+| **Cloud development** | Work with cloud instances without losing track of sessions |
+| **Team collaboration** | Discover and monitor team members' sessions on shared servers |
+| **Hybrid workflows** | Mix local and remote sessions in one unified view |
+
+**Why this matters:** Working across multiple machines? Remote sessions appear right alongside local ones. No SSH-ing into servers to check session status. No context switching. One unified view of all your work, wherever it's running.
+
 ## Installation
 
 **Works on:** macOS • Linux • Windows (WSL)
