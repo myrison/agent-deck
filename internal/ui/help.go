@@ -138,6 +138,7 @@ func (h *HelpOverlay) View() string {
 				{"/waiting", "Filter waiting"},
 				{"/running", "Filter running"},
 				{"/idle", "Filter idle"},
+				{"%", "Filter by tool (AI/shell)"},
 			},
 		},
 		{
