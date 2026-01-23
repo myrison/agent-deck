@@ -70,6 +70,9 @@ type UserConfig struct {
 
 	// RemoteDiscovery defines settings for automatic remote session discovery
 	RemoteDiscovery RemoteDiscoverySettings `toml:"remote_discovery"`
+
+	// Instances defines multiple instance behavior settings
+	Instances InstanceSettings `toml:"instances"`
 }
 
 // MCPPoolSettings defines HTTP MCP pool configuration
@@ -197,11 +200,19 @@ type ExperimentsSettings struct {
 
 // NotificationsConfig configures the waiting session notification bar
 type NotificationsConfig struct {
-	// Enabled shows notification bar in tmux status (default: false)
+	// Enabled shows notification bar in tmux status (default: true)
 	Enabled bool `toml:"enabled"`
 
 	// MaxShown is the maximum number of sessions shown in the bar (default: 6)
 	MaxShown int `toml:"max_shown"`
+}
+
+// InstanceSettings configures multiple agent-deck instance behavior
+type InstanceSettings struct {
+	// AllowMultiple allows running multiple agent-deck TUI instances for the same profile
+	// When false (default), only one instance can run per profile
+	// When true, multiple instances can run, but only the first (primary) manages the notification bar
+	AllowMultiple bool `toml:"allow_multiple"`
 }
 
 // GetShowAnalytics returns whether to show analytics, defaulting to true
@@ -851,7 +862,7 @@ func GetNotificationsSettings() NotificationsConfig {
 	config, err := LoadUserConfig()
 	if err != nil || config == nil {
 		return NotificationsConfig{
-			Enabled:  false,
+			Enabled:  true,
 			MaxShown: 6,
 		}
 	}
@@ -859,7 +870,12 @@ func GetNotificationsSettings() NotificationsConfig {
 	settings := config.Notifications
 
 	// Apply defaults for unset values
-	// Enabled defaults to false (Go zero value is correct)
+	// Enabled defaults to true for better UX (users expect to see waiting sessions)
+	// Users who have a config file but no [notifications] section get enabled=true
+	if !settings.Enabled && settings.MaxShown == 0 {
+		// Section not explicitly configured, apply default
+		settings.Enabled = true
+	}
 	if settings.MaxShown <= 0 {
 		settings.MaxShown = 6
 	}
@@ -901,6 +917,18 @@ func GetRemoteDiscoverySettings() RemoteDiscoverySettings {
 	}
 
 	return settings
+}
+
+// GetInstanceSettings returns instance behavior settings with defaults applied
+func GetInstanceSettings() InstanceSettings {
+	config, err := LoadUserConfig()
+	if err != nil || config == nil {
+		return InstanceSettings{
+			AllowMultiple: false, // Default: single instance per profile (safe)
+		}
+	}
+
+	return config.Instances
 }
 
 // getMCPPoolConfigSection returns the MCP pool config section based on platform
