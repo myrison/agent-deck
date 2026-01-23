@@ -30,6 +30,15 @@ const (
 	StatusStarting Status = "starting" // Session is being created (tmux initializing)
 )
 
+// ToolFilter represents filtering modes for session tools
+type ToolFilter string
+
+const (
+	ToolFilterAll    ToolFilter = ""       // Show all sessions
+	ToolFilterAgents ToolFilter = "agents" // AI agents only
+	ToolFilterShells ToolFilter = "shells" // Shell sessions only
+)
+
 // Instance represents a single agent/shell session
 type Instance struct {
 	ID                string `json:"id"`
@@ -142,6 +151,11 @@ func (inst *Instance) IsWorktree() bool {
 // IsRemote returns true if this session is running on a remote host
 func (inst *Instance) IsRemote() bool {
 	return inst.RemoteHost != ""
+}
+
+// IsAgent returns true if the tool is an AI agent (not a plain shell)
+func (inst *Instance) IsAgent() bool {
+	return inst.Tool != "" && inst.Tool != "shell"
 }
 
 // GetHostID returns the host identifier for this session

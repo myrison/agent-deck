@@ -163,8 +163,9 @@ type Home struct {
 	cursor         int            // Selected item index in flatItems
 	viewOffset     int            // First visible item index (for scrolling)
 	isAttaching    atomic.Bool    // Prevents View() output during attach (fixes Bubble Tea Issue #431) - atomic for thread safety
-	statusFilter   session.Status // Filter sessions by status ("" = all, or specific status)
-	previewMode    PreviewMode    // What to show in preview pane (both, output-only, analytics-only)
+	statusFilter   session.Status     // Filter sessions by status ("" = all, or specific status)
+	toolFilter     session.ToolFilter // Filter by tool type ("" = all, "agents" = AI only, "shells" = shell only)
+	previewMode    PreviewMode        // What to show in preview pane (both, output-only, analytics-only)
 	err            error
 	errTime        time.Time  // When error occurred (for auto-dismiss)
 	isReloading    bool       // Visual feedback during auto-reload
@@ -632,13 +633,19 @@ func (h *Home) restoreState(state reloadState) {
 func (h *Home) rebuildFlatItems() {
 	allItems := h.groupTree.Flatten()
 
-	// Apply status filter if active
-	if h.statusFilter != "" {
+	// Check if any filter is active
+	hasStatusFilter := h.statusFilter != ""
+	hasToolFilter := h.toolFilter != ""
+
+	// Apply filters if active
+	if hasStatusFilter || hasToolFilter {
 		// First pass: identify groups that have matching sessions
 		groupsWithMatches := make(map[string]bool)
 		for _, item := range allItems {
 			if item.Type == session.ItemTypeSession && item.Session != nil {
-				if item.Session.Status == h.statusFilter {
+				matchesStatus := !hasStatusFilter || item.Session.Status == h.statusFilter
+				matchesTool := !hasToolFilter || h.sessionMatchesToolFilter(item.Session)
+				if matchesStatus && matchesTool {
 					// Mark this session's group and all parent groups as having matches
 					groupsWithMatches[item.Path] = true
 					// Also mark parent paths
@@ -660,8 +667,10 @@ func (h *Home) rebuildFlatItems() {
 					filtered = append(filtered, item)
 				}
 			} else if item.Type == session.ItemTypeSession && item.Session != nil {
-				// Keep session if it matches the filter
-				if item.Session.Status == h.statusFilter {
+				// Keep session if it matches all active filters
+				matchesStatus := !hasStatusFilter || item.Session.Status == h.statusFilter
+				matchesTool := !hasToolFilter || h.sessionMatchesToolFilter(item.Session)
+				if matchesStatus && matchesTool {
 					filtered = append(filtered, item)
 				}
 			}
@@ -689,6 +698,18 @@ func (h *Home) rebuildFlatItems() {
 	}
 	// Adjust viewport if cursor is out of view
 	h.syncViewport()
+}
+
+// sessionMatchesToolFilter checks if a session matches the current tool filter
+func (h *Home) sessionMatchesToolFilter(sess *session.Instance) bool {
+	switch h.toolFilter {
+	case session.ToolFilterAgents:
+		return sess.IsAgent()
+	case session.ToolFilterShells:
+		return !sess.IsAgent()
+	default:
+		return true
+	}
 }
 
 // syncViewport ensures the cursor is visible within the viewport
@@ -3318,8 +3339,9 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "0":
-		// Clear status filter (show all)
+		// Clear all filters (status and tool)
 		h.statusFilter = ""
+		h.toolFilter = ""
 		h.rebuildFlatItems()
 		return h, nil
 
@@ -3359,6 +3381,19 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			h.statusFilter = "" // Toggle off
 		} else {
 			h.statusFilter = session.StatusError
+		}
+		h.rebuildFlatItems()
+		return h, nil
+
+	case "%", "shift+5":
+		// Cycle tool filter: all -> agents -> shells -> all
+		switch h.toolFilter {
+		case session.ToolFilterAll:
+			h.toolFilter = session.ToolFilterAgents
+		case session.ToolFilterAgents:
+			h.toolFilter = session.ToolFilterShells
+		case session.ToolFilterShells:
+			h.toolFilter = session.ToolFilterAll
 		}
 		h.rebuildFlatItems()
 		return h, nil
@@ -4065,6 +4100,20 @@ func (h *Home) countSessionStatuses() (running, waiting, idle, errored int) {
 	return running, waiting, idle, errored
 }
 
+// countSessionTools counts sessions by tool type (agent vs shell)
+func (h *Home) countSessionTools() (agents, shells int) {
+	h.instancesMu.RLock()
+	defer h.instancesMu.RUnlock()
+	for _, inst := range h.instances {
+		if inst.IsAgent() {
+			agents++
+		} else {
+			shells++
+		}
+	}
+	return
+}
+
 // renderFilterBar renders the quick filter pills
 // Format: [All] [● Running 2] [◐ Waiting 1] [○ Idle 5] [✕ Error 1]
 func (h *Home) renderFilterBar() string {
@@ -4166,9 +4215,50 @@ func (h *Home) renderFilterBar() string {
 		}
 	}
 
+	// Tool filter pills (separator + AI + Shell)
+	agents, shells := h.countSessionTools()
+	if shells > 0 || agents > 0 {
+		// Separator
+		pills = append(pills, lipgloss.NewStyle().Foreground(ColorBorder).Render("|"))
+
+		// AI agents pill (cyan)
+		aiLabel := fmt.Sprintf("AI %d", agents)
+		if h.toolFilter == session.ToolFilterAgents {
+			pills = append(pills, lipgloss.NewStyle().
+				Foreground(ColorBg).
+				Background(ColorCyan).
+				Bold(true).
+				Padding(0, 1).Render(aiLabel))
+		} else if agents > 0 {
+			pills = append(pills, lipgloss.NewStyle().
+				Foreground(ColorCyan).
+				Background(ColorSurface).
+				Padding(0, 1).Render(aiLabel))
+		} else {
+			pills = append(pills, dimPillStyle.Render(aiLabel))
+		}
+
+		// Shell pill (purple)
+		shellLabel := fmt.Sprintf("$ %d", shells)
+		if h.toolFilter == session.ToolFilterShells {
+			pills = append(pills, lipgloss.NewStyle().
+				Foreground(ColorBg).
+				Background(ColorPurple).
+				Bold(true).
+				Padding(0, 1).Render(shellLabel))
+		} else if shells > 0 {
+			pills = append(pills, lipgloss.NewStyle().
+				Foreground(ColorPurple).
+				Background(ColorSurface).
+				Padding(0, 1).Render(shellLabel))
+		} else {
+			pills = append(pills, dimPillStyle.Render(shellLabel))
+		}
+	}
+
 	// Hint for keyboard shortcuts (shift+number to filter, 0 to clear)
 	hintStyle := lipgloss.NewStyle().Foreground(ColorComment).Faint(true)
-	hint := hintStyle.Render("  !@#$ filter • 0 all")
+	hint := hintStyle.Render("  !@#$ status • % tool • 0 all")
 
 	// Join pills with spaces
 	filterRow := strings.Join(pills, " ") + hint
