@@ -337,6 +337,12 @@ func (t *GroupTree) Flatten() []Item {
 	items := []Item{}
 
 	for _, group := range t.GroupList {
+		// Hide the default "My Sessions" group when it's empty
+		// It only needs to appear when there are ungrouped sessions
+		if group.Path == DefaultGroupPath && len(group.Sessions) == 0 {
+			continue
+		}
+
 		// Calculate group nesting level from path
 		groupLevel := GetGroupLevel(group.Path)
 
