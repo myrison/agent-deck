@@ -109,6 +109,8 @@ func TransformRemoteGroupPath(remoteGroupPath, groupPrefix, groupName string) st
 }
 
 // TransformRemoteGroups converts remote groups to local groups with transformed paths
+// Filters out groups that are themselves remote groups (e.g., "remote/*") to prevent
+// creating empty nested remote group hierarchies
 func TransformRemoteGroups(remoteGroups []*GroupData, groupPrefix, groupName string) []*GroupData {
 	if len(remoteGroups) == 0 {
 		return nil
@@ -118,6 +120,12 @@ func TransformRemoteGroups(remoteGroups []*GroupData, groupPrefix, groupName str
 	for _, rg := range remoteGroups {
 		// Skip the default group - we don't need to create it locally
 		if rg.Path == DefaultGroupPath {
+			continue
+		}
+
+		// Skip groups that are themselves remote groups on the remote host
+		// These would create empty "remote/host/remote/otherhost" hierarchies
+		if strings.HasPrefix(rg.Path, groupPrefix+"/") {
 			continue
 		}
 
