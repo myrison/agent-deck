@@ -118,18 +118,32 @@ func (p *Pool) HealthCheck() map[string]error {
 	return results
 }
 
-// Close closes a specific connection
+// Close closes a specific connection and its ControlMaster socket
 func (p *Pool) Close(hostID string) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	conn, exists := p.connections[hostID]
 	delete(p.connections, hostID)
+	p.mu.Unlock()
+
+	// Clean up ControlMaster socket if connection existed
+	if exists && conn != nil {
+		_ = conn.CloseControlMaster()
+	}
 }
 
-// CloseAll closes all connections in the pool
+// CloseAll closes all connections in the pool and their ControlMaster sockets
 func (p *Pool) CloseAll() {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	conns := p.connections
 	p.connections = make(map[string]*Connection)
+	p.mu.Unlock()
+
+	// Clean up all ControlMaster sockets
+	for _, conn := range conns {
+		if conn != nil {
+			_ = conn.CloseControlMaster()
+		}
+	}
 }
 
 // ListHosts returns all registered host IDs

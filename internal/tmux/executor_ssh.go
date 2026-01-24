@@ -20,6 +20,48 @@ import (
 	"golang.org/x/term"
 )
 
+// Remote session cache - mirrors local cache pattern from tmux.go
+// Reduces SSH calls by caching session existence checks
+var (
+	remoteSessionCacheMu sync.RWMutex
+	remoteSessionCaches  = make(map[string]*remoteSessionCache) // hostID -> cache
+)
+
+// remoteSessionCache holds cached session data for a single remote host
+type remoteSessionCache struct {
+	sessions  map[string]int64 // session_name -> activity timestamp
+	updatedAt time.Time
+}
+
+// remoteSessionCacheTTL defines how long cache remains valid (matches discovery interval)
+const remoteSessionCacheTTL = 60 * time.Second
+
+// RefreshRemoteSessionCache updates the cache for a specific host
+// Called after ListSessionsWithInfo() during discovery
+func RefreshRemoteSessionCache(hostID string, sessions map[string]int64) {
+	remoteSessionCacheMu.Lock()
+	defer remoteSessionCacheMu.Unlock()
+
+	remoteSessionCaches[hostID] = &remoteSessionCache{
+		sessions:  sessions,
+		updatedAt: time.Now(),
+	}
+}
+
+// GetRemoteSessionFromCache returns cached session activity if available and fresh
+func GetRemoteSessionFromCache(hostID, sessionName string) (int64, bool) {
+	remoteSessionCacheMu.RLock()
+	defer remoteSessionCacheMu.RUnlock()
+
+	cache, exists := remoteSessionCaches[hostID]
+	if !exists || time.Since(cache.updatedAt) > remoteSessionCacheTTL {
+		return 0, false
+	}
+
+	activity, found := cache.sessions[sessionName]
+	return activity, found
+}
+
 // SSHExecutor executes tmux commands on a remote host via SSH
 type SSHExecutor struct {
 	conn    *ssh.Connection
@@ -103,7 +145,14 @@ func (e *SSHExecutor) KillSession(name string) error {
 }
 
 // SessionExists checks if a session exists on the remote host
+// Uses cache when available to avoid unnecessary SSH calls
 func (e *SSHExecutor) SessionExists(name string) (bool, error) {
+	// Check cache first
+	if _, found := GetRemoteSessionFromCache(e.hostID, name); found {
+		return true, nil
+	}
+
+	// Cache miss - make SSH call
 	cmd := fmt.Sprintf("%s has-session -t %q 2>/dev/null && echo exists || echo notfound", e.tmuxCmd, name)
 	output, err := e.runRemote(cmd)
 	if err != nil {

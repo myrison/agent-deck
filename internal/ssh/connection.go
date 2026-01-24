@@ -71,6 +71,11 @@ func expandPath(path string) string {
 	return path
 }
 
+// controlSocketPath returns the path to the SSH ControlMaster socket for this connection
+func (c *Connection) controlSocketPath() string {
+	return filepath.Join(os.TempDir(), fmt.Sprintf("agentdeck-ssh-%s-%d-%s", c.Host, c.Port, c.User))
+}
+
 // buildSSHArgs constructs the ssh command arguments
 func (c *Connection) buildSSHArgs() []string {
 	args := []string{}
@@ -98,6 +103,13 @@ func (c *Connection) buildSSHArgs() []string {
 
 	// Connection timeout
 	args = append(args, "-o", "ConnectTimeout=10")
+
+	// SSH ControlMaster for connection multiplexing (reuses single TCP connection)
+	// This significantly reduces latency for subsequent SSH commands to the same host
+	controlPath := c.controlSocketPath()
+	args = append(args, "-o", "ControlMaster=auto")
+	args = append(args, "-o", fmt.Sprintf("ControlPath=%s", controlPath))
+	args = append(args, "-o", "ControlPersist=300") // Keep connection alive for 5 minutes
 
 	// Build target
 	target := c.Host
@@ -233,6 +245,33 @@ func (c *Connection) Target() string {
 // HostIdentifier returns a unique identifier for this host
 func (c *Connection) HostIdentifier() string {
 	return c.Host
+}
+
+// CloseControlMaster terminates the SSH ControlMaster connection if active
+// This should be called when the connection is no longer needed to clean up resources
+func (c *Connection) CloseControlMaster() error {
+	controlPath := c.controlSocketPath()
+
+	// Check if socket exists
+	if _, err := os.Stat(controlPath); os.IsNotExist(err) {
+		return nil // No socket to close
+	}
+
+	// Build SSH command to close the ControlMaster
+	args := []string{"-O", "exit", "-o", fmt.Sprintf("ControlPath=%s", controlPath)}
+
+	// Add target
+	target := c.Host
+	if c.User != "" {
+		target = c.User + "@" + c.Host
+	}
+	args = append(args, target)
+
+	cmd := exec.Command("ssh", args...)
+	// Ignore errors - the socket may already be gone
+	_ = cmd.Run()
+
+	return nil
 }
 
 // ForwardPort sets up local port forwarding (for future MCP tunneling)

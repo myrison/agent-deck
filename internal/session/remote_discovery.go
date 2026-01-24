@@ -71,9 +71,15 @@ func FetchRemoteStorageSnapshot(sshExec *tmux.SSHExecutor) *RemoteStorageSnapsho
 	}
 
 	// Build session-to-group and session-to-tool mappings
+	// IMPORTANT: Skip sessions that are themselves remote (prevents circular discovery)
+	// If machine A discovers B, and B has remote sessions from A, we must not re-discover those
 	sessionGroupPaths := make(map[string]string)
 	sessionTools := make(map[string]string)
 	for _, inst := range data.Instances {
+		// Skip remote-of-remote sessions to prevent circular loops
+		if inst.RemoteHost != "" {
+			continue
+		}
 		if inst.TmuxSession != "" {
 			if inst.GroupPath != "" {
 				sessionGroupPaths[inst.TmuxSession] = inst.GroupPath
@@ -332,6 +338,13 @@ func listRemoteTmuxSessions(exec *tmux.SSHExecutor) ([]RemoteTmuxSession, error)
 		return nil, err
 	}
 
+	// Populate remote session cache to reduce future SSH calls
+	cacheData := make(map[string]int64)
+	for name, info := range sessionsInfo {
+		cacheData[name] = info.Activity
+	}
+	tmux.RefreshRemoteSessionCache(exec.HostID(), cacheData)
+
 	var sessions []RemoteTmuxSession
 	for name, info := range sessionsInfo {
 		sessions = append(sessions, RemoteTmuxSession{
@@ -356,7 +369,7 @@ func GenerateRemoteInstanceID(hostID, tmuxName string) string {
 // Example: "agentdeck_my-project-name_a1b2c3d4" -> "My Project Name"
 func ParseTitleFromTmuxName(tmuxName string) string {
 	matches := agentDeckSessionPattern.FindStringSubmatch(tmuxName)
-	if matches == nil || len(matches) < 2 {
+	if len(matches) < 2 {
 		// Fallback: just strip prefix if present
 		name := strings.TrimPrefix(tmuxName, "agentdeck_")
 		return toTitleCase(strings.ReplaceAll(name, "-", " "))

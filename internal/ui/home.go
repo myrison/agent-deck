@@ -263,9 +263,10 @@ type Home struct {
 	lastBarTextMu        sync.Mutex        // Protects lastBarText for background worker access
 
 	// Remote session discovery
-	remoteDiscoveryTrigger chan struct{}    // Triggers manual discovery (e.g., on 'r' refresh)
-	lastRemoteDiscovery    time.Time        // When discovery last ran
-	remoteDiscoveryRunning atomic.Bool      // Prevents concurrent discoveries
+	remoteDiscoveryTrigger  chan struct{}    // Triggers manual discovery (e.g., on 'r' refresh)
+	lastRemoteDiscovery     time.Time        // When discovery last ran
+	remoteDiscoveryRunning  atomic.Bool      // Prevents concurrent discoveries
+	remoteDiscoveryStarted  atomic.Bool      // True once worker goroutine has been started
 
 	// Multi-instance support
 	// When AllowMultiple is enabled, only the primary instance (first to start) manages
@@ -362,12 +363,9 @@ type statusUpdateRequest struct {
 	flatItemIDs   []string // IDs of sessions in current flatItems order (for visible detection)
 }
 
-// remoteDiscoveryMsg signals that remote session discovery has completed
-type remoteDiscoveryMsg struct {
-	discovered []*session.Instance   // Newly discovered sessions
-	errors     map[string]error      // Errors per host
-	staleIDs   []string              // IDs of sessions that no longer exist on remote
-}
+// startRemoteDiscoveryMsg signals that the remote discovery worker should start
+// This is sent after the first render so local sessions are available immediately
+type startRemoteDiscoveryMsg struct{}
 
 // NewHome creates a new home model with the default profile
 func NewHome() *Home {
@@ -491,8 +489,8 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 	// Start background status worker (Priority 1C)
 	go h.statusWorker()
 
-	// Start remote session discovery worker (if any hosts have auto_discover enabled)
-	go h.remoteDiscoveryWorker()
+	// Note: Remote session discovery worker is started AFTER first render
+	// via startRemoteDiscoveryMsg so local sessions are available immediately
 
 	// Initialize global search
 	h.globalSearch = NewGlobalSearch()
@@ -1426,8 +1424,23 @@ func (h *Home) statusWorker() {
 	}
 }
 
+// startRemoteDiscoveryCmd returns a command that triggers starting the remote discovery worker
+// This is deferred until after local sessions are loaded so the UI is responsive immediately
+func (h *Home) startRemoteDiscoveryCmd() tea.Cmd {
+	return func() tea.Msg {
+		return startRemoteDiscoveryMsg{}
+	}
+}
+
+// Remote discovery interval constants
+const (
+	remoteDiscoveryIntervalBackground = 60 * time.Second // When viewing local sessions
+	remoteDiscoveryIntervalForeground = 10 * time.Second // When viewing remote sessions
+)
+
 // remoteDiscoveryWorker runs periodic remote session discovery in the background
 // This discovers agentdeck_* sessions on configured SSH hosts with auto_discover=true
+// Uses adaptive intervals: faster polling when viewing remote sessions
 func (h *Home) remoteDiscoveryWorker() {
 	settings := session.GetRemoteDiscoverySettings()
 	if !settings.Enabled {
@@ -1435,14 +1448,14 @@ func (h *Home) remoteDiscoveryWorker() {
 		return
 	}
 
-	interval := time.Duration(settings.IntervalSeconds) * time.Second
-	log.Printf("[REMOTE-DISCOVERY] Worker started (interval=%s)", interval)
+	log.Printf("[REMOTE-DISCOVERY] Worker started (adaptive intervals: %s background, %s foreground)",
+		remoteDiscoveryIntervalBackground, remoteDiscoveryIntervalForeground)
 
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	// Use a timer instead of ticker for adaptive intervals
+	timer := time.NewTimer(h.getDiscoveryInterval())
+	defer timer.Stop()
 
-	// Run initial discovery after a short delay (let startup complete)
-	time.Sleep(3 * time.Second)
+	// Run initial discovery immediately (worker start is already deferred until after local sessions load)
 	h.runRemoteDiscovery()
 
 	for {
@@ -1451,14 +1464,39 @@ func (h *Home) remoteDiscoveryWorker() {
 			log.Printf("[REMOTE-DISCOVERY] Worker stopped")
 			return
 
-		case <-ticker.C:
+		case <-timer.C:
 			h.runRemoteDiscovery()
+			// Reset timer with current adaptive interval
+			timer.Reset(h.getDiscoveryInterval())
 
 		case <-h.remoteDiscoveryTrigger:
 			// Manual trigger (e.g., from 'r' key refresh)
 			h.runRemoteDiscovery()
+			// Reset timer to restart interval countdown
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(h.getDiscoveryInterval())
 		}
 	}
+}
+
+// getDiscoveryInterval returns the appropriate discovery interval based on current view
+// Returns faster interval when user is viewing a remote session
+func (h *Home) getDiscoveryInterval() time.Duration {
+	if h.isViewingRemoteSession() {
+		return remoteDiscoveryIntervalForeground
+	}
+	return remoteDiscoveryIntervalBackground
+}
+
+// isViewingRemoteSession returns true if the currently selected session is remote
+func (h *Home) isViewingRemoteSession() bool {
+	selected := h.getSelectedSession()
+	return selected != nil && selected.IsRemote()
 }
 
 // runRemoteDiscovery performs remote session discovery and sends results to TUI
@@ -1566,6 +1604,31 @@ func (h *Home) runRemoteDiscovery() {
 		h.instancesMu.Unlock()
 	}
 
+	// Update status for remote sessions (batch with discovery SSH calls while connection is warm)
+	// This leverages the ControlMaster connection established during discovery
+	h.instancesMu.RLock()
+	var remoteInstances []*session.Instance
+	for _, inst := range h.instances {
+		if inst.IsRemote() {
+			remoteInstances = append(remoteInstances, inst)
+		}
+	}
+	h.instancesMu.RUnlock()
+
+	if len(remoteInstances) > 0 {
+		statusUpdated := 0
+		for _, inst := range remoteInstances {
+			oldStatus := inst.Status
+			if err := inst.UpdateStatus(); err == nil && inst.Status != oldStatus {
+				statusUpdated++
+			}
+		}
+		if statusUpdated > 0 {
+			log.Printf("[REMOTE-DISCOVERY] Updated status for %d remote sessions", statusUpdated)
+			h.cachedStatusCounts.valid.Store(false) // Invalidate status cache
+		}
+	}
+
 	// Save to storage if anything changed
 	if needsSave && h.storage != nil {
 		h.instancesMu.RLock()
@@ -1616,9 +1679,13 @@ func (h *Home) backgroundStatusUpdate() {
 	copy(instances, h.instances)
 	h.instancesMu.RUnlock()
 
-	// Update status for all instances (background can be more thorough)
+	// Update status for LOCAL instances only (remote sessions use SSH which is expensive)
+	// Remote session status is updated during remote discovery cycle instead
 	statusChanged := false
 	for _, inst := range instances {
+		if inst.IsRemote() {
+			continue // Skip remote sessions - updated via remote discovery
+		}
 		oldStatus := inst.Status
 		_ = inst.UpdateStatus()
 		if inst.Status != oldStatus {
@@ -2039,6 +2106,15 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(detectionCmds) > 0 {
 				return h, tea.Batch(detectionCmds...)
 			}
+		}
+		// Start remote discovery after local sessions are loaded (deferred startup)
+		return h, h.startRemoteDiscoveryCmd()
+
+	case startRemoteDiscoveryMsg:
+		// Start remote discovery worker (only once, after first render)
+		if h.remoteDiscoveryStarted.CompareAndSwap(false, true) {
+			go h.remoteDiscoveryWorker()
+			log.Printf("[REMOTE-DISCOVERY] Worker started (deferred after local sessions loaded)")
 		}
 		return h, nil
 
@@ -3544,8 +3620,14 @@ func (h *Home) performQuit(shutdownPool bool) tea.Cmd {
 	return func() tea.Msg {
 		// Signal background worker to stop
 		h.cancel()
-		// Wait for background worker to finish (prevents race on shutdown)
-		<-h.statusWorkerDone
+
+		// Wait for background worker to finish with timeout (prevents hang if SSH is slow)
+		select {
+		case <-h.statusWorkerDone:
+			// Clean exit
+		case <-time.After(2 * time.Second):
+			log.Printf("Warning: status worker did not stop within timeout")
+		}
 
 		if h.logWatcher != nil {
 			h.logWatcher.Close()
