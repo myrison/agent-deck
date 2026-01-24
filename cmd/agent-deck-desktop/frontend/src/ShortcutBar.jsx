@@ -36,7 +36,7 @@ export default function ShortcutBar({
         );
     }
 
-    // Terminal view
+    // Terminal view - use Cmd+/ for help since ? is used by Claude
     return (
         <div className="shortcut-bar">
             <button className="shortcut-item" onClick={onBackToSessions}>
@@ -52,7 +52,7 @@ export default function ShortcutBar({
                 <span>Palette</span>
             </button>
             <button className="shortcut-item" onClick={onOpenHelp}>
-                <kbd>?</kbd>
+                <kbd>{modKey}/</kbd>
                 <span>Help</span>
             </button>
         </div>

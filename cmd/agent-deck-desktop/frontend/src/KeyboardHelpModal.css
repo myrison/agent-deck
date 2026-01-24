@@ -121,6 +121,17 @@
     font-style: italic;
 }
 
+.help-subtext {
+    margin-top: 4px;
+    margin-bottom: 2px;
+}
+
+.help-note {
+    font-size: 11px;
+    color: #666;
+    font-style: italic;
+}
+
 /* Footer */
 .help-footer {
     padding: 12px 20px;

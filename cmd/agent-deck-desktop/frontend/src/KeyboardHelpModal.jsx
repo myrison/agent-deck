@@ -36,6 +36,10 @@ export default function KeyboardHelpModal({ onClose }) {
                                 <span>New terminal</span>
                             </div>
                             <div className="help-row">
+                                <kbd>&uarr;&darr;</kbd>
+                                <span>Navigate list</span>
+                            </div>
+                            <div className="help-row">
                                 <kbd>Enter</kbd>
                                 <span>Open session</span>
                             </div>
@@ -77,9 +81,12 @@ export default function KeyboardHelpModal({ onClose }) {
                                 <kbd>{modKey}K</kbd>
                                 <span>Open palette</span>
                             </div>
+                            <div className="help-row help-subtext">
+                                <span className="help-note">While palette is open:</span>
+                            </div>
                             <div className="help-row">
                                 <kbd>&uarr;&darr;</kbd>
-                                <span>Navigate</span>
+                                <span>Navigate items</span>
                             </div>
                             <div className="help-row">
                                 <kbd>Enter</kbd>
@@ -87,7 +94,7 @@ export default function KeyboardHelpModal({ onClose }) {
                             </div>
                             <div className="help-row">
                                 <kbd>{modKey}Enter</kbd>
-                                <span>Tool picker</span>
+                                <span>Open with tool picker</span>
                             </div>
                             <div className="help-row">
                                 <kbd>{modKey}P</kbd>

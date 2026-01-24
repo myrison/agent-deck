@@ -316,23 +316,17 @@ function App() {
             return;
         }
 
-        // ? key to open help (only when not in an input field)
-        if (e.key === '?' && !e.metaKey && !e.ctrlKey) {
-            const activeEl = document.activeElement;
-            const isInput = activeEl && (
-                activeEl.tagName === 'INPUT' ||
-                activeEl.tagName === 'TEXTAREA' ||
-                activeEl.isContentEditable
-            );
-            if (!isInput) {
-                e.preventDefault();
-                handleOpenHelp();
-                return;
-            }
+        // ? key to open help (only in selector view - Claude uses ? natively in terminal)
+        if (view === 'selector' && !e.metaKey && !e.ctrlKey && e.key === '?') {
+            e.preventDefault();
+            e.stopPropagation();
+            handleOpenHelp();
+            return;
         }
-        // Cmd+/ or Ctrl+/ to open help (works anywhere)
+        // Cmd+/ or Ctrl+/ to open help (works in both views)
         if ((e.metaKey || e.ctrlKey) && e.key === '/') {
             e.preventDefault();
+            e.stopPropagation();
             handleOpenHelp();
             return;
         }
@@ -375,8 +369,9 @@ function App() {
     }, [view, showSearch, showHelpModal, handleBackToSelector, buildShortcutKey, shortcuts, handleLaunchProject, handleCycleStatusFilter, handleOpenHelp, handleNewTerminal]);
 
     useEffect(() => {
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
+        // Use capture phase to intercept keys before terminal swallows them
+        document.addEventListener('keydown', handleKeyDown, true);
+        return () => document.removeEventListener('keydown', handleKeyDown, true);
     }, [handleKeyDown]);
 
     // Show session selector

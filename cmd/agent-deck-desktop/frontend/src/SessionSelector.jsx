@@ -66,6 +66,7 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [projectRoots, setProjectRoots] = useState([]);
+    const [selectedIndex, setSelectedIndex] = useState(0);
     const { show: showTooltip, hide: hideTooltip, Tooltip } = useTooltip();
 
     useEffect(() => {
@@ -151,6 +152,45 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
         }
         return sessions;
     }, [sessions, statusFilter]);
+
+    // Reset selected index when filtered sessions change
+    useEffect(() => {
+        setSelectedIndex(0);
+    }, [filteredSessions.length, statusFilter]);
+
+    // Keyboard navigation for session list
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (filteredSessions.length === 0) return;
+
+            switch (e.key) {
+                case 'ArrowDown':
+                case 'j':
+                    e.preventDefault();
+                    setSelectedIndex(prev =>
+                        prev < filteredSessions.length - 1 ? prev + 1 : prev
+                    );
+                    break;
+                case 'ArrowUp':
+                case 'k':
+                    e.preventDefault();
+                    setSelectedIndex(prev => prev > 0 ? prev - 1 : prev);
+                    break;
+                case 'Enter':
+                    e.preventDefault();
+                    const session = filteredSessions[selectedIndex];
+                    if (session && !session.isRemote) {
+                        onSelect(session);
+                    }
+                    break;
+                default:
+                    break;
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [filteredSessions, selectedIndex, onSelect]);
 
     // Get display label for current filter mode
     const getFilterLabel = () => {
@@ -255,13 +295,16 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
                         )}
                     </div>
                 ) : (
-                    filteredSessions.map((session) => (
+                    filteredSessions.map((session, index) => (
                         <button
                             key={session.id}
-                            className="session-item"
+                            className={`session-item${index === selectedIndex ? ' selected' : ''}`}
                             onClick={() => onSelect(session)}
                             disabled={session.isRemote}
-                            onMouseEnter={(e) => showTooltip(e, getTooltipContent(session))}
+                            onMouseEnter={(e) => {
+                                setSelectedIndex(index);
+                                showTooltip(e, getTooltipContent(session));
+                            }}
                             onMouseLeave={hideTooltip}
                         >
                             <span

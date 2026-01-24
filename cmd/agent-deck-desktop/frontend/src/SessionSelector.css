@@ -109,7 +109,8 @@
     transition: background 0.15s, border-color 0.15s;
 }
 
-.session-item:hover:not(:disabled) {
+.session-item:hover:not(:disabled),
+.session-item.selected:not(:disabled) {
     background: #2a2a4a;
     border-color: #4cc9f0;
 }
