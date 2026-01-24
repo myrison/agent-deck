@@ -4,6 +4,7 @@ import LaunchConfigEditor from './LaunchConfigEditor';
 import { GetLaunchConfigs, DeleteLaunchConfig } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { TOOLS } from './utils/tools';
+import ToolIcon from './ToolIcon';
 
 const logger = createLogger('SettingsModal');
 
@@ -127,7 +128,7 @@ export default function SettingsModal({ onClose }) {
                                         className="settings-tool-icon"
                                         style={{ backgroundColor: tool.color }}
                                     >
-                                        {tool.icon}
+                                        <ToolIcon tool={tool.id} size={14} />
                                     </span>
                                     <h3>{tool.name}</h3>
                                     <button

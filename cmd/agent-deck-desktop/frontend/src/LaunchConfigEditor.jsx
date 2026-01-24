@@ -7,6 +7,8 @@ import {
 } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { TOOLS } from './utils/tools';
+import ToolIcon from './ToolIcon';
+import { useTooltip } from './Tooltip';
 
 const logger = createLogger('LaunchConfigEditor');
 
@@ -36,9 +38,22 @@ export default function LaunchConfigEditor({ config, tool, onSave, onCancel }) {
     // For debounced MCP validation
     const mcpValidationTimer = useRef(null);
 
+    // Tooltip hook
+    const { show: showTooltip, hide: hideTooltip, Tooltip } = useTooltip();
+
     // Get tool info
     const toolInfo = TOOLS.find(t => t.id === tool) || { name: tool, icon: '?', color: '#666' };
     const dangerFlag = DANGER_FLAGS[tool] || '';
+
+    // Tooltip content for fields
+    const tooltips = {
+        name: 'A short, memorable name for this configuration. Shown in the config picker when launching new sessions.',
+        description: 'Optional notes about when to use this config. Shown in the settings list and config picker.',
+        dangerousMode: 'Skips permission prompts for file edits and command execution. Claude uses --dangerously-skip-permissions, Gemini uses --yolo. Use with caution in trusted projects only.',
+        mcpConfigPath: 'Path to a JSON file containing MCP server definitions. These MCPs will be loaded instead of the project\'s .mcp.json when using this config.',
+        extraArgs: 'Additional CLI flags passed to the AI tool. Example: --model opus --resume. Arguments containing shell metacharacters (;|&) are not allowed.',
+        isDefault: 'When enabled, this config is automatically used when launching new sessions with this tool. Only one config per tool can be the default.',
+    };
 
     // Validate MCP config path with debounce
     useEffect(() => {
@@ -132,7 +147,7 @@ export default function LaunchConfigEditor({ config, tool, onSave, onCancel }) {
                     className="editor-tool-icon"
                     style={{ backgroundColor: toolInfo.color }}
                 >
-                    {toolInfo.icon}
+                    <ToolIcon tool={tool} size={16} />
                 </span>
                 <h2>{isEditing ? 'Edit Configuration' : 'New Configuration'}</h2>
             </div>
@@ -146,7 +161,11 @@ export default function LaunchConfigEditor({ config, tool, onSave, onCancel }) {
 
                 {/* Name */}
                 <div className="editor-field">
-                    <label htmlFor="config-name">
+                    <label
+                        htmlFor="config-name"
+                        onMouseEnter={(e) => showTooltip(e, tooltips.name)}
+                        onMouseLeave={hideTooltip}
+                    >
                         Name <span className="editor-required">*</span>
                     </label>
                     <input
@@ -161,7 +180,13 @@ export default function LaunchConfigEditor({ config, tool, onSave, onCancel }) {
 
                 {/* Description */}
                 <div className="editor-field">
-                    <label htmlFor="config-desc">Description</label>
+                    <label
+                        htmlFor="config-desc"
+                        onMouseEnter={(e) => showTooltip(e, tooltips.description)}
+                        onMouseLeave={hideTooltip}
+                    >
+                        Description
+                    </label>
                     <input
                         id="config-desc"
                         type="text"
@@ -173,7 +198,11 @@ export default function LaunchConfigEditor({ config, tool, onSave, onCancel }) {
 
                 {/* Dangerous Mode */}
                 <div className="editor-field editor-checkbox-field">
-                    <label className="editor-checkbox">
+                    <label
+                        className="editor-checkbox"
+                        onMouseEnter={(e) => showTooltip(e, tooltips.dangerousMode)}
+                        onMouseLeave={hideTooltip}
+                    >
                         <input
                             type="checkbox"
                             checked={dangerousMode}
@@ -190,7 +219,13 @@ export default function LaunchConfigEditor({ config, tool, onSave, onCancel }) {
 
                 {/* MCP Config Path */}
                 <div className="editor-field">
-                    <label htmlFor="config-mcp">MCP Config Path</label>
+                    <label
+                        htmlFor="config-mcp"
+                        onMouseEnter={(e) => showTooltip(e, tooltips.mcpConfigPath)}
+                        onMouseLeave={hideTooltip}
+                    >
+                        MCP Config Path
+                    </label>
                     <input
                         id="config-mcp"
                         type="text"
@@ -215,7 +250,13 @@ export default function LaunchConfigEditor({ config, tool, onSave, onCancel }) {
 
                 {/* Extra Arguments */}
                 <div className="editor-field">
-                    <label htmlFor="config-args">Extra Arguments</label>
+                    <label
+                        htmlFor="config-args"
+                        onMouseEnter={(e) => showTooltip(e, tooltips.extraArgs)}
+                        onMouseLeave={hideTooltip}
+                    >
+                        Extra Arguments
+                    </label>
                     <input
                         id="config-args"
                         type="text"
@@ -230,7 +271,11 @@ export default function LaunchConfigEditor({ config, tool, onSave, onCancel }) {
 
                 {/* Default */}
                 <div className="editor-field editor-checkbox-field">
-                    <label className="editor-checkbox">
+                    <label
+                        className="editor-checkbox"
+                        onMouseEnter={(e) => showTooltip(e, tooltips.isDefault)}
+                        onMouseLeave={hideTooltip}
+                    >
                         <input
                             type="checkbox"
                             checked={isDefault}
@@ -269,6 +314,7 @@ export default function LaunchConfigEditor({ config, tool, onSave, onCancel }) {
                     </button>
                 </div>
             </div>
+            <Tooltip />
         </div>
     );
 }
