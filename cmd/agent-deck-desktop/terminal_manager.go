@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 )
@@ -85,10 +86,7 @@ func (tm *TerminalManager) CloseAll() error {
 		delete(tm.terminals, id)
 	}
 
-	if len(errs) > 0 {
-		return errs[0] // Return first error
-	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // Count returns the number of active terminals.

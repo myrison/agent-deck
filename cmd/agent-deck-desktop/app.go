@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,7 +61,7 @@ func (a *App) StartTerminal(sessionID string, cols, rows int) error {
 func (a *App) WriteTerminal(sessionID, data string) error {
 	t := a.terminals.Get(sessionID)
 	if t == nil {
-		return nil
+		return fmt.Errorf("terminal %s not found", sessionID)
 	}
 	return t.Write(data)
 }
@@ -69,7 +70,7 @@ func (a *App) WriteTerminal(sessionID, data string) error {
 func (a *App) ResizeTerminal(sessionID string, cols, rows int) error {
 	t := a.terminals.Get(sessionID)
 	if t == nil {
-		return nil
+		return fmt.Errorf("terminal %s not found", sessionID)
 	}
 	return t.Resize(cols, rows)
 }

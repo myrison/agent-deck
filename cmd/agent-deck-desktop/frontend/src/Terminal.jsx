@@ -476,11 +476,11 @@ export default function Terminal({ searchRef, session, fontSize = DEFAULT_FONT_S
                 logger.error('Failed to close terminal:', err);
             });
 
-            // Clean up frontend
-            EventsOff('terminal:debug');
-            EventsOff('terminal:history');
-            EventsOff('terminal:data');
-            EventsOff('terminal:exit');
+            // NOTE: We intentionally do NOT call EventsOff() here.
+            // EventsOff removes ALL listeners globally, which breaks multi-pane mode
+            // when one pane unmounts. Our event handlers already filter by sessionId
+            // and check xtermRef.current, so stale listeners safely no-op.
+
             if (scrollbackRefreshTimer) {
                 clearTimeout(scrollbackRefreshTimer);
             }
