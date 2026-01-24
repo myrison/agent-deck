@@ -6,6 +6,9 @@ import ToolIcon from './ToolIcon';
 import { useTooltip } from './Tooltip';
 import ShortcutBar from './ShortcutBar';
 import RenameDialog from './RenameDialog';
+import RevDenLogo from './RevDenLogo';
+import './RevDenLogo.css';
+import logoImage from './assets/images/logo-universal.png';
 
 const logger = createLogger('SessionSelector');
 
@@ -339,7 +342,7 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
     return (
         <div className="session-selector">
             <div className="session-header">
-                <h2>Agent Deck Sessions</h2>
+                <RevDenLogo size="medium" />
                 <div className="header-controls">
                     <button
                         className="filter-btn"
@@ -363,18 +366,23 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
 
             <div className="session-list">
                 {filteredSessions.length === 0 ? (
-                    <div className="no-sessions">
+                    <div className="revden-empty-state">
+                        <img
+                            src={logoImage}
+                            alt="RevDen"
+                            className="revden-empty-mascot"
+                        />
                         {sessions.length === 0 ? (
                             <>
-                                No active sessions found.
-                                <br />
-                                <small>Start sessions using the Agent Deck TUI.</small>
+                                <p className="revden-empty-title">No sessions yet</p>
+                                <p className="revden-empty-subtitle">Start a session from the terminal or press ⌘K</p>
                             </>
                         ) : (
                             <>
-                                No {statusFilter === 'active' ? 'active' : 'idle'} sessions.
-                                <br />
-                                <small>Press Shift+5 to show all sessions.</small>
+                                <p className="revden-empty-title">
+                                    No {statusFilter === 'active' ? 'active' : 'idle'} sessions
+                                </p>
+                                <p className="revden-empty-subtitle">Press Shift+5 to show all sessions</p>
                             </>
                         )}
                     </div>

@@ -7,6 +7,8 @@ import { TOOLS } from './utils/tools';
 import ToolIcon from './ToolIcon';
 import { useTheme } from './context/ThemeContext';
 import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE } from './constants/terminal';
+import RevDenLogo from './RevDenLogo';
+import './RevDenLogo.css';
 
 const logger = createLogger('SettingsModal');
 
@@ -370,6 +372,13 @@ export default function SettingsModal({ onClose }) {
                 </div>
 
                 <div className="settings-footer">
+                    <div className="revden-about">
+                        <RevDenLogo size="small" showText={false} />
+                        <div className="revden-about-info">
+                            <p className="revden-about-name">RevDen</p>
+                            <p className="revden-about-tagline">AI Agent Session Manager by Revenium</p>
+                        </div>
+                    </div>
                     <span className="settings-hint">
                         Press <kbd>Esc</kbd> to close
                     </span>

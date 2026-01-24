@@ -1,0 +1,92 @@
+.revden-logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.revden-logo-img {
+    border-radius: 6px;
+    object-fit: contain;
+}
+
+.revden-logo-text {
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.5px;
+}
+
+/* Size variants */
+.revden-logo-small .revden-logo-text {
+    font-size: 14px;
+}
+
+.revden-logo-medium .revden-logo-text {
+    font-size: 18px;
+}
+
+.revden-logo-large .revden-logo-text {
+    font-size: 22px;
+}
+
+.revden-logo-xlarge .revden-logo-text {
+    font-size: 28px;
+}
+
+/* Empty state branding */
+.revden-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    text-align: center;
+}
+
+.revden-empty-mascot {
+    width: 120px;
+    height: 120px;
+    margin-bottom: 16px;
+    opacity: 0.85;
+    border-radius: 16px;
+}
+
+.revden-empty-title {
+    font-size: 16px;
+    color: var(--text-primary);
+    margin: 0 0 8px 0;
+    font-weight: 500;
+}
+
+.revden-empty-subtitle {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 0;
+}
+
+/* Settings about section */
+.revden-about {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    margin-top: 16px;
+}
+
+.revden-about-info {
+    flex: 1;
+}
+
+.revden-about-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 4px 0;
+}
+
+.revden-about-tagline {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 0;
+}
