@@ -18,6 +18,10 @@ export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
 }
 
+export function IsTmuxPolling() {
+  return window['go']['main']['App']['IsTmuxPolling']();
+}
+
 export function ListSessions() {
   return window['go']['main']['App']['ListSessions']();
 }
@@ -26,12 +30,24 @@ export function ResizeTerminal(arg1, arg2) {
   return window['go']['main']['App']['ResizeTerminal'](arg1, arg2);
 }
 
+export function ResizeTmuxPane(arg1, arg2) {
+  return window['go']['main']['App']['ResizeTmuxPane'](arg1, arg2);
+}
+
+export function SendTmuxInput(arg1) {
+  return window['go']['main']['App']['SendTmuxInput'](arg1);
+}
+
 export function SessionExists(arg1) {
   return window['go']['main']['App']['SessionExists'](arg1);
 }
 
 export function StartTerminal(arg1, arg2) {
   return window['go']['main']['App']['StartTerminal'](arg1, arg2);
+}
+
+export function StartTmuxPolling(arg1, arg2, arg3) {
+  return window['go']['main']['App']['StartTmuxPolling'](arg1, arg2, arg3);
 }
 
 export function WriteTerminal(arg1) {
