@@ -80,6 +80,9 @@ export namespace main {
 	    remoteHost?: string;
 	    gitBranch?: string;
 	    isWorktree?: boolean;
+	    gitDirty?: boolean;
+	    gitAhead?: number;
+	    gitBehind?: number;
 	    // Go type: time
 	    lastAccessedAt?: any;
 	    launchConfigName?: string;
@@ -103,6 +106,9 @@ export namespace main {
 	        this.remoteHost = source["remoteHost"];
 	        this.gitBranch = source["gitBranch"];
 	        this.isWorktree = source["isWorktree"];
+	        this.gitDirty = source["gitDirty"];
+	        this.gitAhead = source["gitAhead"];
+	        this.gitBehind = source["gitBehind"];
 	        this.lastAccessedAt = this.convertValues(source["lastAccessedAt"], null);
 	        this.launchConfigName = source["launchConfigName"];
 	        this.loadedMcps = source["loadedMcps"];

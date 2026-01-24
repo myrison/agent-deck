@@ -26,6 +26,9 @@ type SessionInfo struct {
 	RemoteHost       string    `json:"remoteHost,omitempty"`
 	GitBranch        string    `json:"gitBranch,omitempty"`
 	IsWorktree       bool      `json:"isWorktree,omitempty"`
+	GitDirty         bool      `json:"gitDirty,omitempty"`
+	GitAhead         int       `json:"gitAhead,omitempty"`
+	GitBehind        int       `json:"gitBehind,omitempty"`
 	LastAccessedAt   time.Time `json:"lastAccessedAt,omitempty"`
 	LaunchConfigName string    `json:"launchConfigName,omitempty"`
 	LoadedMCPs       []string  `json:"loadedMcps,omitempty"`
@@ -101,7 +104,7 @@ func (tm *TmuxManager) ListSessions() ([]SessionInfo, error) {
 		}
 
 		// Get git info for the project path
-		gitBranch, isWorktree := tm.getGitInfo(inst.ProjectPath)
+		gitInfo := tm.getGitInfo(inst.ProjectPath)
 
 		// Use LastAccessedAt if set, otherwise fall back to CreatedAt
 		lastAccessed := inst.LastAccessedAt
@@ -119,8 +122,11 @@ func (tm *TmuxManager) ListSessions() ([]SessionInfo, error) {
 			TmuxSession:      inst.TmuxSession,
 			IsRemote:         isRemote,
 			RemoteHost:       inst.RemoteHost,
-			GitBranch:        gitBranch,
-			IsWorktree:       isWorktree,
+			GitBranch:        gitInfo.Branch,
+			IsWorktree:       gitInfo.IsWorktree,
+			GitDirty:         gitInfo.IsDirty,
+			GitAhead:         gitInfo.Ahead,
+			GitBehind:        gitInfo.Behind,
 			LastAccessedAt:   lastAccessed,
 			LaunchConfigName: inst.LaunchConfigName,
 			LoadedMCPs:       inst.LoadedMCPNames,
@@ -136,10 +142,20 @@ func (tm *TmuxManager) ListSessions() ([]SessionInfo, error) {
 	return result, nil
 }
 
-// getGitInfo returns the git branch and whether the path is a worktree.
-func (tm *TmuxManager) getGitInfo(projectPath string) (branch string, isWorktree bool) {
+// GitInfo contains git repository information for a session.
+type GitInfo struct {
+	Branch     string
+	IsWorktree bool
+	IsDirty    bool
+	Ahead      int
+	Behind     int
+}
+
+// getGitInfo returns comprehensive git information for a project path.
+func (tm *TmuxManager) getGitInfo(projectPath string) GitInfo {
+	info := GitInfo{}
 	if projectPath == "" {
-		return "", false
+		return info
 	}
 
 	// Get git branch
@@ -147,20 +163,41 @@ func (tm *TmuxManager) getGitInfo(projectPath string) (branch string, isWorktree
 	cmd.Dir = projectPath
 	output, err := cmd.Output()
 	if err != nil {
-		return "", false
+		return info
 	}
-	branch = strings.TrimSpace(string(output))
+	info.Branch = strings.TrimSpace(string(output))
 
 	// Check if worktree: .git is a file (worktree) vs directory (main clone)
 	gitPath := filepath.Join(projectPath, ".git")
-	info, err := os.Stat(gitPath)
-	if err != nil {
-		return branch, false
+	fileInfo, err := os.Stat(gitPath)
+	if err == nil {
+		info.IsWorktree = !fileInfo.IsDir()
 	}
-	isWorktree = !info.IsDir()
 
-	return branch, isWorktree
+	// Check if dirty: git status --porcelain returns non-empty if there are changes
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusCmd.Dir = projectPath
+	statusOutput, err := statusCmd.Output()
+	if err == nil {
+		info.IsDirty = len(strings.TrimSpace(string(statusOutput))) > 0
+	}
+
+	// Get ahead/behind counts: git rev-list --left-right --count HEAD...@{u}
+	// Returns "ahead\tbehind" or errors if no upstream
+	aheadBehindCmd := exec.Command("git", "rev-list", "--left-right", "--count", "HEAD...@{u}")
+	aheadBehindCmd.Dir = projectPath
+	aheadBehindOutput, err := aheadBehindCmd.Output()
+	if err == nil {
+		parts := strings.Fields(strings.TrimSpace(string(aheadBehindOutput)))
+		if len(parts) == 2 {
+			fmt.Sscanf(parts[0], "%d", &info.Ahead)
+			fmt.Sscanf(parts[1], "%d", &info.Behind)
+		}
+	}
+
+	return info
 }
+
 
 // getRunningTmuxSessions returns a map of currently running tmux session names.
 func (tm *TmuxManager) getRunningTmuxSessions() map[string]bool {

@@ -79,10 +79,20 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
         });
     }, []);
 
+    // Build git status description for tooltip
+    const getGitStatusDescription = useCallback((session) => {
+        const parts = [];
+        if (session.gitDirty) parts.push('uncommitted changes');
+        if (session.gitAhead > 0) parts.push(`${session.gitAhead} ahead`);
+        if (session.gitBehind > 0) parts.push(`${session.gitBehind} behind`);
+        return parts.length > 0 ? parts.join(', ') : null;
+    }, []);
+
     // Tooltip content builder for sessions - returns JSX for rich formatting
     const getTooltipContent = useCallback((session) => {
         const relativeTime = formatRelativeTime(session.lastAccessedAt);
         const relativePath = getRelativeProjectPath(session.projectPath, projectRoots);
+        const gitStatus = getGitStatusDescription(session);
 
         return (
             <div className="session-tooltip">
@@ -104,6 +114,12 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
                         <span>Git worktree</span>
                     </div>
                 )}
+                {gitStatus && (
+                    <div className="tooltip-row tooltip-git-status">
+                        <span className="tooltip-icon">⚡</span>
+                        <span>{gitStatus}</span>
+                    </div>
+                )}
                 {session.isRemote && (
                     <div className="tooltip-row tooltip-remote">
                         <span className="tooltip-icon">⚠️</span>
@@ -112,7 +128,7 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
                 )}
             </div>
         );
-    }, [projectRoots]);
+    }, [projectRoots, getGitStatusDescription]);
 
     const loadSessions = async () => {
         try {
@@ -332,9 +348,16 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
                                         <>
                                             <span className="meta-separator">•</span>
                                             <span className={`session-branch${session.isWorktree ? ' is-worktree' : ''}`}>
+                                                {session.gitDirty && <span className="git-dirty-indicator" title="Uncommitted changes">●</span>}
                                                 <span className="branch-icon">{session.isWorktree ? '🌿' : '⎇'}</span>
                                                 {session.gitBranch}
                                             </span>
+                                            {(session.gitAhead > 0 || session.gitBehind > 0) && (
+                                                <span className="git-sync-status">
+                                                    {session.gitAhead > 0 && <span className="git-ahead" title={`${session.gitAhead} commit${session.gitAhead > 1 ? 's' : ''} ahead`}>↑{session.gitAhead}</span>}
+                                                    {session.gitBehind > 0 && <span className="git-behind" title={`${session.gitBehind} commit${session.gitBehind > 1 ? 's' : ''} behind`}>↓{session.gitBehind}</span>}
+                                                </span>
+                                            )}
                                         </>
                                     )}
                                 </div>
