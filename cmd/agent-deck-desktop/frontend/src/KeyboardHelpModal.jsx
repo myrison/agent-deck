@@ -60,6 +60,10 @@ export default function KeyboardHelpModal({ onClose }) {
                         <div className="help-section">
                             <h3>Tabs</h3>
                             <div className="help-row">
+                                <kbd>{modKey}T</kbd>
+                                <span>New tab</span>
+                            </div>
+                            <div className="help-row">
                                 <kbd>{modKey}1-9</kbd>
                                 <span>Switch to tab N</span>
                             </div>

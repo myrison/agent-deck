@@ -10,7 +10,7 @@
     min-height: 44px;
 }
 
-/* Quick Launch Section (left side) */
+/* Quick Launch Section (left side) - slightly darker background */
 .quick-launch-section {
     display: flex;
     align-items: center;
@@ -18,6 +18,10 @@
     flex-shrink: 0;
     max-width: 40%;
     overflow-x: auto;
+    background: var(--bg-primary);
+    padding: 6px 10px;
+    border-radius: 6px;
+    margin-right: 4px;
 }
 
 /* Hide scrollbar for quick launch */
@@ -102,14 +106,16 @@
 
 /* Divider between Quick Launch and Session Tabs */
 .top-bar-divider {
-    width: 1px;
-    height: 24px;
-    background: var(--border-secondary);
+    width: 2px;
+    height: 28px;
+    background: var(--accent-primary);
+    opacity: 0.6;
     flex-shrink: 0;
-    margin: 0 4px;
+    margin: 0 8px;
+    border-radius: 1px;
 }
 
-/* Session Tabs Section (right side, scrollable) */
+/* Session Tabs Section (right side, scrollable) - lighter background */
 .session-tabs-section {
     flex: 1;
     display: flex;
@@ -117,11 +123,16 @@
     gap: 4px;
     overflow-x: auto;
     min-width: 0; /* Allow shrinking */
+    background: var(--bg-secondary);
+    padding: 6px 10px;
+    border-radius: 6px;
+    margin-left: 4px;
 }
 
 /* When no favorites, tabs take full width */
 .session-tabs-section.no-favorites {
     max-width: none;
+    margin-left: 0;
 }
 
 /* Hide scrollbar for session tabs */
