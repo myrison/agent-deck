@@ -509,23 +509,19 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 
 			// Check if this is a remote session
 			if instData.RemoteHost != "" {
-				// Remote session - get SSH executor
-				sshExec, err := tmux.NewSSHExecutorFromPool(instData.RemoteHost)
-				if err != nil {
-					// Log warning but continue with nil tmuxSession
-					// The session will show as disconnected
-					log.Printf("Warning: failed to connect to remote host %s for session %s: %v",
-						instData.RemoteHost, instData.Title, err)
-				} else {
-					tmuxSess = tmux.ReconnectSessionWithStatusAndExecutor(
-						instData.TmuxSession,
-						instData.Title,
-						instData.ProjectPath,
-						instData.Command,
-						previousStatus,
-						sshExec,
-					)
-				}
+				// Remote session - defer SSH executor creation until needed (lazy initialization)
+				// This prevents slow startup when remote hosts are unreachable or slow
+				// The executor will be created on first access (preview, attach, status update)
+				tmuxSess = tmux.ReconnectSessionWithStatusAndExecutor(
+					instData.TmuxSession,
+					instData.Title,
+					instData.ProjectPath,
+					instData.Command,
+					previousStatus,
+					nil, // SSH executor created lazily
+				)
+				// Store remote host info for lazy executor creation
+				tmuxSess.RemoteHostID = instData.RemoteHost
 			} else {
 				// Local session
 				tmuxSess = tmux.ReconnectSessionWithStatus(
@@ -540,9 +536,9 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			if tmuxSess != nil {
 				// Pass instance ID for activity hooks (enables real-time status updates)
 				tmuxSess.InstanceID = instData.ID
-				// Enable mouse mode for proper scrolling (only if session still exists)
-				// Sessions may no longer exist after tmux server restart
-				if tmuxSess.Exists() {
+				// Enable mouse mode for proper scrolling (local sessions only)
+				// Skip for remote sessions - would trigger slow SSH during startup
+				if instData.RemoteHost == "" && tmuxSess.Exists() {
 					// Ignore errors - non-fatal, older tmux versions may not support all options
 					_ = tmuxSess.EnableMouseMode()
 				}

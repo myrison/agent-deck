@@ -351,7 +351,8 @@ type Session struct {
 	WorkDir     string
 	Command     string
 	Created     time.Time
-	InstanceID  string // Agent-deck instance ID for hook callbacks
+	InstanceID   string // Agent-deck instance ID for hook callbacks
+	RemoteHostID string // For lazy SSH executor initialization (empty for local sessions)
 
 	// executor handles tmux operations (local or remote via SSH)
 	executor TmuxExecutor
@@ -431,10 +432,24 @@ func LogDir() string {
 }
 
 // getExecutor returns the session's executor, falling back to the default local executor
+// For remote sessions with RemoteHostID set, lazily creates the SSH executor on first access
 func (s *Session) getExecutor() TmuxExecutor {
 	if s.executor != nil {
 		return s.executor
 	}
+
+	// Lazy initialization for remote sessions
+	if s.RemoteHostID != "" {
+		sshExec, err := NewSSHExecutorFromPool(s.RemoteHostID)
+		if err != nil {
+			// Log but don't fail - operations will fail gracefully
+			log.Printf("Warning: failed to create SSH executor for %s: %v", s.RemoteHostID, err)
+			return nil
+		}
+		s.executor = sshExec
+		return s.executor
+	}
+
 	return DefaultExecutor()
 }
 
@@ -480,24 +495,24 @@ func ReconnectSession(tmuxName, displayName, workDir, command string) *Session {
 }
 
 // ReconnectSessionWithExecutor creates a Session object with a specific executor
+// If exec is nil, executor will be lazily initialized (local or SSH based on RemoteHostID)
 func ReconnectSessionWithExecutor(tmuxName, displayName, workDir, command string, exec TmuxExecutor) *Session {
-	if exec == nil {
-		exec = DefaultExecutor()
-	}
 	sess := &Session{
 		Name:             tmuxName,
 		DisplayName:      displayName,
 		WorkDir:          workDir,
 		Command:          command,
 		Created:          time.Now(), // Approximate - we don't persist this
-		executor:         exec,
+		executor:         exec,       // Can be nil for lazy initialization
 		lastStableStatus: "waiting",
 		toolDetectExpiry: 30 * time.Second,
 		// stateTracker and promptDetector will be created lazily on first status check
 	}
 
-	// Enable pipe-pane for event-driven status detection
-	if sess.Exists() {
+	// Enable pipe-pane for event-driven status detection (local sessions only)
+	// Remote sessions skip this - their existence check would trigger slow SSH calls
+	// and pipe-pane logging doesn't work the same way for remote sessions
+	if exec != nil && sess.Exists() {
 		if err := sess.EnablePipePane(); err != nil {
 			debugLog("Warning: failed to enable pipe-pane for %s: %v", tmuxName, err)
 		}
@@ -546,9 +561,9 @@ func ReconnectSessionWithStatusAndExecutor(tmuxName, displayName, workDir, comma
 		sess.lastStableStatus = "waiting"
 	}
 
-	// Enable pipe-pane for event-driven status detection
-	// (Note: Also called in ReconnectSession, but we ensure it's enabled after state restoration)
-	if sess.Exists() {
+	// Enable pipe-pane for event-driven status detection (local sessions only)
+	// Remote sessions skip this - would trigger slow SSH calls during load
+	if exec != nil && sess.Exists() {
 		if err := sess.EnablePipePane(); err != nil {
 			debugLog("Warning: failed to enable pipe-pane for %s: %v", tmuxName, err)
 		}
