@@ -1086,12 +1086,45 @@ func (i *Instance) UpdateStatus() error {
 		i.Status = StatusError
 	}
 
-	// Update tool detection dynamically (enables fork when Claude starts)
+	// Update tool detection dynamically (enables fork when Claude starts, downgrade when it exits)
 	// For remote sessions, skip detection - trust the stored Tool from remote's sessions.json
-	// For local sessions, only upgrade from shell to preserve existing tool assignment
-	if i.RemoteHost == "" && i.Tool == "shell" {
-		if detectedTool := i.tmuxSession.DetectTool(); detectedTool != "" {
-			i.Tool = detectedTool
+	// For local sessions:
+	//   - "shell" sessions: always try to detect (upgrade path)
+	//   - non-shell sessions: only re-detect if tool no longer in pane command (safe downgrade)
+	// This allows downgrading when Claude/Gemini exits while protecting against content detection false negatives
+	if i.RemoteHost == "" && i.tmuxSession != nil {
+		shouldDetect := i.Tool == "shell" // Always detect for shell sessions
+
+		// For non-shell sessions, check if the tool is still running via command
+		// Command-based detection is reliable (unlike content detection which can have false negatives)
+		if !shouldDetect {
+			cmd := strings.ToLower(i.tmuxSession.Command)
+			toolStillInCommand := false
+			switch i.Tool {
+			case "claude":
+				toolStillInCommand = strings.Contains(cmd, "claude")
+			case "gemini":
+				toolStillInCommand = strings.Contains(cmd, "gemini")
+			case "opencode":
+				toolStillInCommand = strings.Contains(cmd, "opencode") || strings.Contains(cmd, "open code")
+			case "codex":
+				toolStillInCommand = strings.Contains(cmd, "codex")
+			default:
+				// For custom tools, check if tool name appears in command
+				if i.Tool != "" {
+					toolStillInCommand = strings.Contains(cmd, strings.ToLower(i.Tool))
+				}
+			}
+			if !toolStillInCommand {
+				// Tool no longer in command - safe to re-detect (may downgrade to shell)
+				shouldDetect = true
+			}
+		}
+
+		if shouldDetect {
+			if detectedTool := i.tmuxSession.DetectTool(); detectedTool != "" {
+				i.Tool = detectedTool
+			}
 		}
 	}
 

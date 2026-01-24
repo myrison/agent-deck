@@ -433,6 +433,7 @@ func LogDir() string {
 
 // getExecutor returns the session's executor, falling back to the default local executor
 // For remote sessions with RemoteHostID set, lazily creates the SSH executor on first access
+// Returns nil if SSH executor creation fails for remote sessions - callers MUST check for nil
 func (s *Session) getExecutor() TmuxExecutor {
 	if s.executor != nil {
 		return s.executor
@@ -442,11 +443,13 @@ func (s *Session) getExecutor() TmuxExecutor {
 	if s.RemoteHostID != "" {
 		sshExec, err := NewSSHExecutorFromPool(s.RemoteHostID)
 		if err != nil {
-			// Log but don't fail - operations will fail gracefully
-			log.Printf("Warning: failed to create SSH executor for %s: %v", s.RemoteHostID, err)
+			// Log with session details for debugging remote status update failures
+			log.Printf("[SSH-EXECUTOR] Failed to create executor for remote session %q on host %q: %v",
+				s.DisplayName, s.RemoteHostID, err)
 			return nil
 		}
 		s.executor = sshExec
+		log.Printf("[SSH-EXECUTOR] Created executor for remote session %q on host %q", s.DisplayName, s.RemoteHostID)
 		return s.executor
 	}
 
@@ -584,13 +587,21 @@ func generateShortID() string {
 
 // SetEnvironment sets an environment variable for this tmux session
 func (s *Session) SetEnvironment(key, value string) error {
-	return s.getExecutor().SetEnvironment(s.Name, key, value)
+	exec := s.getExecutor()
+	if exec == nil {
+		return fmt.Errorf("no executor available for session %q (SSH connection failed?)", s.DisplayName)
+	}
+	return exec.SetEnvironment(s.Name, key, value)
 }
 
 // GetEnvironment gets an environment variable from this tmux session
 // Returns the value or error if not found
 func (s *Session) GetEnvironment(key string) (string, error) {
-	return s.getExecutor().GetEnvironment(s.Name, key)
+	exec := s.getExecutor()
+	if exec == nil {
+		return "", fmt.Errorf("no executor available for session %q (SSH connection failed?)", s.DisplayName)
+	}
+	return exec.GetEnvironment(s.Name, key)
 }
 
 // sanitizeName converts a display name to a valid tmux session name
@@ -711,9 +722,17 @@ func (s *Session) Start(command string) error {
 // Falls back to direct tmux call if cache is stale
 // For remote sessions, always uses executor directly (cache is local-only)
 func (s *Session) Exists() bool {
+	exec := s.getExecutor()
+
+	// Handle nil executor (SSH connection failed for remote session)
+	if exec == nil {
+		log.Printf("[SSH-EXECUTOR] Cannot check existence for %q: no executor available", s.DisplayName)
+		return false
+	}
+
 	// Remote sessions: skip local cache, always check via SSH executor
-	if s.getExecutor().IsRemote() {
-		exists, err := s.getExecutor().SessionExists(s.Name)
+	if exec.IsRemote() {
+		exists, err := exec.SessionExists(s.Name)
 		if err != nil {
 			return false
 		}
@@ -726,7 +745,7 @@ func (s *Session) Exists() bool {
 	}
 
 	// Cache miss/stale - fall back to direct check via executor
-	exists, err := s.getExecutor().SessionExists(s.Name)
+	exists, err := exec.SessionExists(s.Name)
 	if err != nil {
 		return false
 	}
@@ -766,6 +785,11 @@ func (s *Session) ConfigureStatusBar() {
 // EnablePipePane enables tmux pipe-pane to stream output to a log file
 // This is used for event-driven status detection via fsnotify
 func (s *Session) EnablePipePane() error {
+	exec := s.getExecutor()
+	if exec == nil {
+		return fmt.Errorf("no executor available for session %q (SSH connection failed?)", s.DisplayName)
+	}
+
 	logFile := s.LogFile()
 
 	// Ensure log directory exists
@@ -775,7 +799,7 @@ func (s *Session) EnablePipePane() error {
 	}
 
 	// Enable pipe-pane: stream pane output to log file
-	if err := s.getExecutor().EnablePipePane(s.Name, logFile); err != nil {
+	if err := exec.EnablePipePane(s.Name, logFile); err != nil {
 		return fmt.Errorf("failed to enable pipe-pane: %w", err)
 	}
 
@@ -784,7 +808,11 @@ func (s *Session) EnablePipePane() error {
 
 // DisablePipePane disables pipe-pane logging
 func (s *Session) DisablePipePane() error {
-	if err := s.getExecutor().DisablePipePane(s.Name); err != nil {
+	exec := s.getExecutor()
+	if exec == nil {
+		return fmt.Errorf("no executor available for session %q (SSH connection failed?)", s.DisplayName)
+	}
+	if err := exec.DisablePipePane(s.Name); err != nil {
 		return fmt.Errorf("failed to disable pipe-pane for %s: %w", s.Name, err)
 	}
 	return nil
@@ -869,7 +897,11 @@ func (s *Session) Kill() error {
 	os.Remove(logFile) // Ignore errors
 
 	// Kill the tmux session
-	return s.getExecutor().KillSession(s.Name)
+	exec := s.getExecutor()
+	if exec == nil {
+		return fmt.Errorf("no executor available for session %q (SSH connection failed?)", s.DisplayName)
+	}
+	return exec.KillSession(s.Name)
 }
 
 // RespawnPane kills the current process in the pane and starts a new command
@@ -880,8 +912,13 @@ func (s *Session) RespawnPane(command string) error {
 		return fmt.Errorf("session does not exist: %s", s.Name)
 	}
 
+	exec := s.getExecutor()
+	if exec == nil {
+		return fmt.Errorf("no executor available for session %q (SSH connection failed?)", s.DisplayName)
+	}
+
 	log.Printf("[MCP-DEBUG] RespawnPane executing for session %s, command: %s", s.Name, command)
-	return s.getExecutor().RespawnPane(s.Name, command)
+	return exec.RespawnPane(s.Name, command)
 }
 
 // GetWindowActivity returns Unix timestamp of last tmux window activity
@@ -894,7 +931,12 @@ func (s *Session) GetWindowActivity() (int64, error) {
 	}
 
 	// Cache miss/stale - fall back to direct check via executor
-	output, err := s.getExecutor().DisplayMessage(s.Name, "#{window_activity}")
+	exec := s.getExecutor()
+	if exec == nil {
+		return 0, fmt.Errorf("no executor available for session %q (SSH connection failed?)", s.DisplayName)
+	}
+
+	output, err := exec.DisplayMessage(s.Name, "#{window_activity}")
 	if err != nil {
 		return 0, fmt.Errorf("failed to get window activity: %w", err)
 	}
@@ -917,9 +959,14 @@ func (s *Session) CapturePane() (string, error) {
 	}
 	s.mu.Unlock()
 
+	exec := s.getExecutor()
+	if exec == nil {
+		return "", fmt.Errorf("no executor available for session %q (SSH connection failed?)", s.DisplayName)
+	}
+
 	startTime := time.Now()
 	// -J joins wrapped lines and trims trailing spaces so hashes don't change on resize
-	content, err := s.getExecutor().CapturePane(s.Name, true)
+	content, err := exec.CapturePane(s.Name, true)
 	elapsed := time.Since(startTime)
 
 	if err != nil {
@@ -944,9 +991,13 @@ func (s *Session) CapturePane() (string, error) {
 
 // CaptureFullHistory captures the scrollback history (limited to last 2000 lines for performance)
 func (s *Session) CaptureFullHistory() (string, error) {
+	exec := s.getExecutor()
+	if exec == nil {
+		return "", fmt.Errorf("no executor available for session %q (SSH connection failed?)", s.DisplayName)
+	}
 	// Limit to last 2000 lines to balance content availability with memory usage
 	// AI agent conversations can be long - 2000 lines captures ~40-80 screens of content
-	return s.getExecutor().CapturePaneHistory(s.Name, 2000)
+	return exec.CapturePaneHistory(s.Name, 2000)
 }
 
 // HasUpdated checks if the pane content has changed since last check
@@ -1750,25 +1801,41 @@ func (s *Session) hashContent(content string) string {
 // SendKeys sends keys to the tmux session
 // Uses -l flag to treat keys as literal text, preventing tmux special key interpretation
 func (s *Session) SendKeys(keys string) error {
+	exec := s.getExecutor()
+	if exec == nil {
+		return fmt.Errorf("no executor available for session %q (SSH connection failed?)", s.DisplayName)
+	}
 	// The -l flag makes tmux treat the string as literal text, not key names
 	// This prevents issues like "Enter" being interpreted as the Enter key
 	// and provides a layer of safety against tmux special sequences
-	return s.getExecutor().SendKeys(s.Name, keys, true)
+	return exec.SendKeys(s.Name, keys, true)
 }
 
 // SendEnter sends an Enter key to the tmux session
 func (s *Session) SendEnter() error {
-	return s.getExecutor().SendKeys(s.Name, "Enter", false)
+	exec := s.getExecutor()
+	if exec == nil {
+		return fmt.Errorf("no executor available for session %q (SSH connection failed?)", s.DisplayName)
+	}
+	return exec.SendKeys(s.Name, "Enter", false)
 }
 
 // SendCtrlC sends Ctrl+C (interrupt signal) to the tmux session
 func (s *Session) SendCtrlC() error {
-	return s.getExecutor().SendKeys(s.Name, "C-c", false)
+	exec := s.getExecutor()
+	if exec == nil {
+		return fmt.Errorf("no executor available for session %q (SSH connection failed?)", s.DisplayName)
+	}
+	return exec.SendKeys(s.Name, "C-c", false)
 }
 
 // SendCtrlU sends Ctrl+U (clear line) to the tmux session
 func (s *Session) SendCtrlU() error {
-	return s.getExecutor().SendKeys(s.Name, "C-u", false)
+	exec := s.getExecutor()
+	if exec == nil {
+		return fmt.Errorf("no executor available for session %q (SSH connection failed?)", s.DisplayName)
+	}
+	return exec.SendKeys(s.Name, "C-u", false)
 }
 
 // WaitForShellPrompt polls the terminal until a shell prompt is detected

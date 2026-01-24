@@ -5340,13 +5340,16 @@ func (h *Home) renderHelpBarFull() string {
 		shortcutsLine += sep + strings.Join(secondaryHints, " ")
 	}
 
-	// Reload indicator
-	var reloadIndicator string
+	// Status indicators (reload, remote discovery)
+	var statusIndicators []string
+	indicatorStyle := lipgloss.NewStyle().
+		Foreground(ColorYellow).
+		Bold(true)
 	if h.isReloading {
-		reloadStyle := lipgloss.NewStyle().
-			Foreground(ColorYellow).
-			Bold(true)
-		reloadIndicator = reloadStyle.Render("⟳ Reloading...")
+		statusIndicators = append(statusIndicators, indicatorStyle.Render("⟳ Reloading..."))
+	}
+	if h.remoteDiscoveryRunning.Load() {
+		statusIndicators = append(statusIndicators, indicatorStyle.Render("⟳ Scanning remote..."))
 	}
 
 	// Global shortcuts (right side) - more compact with separators
@@ -5357,8 +5360,8 @@ func (h *Home) renderHelpBarFull() string {
 
 	// Calculate spacing between left (context) and right (global) portions
 	leftPart := contextLabel + " " + shortcutsLine
-	if reloadIndicator != "" {
-		leftPart = reloadIndicator + sep + leftPart
+	if len(statusIndicators) > 0 {
+		leftPart = strings.Join(statusIndicators, sep) + sep + leftPart
 	}
 	rightPart := globalHints
 	padding := h.width - lipgloss.Width(leftPart) - lipgloss.Width(rightPart) - spacingNormal
