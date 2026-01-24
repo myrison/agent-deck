@@ -180,8 +180,9 @@ func main() {
 	// This registers all SSH hosts for potential use without connecting yet
 	session.InitSSHPool()
 
-	// Extract global -p/--profile flag before subcommand dispatch
+	// Extract global flags before subcommand dispatch
 	profile, args := extractProfileFlag(os.Args[1:])
+	themeFlag, args := extractThemeFlag(args)
 
 	// Handle subcommands
 	if len(args) > 0 {
@@ -237,8 +238,8 @@ func main() {
 	// Set version for UI update checking
 	ui.SetVersion(Version)
 
-	// Initialize theme from config
-	theme := session.GetTheme()
+	// Initialize theme: CLI flag > env var > config > default
+	theme := resolveTheme(themeFlag)
 	ui.InitTheme(theme)
 
 	// Check for updates and prompt user before launching TUI
@@ -356,6 +357,70 @@ func extractProfileFlag(args []string) (string, []string) {
 	}
 
 	return profile, remaining
+}
+
+// extractThemeFlag extracts --theme from args, returning the theme and remaining args
+func extractThemeFlag(args []string) (string, []string) {
+	var theme string
+	var remaining []string
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+
+		// Check for --theme=value
+		if strings.HasPrefix(arg, "--theme=") {
+			theme = strings.TrimPrefix(arg, "--theme=")
+			continue
+		}
+
+		// Check for --theme value
+		if arg == "--theme" {
+			if i+1 < len(args) {
+				theme = args[i+1]
+				i++ // Skip the value
+				continue
+			}
+		}
+
+		remaining = append(remaining, arg)
+	}
+
+	return theme, remaining
+}
+
+// resolveTheme determines the theme based on priority: CLI flag > env var > config
+// If value is "auto", detects system theme
+func resolveTheme(cliTheme string) string {
+	theme := ""
+
+	// Priority 1: CLI flag
+	if cliTheme != "" {
+		theme = cliTheme
+	}
+
+	// Priority 2: Environment variable
+	if theme == "" {
+		if envTheme := os.Getenv("AGENTDECK_THEME"); envTheme != "" {
+			theme = envTheme
+		}
+	}
+
+	// Priority 3: Config file
+	if theme == "" {
+		theme = session.GetTheme()
+	}
+
+	// Handle "auto" - detect system theme
+	if theme == "auto" {
+		return ui.DetectSystemTheme()
+	}
+
+	// Validate and default
+	if theme != "dark" && theme != "light" {
+		return "dark"
+	}
+
+	return theme
 }
 
 // reorderArgsForFlagParsing moves the path argument to the end of args
@@ -1424,6 +1489,7 @@ func printHelp() {
 	fmt.Println()
 	fmt.Println("Global Options:")
 	fmt.Println("  -p, --profile <name>   Use specific profile (default: 'default')")
+	fmt.Println("  --theme <theme>        Set theme: dark, light, auto (follows system)")
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  (none)           Start the TUI")

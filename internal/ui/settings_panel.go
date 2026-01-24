@@ -41,7 +41,7 @@ type SettingsPanel struct {
 	cursor  int // Current setting index
 
 	// Setting values
-	selectedTheme       int    // 0=dark, 1=light
+	selectedTheme       int    // 0=dark, 1=light, 2=auto
 	selectedTool        int    // 0=claude, 1=gemini, 2=opencode, 3=codex, 4=none
 	dangerousMode       bool
 	claudeConfigDir     string
@@ -77,8 +77,8 @@ var tierNames = []string{"Auto", "Instant", "Balanced"}
 var tierValues = []string{"auto", "instant", "balanced"}
 
 // Theme names for radio selection
-var themeNames = []string{"Dark", "Light"}
-var themeValues = []string{"dark", "light"}
+var themeNames = []string{"Dark", "Light", "Auto"}
+var themeValues = []string{"dark", "light", "auto"}
 
 // NewSettingsPanel creates a new settings panel
 func NewSettingsPanel() *SettingsPanel {
@@ -137,6 +137,8 @@ func (s *SettingsPanel) LoadConfig(config *session.UserConfig) {
 	switch config.Theme {
 	case "light":
 		s.selectedTheme = 1
+	case "auto":
+		s.selectedTheme = 2
 	default:
 		s.selectedTheme = 0
 	}

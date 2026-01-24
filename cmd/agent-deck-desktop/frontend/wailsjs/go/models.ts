@@ -1,5 +1,33 @@
 export namespace main {
 	
+	export class LaunchConfigInfo {
+	    key: string;
+	    name: string;
+	    tool: string;
+	    description: string;
+	    dangerousMode: boolean;
+	    mcpConfigPath: string;
+	    mcpNames?: string[];
+	    extraArgs: string[];
+	    isDefault: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new LaunchConfigInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.name = source["name"];
+	        this.tool = source["tool"];
+	        this.description = source["description"];
+	        this.dangerousMode = source["dangerousMode"];
+	        this.mcpConfigPath = source["mcpConfigPath"];
+	        this.mcpNames = source["mcpNames"];
+	        this.extraArgs = source["extraArgs"];
+	        this.isDefault = source["isDefault"];
+	    }
+	}
 	export class ProjectInfo {
 	    path: string;
 	    name: string;
@@ -43,6 +71,7 @@ export namespace main {
 	export class SessionInfo {
 	    id: string;
 	    title: string;
+	    customLabel?: string;
 	    projectPath: string;
 	    groupPath: string;
 	    tool: string;
@@ -52,8 +81,14 @@ export namespace main {
 	    remoteHost?: string;
 	    gitBranch?: string;
 	    isWorktree?: boolean;
+	    gitDirty?: boolean;
+	    gitAhead?: number;
+	    gitBehind?: number;
 	    // Go type: time
 	    lastAccessedAt?: any;
+	    launchConfigName?: string;
+	    loadedMcps?: string[];
+	    dangerousMode?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new SessionInfo(source);
@@ -63,6 +98,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.title = source["title"];
+	        this.customLabel = source["customLabel"];
 	        this.projectPath = source["projectPath"];
 	        this.groupPath = source["groupPath"];
 	        this.tool = source["tool"];
@@ -72,7 +108,13 @@ export namespace main {
 	        this.remoteHost = source["remoteHost"];
 	        this.gitBranch = source["gitBranch"];
 	        this.isWorktree = source["isWorktree"];
+	        this.gitDirty = source["gitDirty"];
+	        this.gitAhead = source["gitAhead"];
+	        this.gitBehind = source["gitBehind"];
 	        this.lastAccessedAt = this.convertValues(source["lastAccessedAt"], null);
+	        this.launchConfigName = source["launchConfigName"];
+	        this.loadedMcps = source["loadedMcps"];
+	        this.dangerousMode = source["dangerousMode"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

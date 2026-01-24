@@ -18,6 +18,8 @@ type App struct {
 	tmux             *TmuxManager
 	projectDiscovery *ProjectDiscovery
 	quickLaunch      *QuickLaunchManager
+	launchConfig     *LaunchConfigManager
+	desktopSettings  *DesktopSettingsManager
 }
 
 // NewApp creates a new App application struct.
@@ -27,6 +29,8 @@ func NewApp() *App {
 		tmux:             NewTmuxManager(),
 		projectDiscovery: NewProjectDiscovery(),
 		quickLaunch:      NewQuickLaunchManager(),
+		launchConfig:     NewLaunchConfigManager(),
+		desktopSettings:  NewDesktopSettingsManager(),
 	}
 }
 
@@ -113,8 +117,9 @@ func (a *App) RecordProjectUsage(projectPath string) error {
 }
 
 // CreateSession creates a new tmux session and launches the specified AI tool.
-func (a *App) CreateSession(projectPath, title, tool string) (SessionInfo, error) {
-	return a.tmux.CreateSession(projectPath, title, tool)
+// If configKey is provided, the launch config settings will be applied.
+func (a *App) CreateSession(projectPath, title, tool, configKey string) (SessionInfo, error) {
+	return a.tmux.CreateSession(projectPath, title, tool, configKey)
 }
 
 // GetQuickLaunchFavorites returns all quick launch favorites.
@@ -156,6 +161,12 @@ func (a *App) UpdateQuickLaunchFavoriteName(path, name string) error {
 // Call this when a user selects/opens a session to keep the list sorted by recency.
 func (a *App) MarkSessionAccessed(sessionID string) error {
 	return a.tmux.MarkSessionAccessed(sessionID)
+}
+
+// UpdateSessionCustomLabel updates the custom label for a session.
+// Pass an empty string to remove the custom label.
+func (a *App) UpdateSessionCustomLabel(sessionID, customLabel string) error {
+	return a.tmux.UpdateSessionCustomLabel(sessionID, customLabel)
 }
 
 // GetGitBranch returns the current git branch for a given directory.
@@ -209,4 +220,64 @@ func (a *App) GetProjectRoots() []string {
 // This allows Claude to read diagnostic info that would otherwise only be in browser console.
 func (a *App) LogFrontendDiagnostic(message string) {
 	a.terminal.LogDiagnostic(message)
+}
+
+// ==================== Launch Config Methods ====================
+
+// GetLaunchConfigs returns all launch configurations.
+func (a *App) GetLaunchConfigs() ([]LaunchConfigInfo, error) {
+	return a.launchConfig.GetLaunchConfigs()
+}
+
+// GetLaunchConfigsForTool returns launch configs for a specific tool.
+func (a *App) GetLaunchConfigsForTool(tool string) ([]LaunchConfigInfo, error) {
+	return a.launchConfig.GetLaunchConfigsForTool(tool)
+}
+
+// GetLaunchConfig returns a single launch config by key.
+func (a *App) GetLaunchConfig(key string) (*LaunchConfigInfo, error) {
+	return a.launchConfig.GetLaunchConfig(key)
+}
+
+// GetDefaultLaunchConfig returns the default config for a tool, or nil if none set.
+func (a *App) GetDefaultLaunchConfig(tool string) (*LaunchConfigInfo, error) {
+	return a.launchConfig.GetDefaultLaunchConfig(tool)
+}
+
+// SaveLaunchConfig creates or updates a launch configuration.
+func (a *App) SaveLaunchConfig(key, name, tool, description string, dangerousMode bool, mcpConfigPath string, extraArgs []string, isDefault bool) error {
+	return a.launchConfig.SaveLaunchConfig(key, name, tool, description, dangerousMode, mcpConfigPath, extraArgs, isDefault)
+}
+
+// DeleteLaunchConfig removes a launch configuration.
+func (a *App) DeleteLaunchConfig(key string) error {
+	return a.launchConfig.DeleteLaunchConfig(key)
+}
+
+// ValidateMCPConfigPath validates an MCP config path and returns the MCP names.
+func (a *App) ValidateMCPConfigPath(path string) ([]string, error) {
+	return a.launchConfig.ValidateMCPConfigPath(path)
+}
+
+// GenerateConfigKey generates a unique config key from tool and name.
+func (a *App) GenerateConfigKey(tool, name string) string {
+	return a.launchConfig.GenerateConfigKey(tool, name)
+}
+
+// ==================== Desktop Settings Methods ====================
+
+// GetDesktopTheme returns the current desktop theme preference.
+// Returns "dark", "light", or "auto".
+func (a *App) GetDesktopTheme() string {
+	theme, err := a.desktopSettings.GetTheme()
+	if err != nil {
+		return "dark"
+	}
+	return theme
+}
+
+// SetDesktopTheme sets the desktop theme preference.
+// Valid values: "dark", "light", "auto".
+func (a *App) SetDesktopTheme(theme string) error {
+	return a.desktopSettings.SetTheme(theme)
 }

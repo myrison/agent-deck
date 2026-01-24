@@ -3300,6 +3300,27 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.settingsPanel.SetSize(h.width, h.height)
 		return h, nil
 
+	case "T":
+		// Toggle theme between dark and light
+		currentTheme := GetCurrentTheme()
+		var newTheme string
+		if currentTheme == ThemeLight {
+			newTheme = "dark"
+		} else {
+			newTheme = "light"
+		}
+		// Apply new theme immediately
+		InitTheme(newTheme)
+		// Save preference to config
+		if config, err := session.LoadUserConfig(); err == nil {
+			config.Theme = newTheme
+			if err := session.SaveUserConfig(config); err != nil {
+				h.err = err
+				h.errTime = time.Now()
+			}
+		}
+		return h, nil
+
 	case "n":
 		// Collect unique project paths sorted by most recently accessed
 		type pathInfo struct {

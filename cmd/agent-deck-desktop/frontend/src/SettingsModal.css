@@ -1,0 +1,325 @@
+/* Settings Modal Overlay */
+.settings-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--modal-overlay);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1100;
+}
+
+/* Settings Modal Container */
+.settings-container {
+    width: 100%;
+    max-width: 560px;
+    max-height: 80vh;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 10px;
+    box-shadow: 0 16px 48px var(--modal-shadow);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* Header */
+.settings-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-secondary);
+    flex-shrink: 0;
+}
+
+.settings-header h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.settings-close {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: color 0.15s, background 0.15s;
+}
+
+.settings-close:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+/* Content */
+.settings-content {
+    padding: 16px 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.settings-loading {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 40px 0;
+}
+
+/* Tool Sections */
+.settings-tool-section {
+    margin-bottom: 24px;
+}
+
+.settings-tool-section:last-child {
+    margin-bottom: 0;
+}
+
+.settings-tool-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.settings-tool-header h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    flex: 1;
+}
+
+.settings-tool-icon {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    font-weight: bold;
+    font-size: 12px;
+    color: var(--tool-icon-text);
+}
+
+.settings-add-btn {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--btn-bg);
+    border: none;
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+}
+
+.settings-add-btn:hover {
+    background: var(--btn-bg-hover);
+    color: var(--text-primary);
+}
+
+.settings-empty {
+    padding: 12px 16px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    color: var(--text-dimmed);
+    font-size: 12px;
+    text-align: center;
+}
+
+/* Config List */
+.settings-config-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.settings-config-item {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 6px;
+    padding: 12px;
+}
+
+.settings-config-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-danger-icon {
+    color: var(--accent-warning);
+    font-size: 14px;
+    cursor: help;
+}
+
+.settings-config-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.settings-default-badge {
+    background: var(--accent-primary);
+    color: var(--tool-icon-text);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+}
+
+.settings-config-desc {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.settings-config-mcps {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--text-dimmed);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.settings-config-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.settings-edit-btn,
+.settings-delete-btn {
+    padding: 4px 12px;
+    font-size: 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.settings-edit-btn {
+    background: var(--btn-bg);
+    color: var(--btn-text);
+}
+
+.settings-edit-btn:hover {
+    background: var(--btn-bg-hover);
+    color: var(--btn-text-hover);
+}
+
+.settings-delete-btn {
+    background: transparent;
+    color: var(--text-muted);
+}
+
+.settings-delete-btn:hover {
+    background: var(--danger-hover-bg);
+    color: var(--accent-error);
+}
+
+/* Footer */
+.settings-footer {
+    padding: 12px 20px;
+    border-top: 1px solid var(--border-secondary);
+    background: var(--bg-tertiary);
+    flex-shrink: 0;
+}
+
+.settings-hint {
+    font-size: 12px;
+    color: var(--text-dimmed);
+}
+
+.settings-hint kbd {
+    display: inline-block;
+    background: var(--kbd-bg);
+    border-radius: 3px;
+    padding: 2px 5px;
+    margin: 0 2px;
+    font-family: inherit;
+    font-size: 10px;
+    color: var(--kbd-text);
+}
+
+/* Theme Section */
+.settings-theme-section {
+    margin-bottom: 24px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border-secondary);
+}
+
+.settings-theme-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.settings-theme-header h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.settings-theme-icon {
+    font-size: 16px;
+}
+
+.settings-theme-options {
+    display: flex;
+    gap: 8px;
+}
+
+.settings-theme-option {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: var(--bg-tertiary);
+    border: 2px solid var(--border-secondary);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.settings-theme-option:hover {
+    border-color: var(--border-primary);
+    color: var(--text-primary);
+}
+
+.settings-theme-option.active {
+    border-color: var(--accent-primary);
+    background: rgba(76, 201, 240, 0.1);
+    color: var(--text-primary);
+}
+
+[data-theme="light"] .settings-theme-option.active {
+    background: rgba(0, 119, 204, 0.1);
+}
+
+.settings-theme-option-icon {
+    font-size: 16px;
+}

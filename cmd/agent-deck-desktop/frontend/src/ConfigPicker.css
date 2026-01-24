@@ -1,0 +1,182 @@
+/* Config Picker Overlay */
+.config-picker-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--modal-overlay);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1100;
+}
+
+/* Config Picker Container */
+.config-picker-container {
+    width: 100%;
+    max-width: 450px;
+    max-height: 70vh;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 10px;
+    box-shadow: 0 16px 48px var(--modal-shadow);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    outline: none;
+}
+
+/* Header */
+.config-picker-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 20px;
+    border-bottom: 1px solid var(--border-secondary);
+    flex-shrink: 0;
+}
+
+.config-picker-tool-icon {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    font-weight: bold;
+    font-size: 16px;
+    color: var(--tool-icon-text);
+    flex-shrink: 0;
+}
+
+.config-picker-header-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.config-picker-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.config-picker-path {
+    margin: 4px 0 0 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Loading */
+.config-picker-loading {
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+/* Options */
+.config-picker-options {
+    padding: 8px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.config-picker-option {
+    display: flex;
+    align-items: flex-start;
+    width: 100%;
+    padding: 12px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    text-align: left;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.config-picker-option:hover,
+.config-picker-option.selected {
+    background: var(--bg-selected);
+}
+
+.config-picker-option.selected {
+    background: var(--bg-selected);
+}
+
+/* Option Content */
+.config-picker-option-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.config-picker-option-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.config-picker-danger-icon {
+    color: var(--accent-warning);
+    font-size: 14px;
+}
+
+.config-picker-option-name {
+    font-weight: 500;
+    font-size: 14px;
+}
+
+.config-picker-default-badge {
+    background: var(--accent-primary);
+    color: var(--tool-icon-text);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+}
+
+.config-picker-option-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.config-picker-option-mcps {
+    font-size: 11px;
+    color: var(--text-dimmed);
+    margin-top: 4px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* Footer Hints */
+.config-picker-footer {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+    border-top: 1px solid var(--border-secondary);
+    background: var(--bg-tertiary);
+    flex-shrink: 0;
+}
+
+.config-picker-hint {
+    font-size: 11px;
+    color: var(--text-dimmed);
+}
+
+.config-picker-hint kbd {
+    display: inline-block;
+    background: var(--kbd-bg);
+    border-radius: 3px;
+    padding: 2px 5px;
+    margin-right: 3px;
+    font-family: inherit;
+    font-size: 10px;
+    color: var(--kbd-text);
+}

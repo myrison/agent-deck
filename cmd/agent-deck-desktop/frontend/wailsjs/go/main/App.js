@@ -14,16 +14,44 @@ export function CloseTerminal() {
   return window['go']['main']['App']['CloseTerminal']();
 }
 
-export function CreateSession(arg1, arg2, arg3) {
-  return window['go']['main']['App']['CreateSession'](arg1, arg2, arg3);
+export function CreateSession(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['CreateSession'](arg1, arg2, arg3, arg4);
+}
+
+export function DeleteLaunchConfig(arg1) {
+  return window['go']['main']['App']['DeleteLaunchConfig'](arg1);
 }
 
 export function DiscoverProjects() {
   return window['go']['main']['App']['DiscoverProjects']();
 }
 
+export function GenerateConfigKey(arg1, arg2) {
+  return window['go']['main']['App']['GenerateConfigKey'](arg1, arg2);
+}
+
+export function GetDefaultLaunchConfig(arg1) {
+  return window['go']['main']['App']['GetDefaultLaunchConfig'](arg1);
+}
+
+export function GetDesktopTheme() {
+  return window['go']['main']['App']['GetDesktopTheme']();
+}
+
 export function GetGitBranch(arg1) {
   return window['go']['main']['App']['GetGitBranch'](arg1);
+}
+
+export function GetLaunchConfig(arg1) {
+  return window['go']['main']['App']['GetLaunchConfig'](arg1);
+}
+
+export function GetLaunchConfigs() {
+  return window['go']['main']['App']['GetLaunchConfigs']();
+}
+
+export function GetLaunchConfigsForTool(arg1) {
+  return window['go']['main']['App']['GetLaunchConfigsForTool'](arg1);
 }
 
 export function GetProjectRoots() {
@@ -78,8 +106,16 @@ export function ResizeTerminal(arg1, arg2) {
   return window['go']['main']['App']['ResizeTerminal'](arg1, arg2);
 }
 
+export function SaveLaunchConfig(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
+  return window['go']['main']['App']['SaveLaunchConfig'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+}
+
 export function SessionExists(arg1) {
   return window['go']['main']['App']['SessionExists'](arg1);
+}
+
+export function SetDesktopTheme(arg1) {
+  return window['go']['main']['App']['SetDesktopTheme'](arg1);
 }
 
 export function SetQuickLaunchBarVisibility(arg1) {
@@ -100,6 +136,14 @@ export function UpdateQuickLaunchFavoriteName(arg1, arg2) {
 
 export function UpdateQuickLaunchShortcut(arg1, arg2) {
   return window['go']['main']['App']['UpdateQuickLaunchShortcut'](arg1, arg2);
+}
+
+export function UpdateSessionCustomLabel(arg1, arg2) {
+  return window['go']['main']['App']['UpdateSessionCustomLabel'](arg1, arg2);
+}
+
+export function ValidateMCPConfigPath(arg1) {
+  return window['go']['main']['App']['ValidateMCPConfigPath'](arg1);
 }
 
 export function WriteTerminal(arg1) {
