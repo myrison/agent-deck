@@ -30,7 +30,20 @@ function App() {
     const [favorites, setFavorites] = useState([]); // All quick launch favorites
     const [gitBranch, setGitBranch] = useState(''); // Current git branch for selected session
     const [isWorktree, setIsWorktree] = useState(false); // Whether session is in a git worktree
+    const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'active', 'idle'
     const sessionSelectorRef = useRef(null);
+
+    // Cycle through status filter modes: all -> active -> idle -> all
+    const handleCycleStatusFilter = useCallback(() => {
+        setStatusFilter(current => {
+            const modes = ['all', 'active', 'idle'];
+            const currentIndex = modes.indexOf(current);
+            const nextIndex = (currentIndex + 1) % modes.length;
+            const nextMode = modes[nextIndex];
+            logger.info('Cycling status filter', { from: current, to: nextMode });
+            return nextMode;
+        });
+    }, []);
 
     // Build shortcut key from event
     const buildShortcutKey = useCallback((e) => {
@@ -313,7 +326,12 @@ function App() {
             e.preventDefault();
             handleBackToSelector();
         }
-    }, [view, showSearch, handleBackToSelector, buildShortcutKey, shortcuts, handleLaunchProject]);
+        // Shift+5 (%) to cycle session status filter (only in selector view)
+        if (e.key === '%' && view === 'selector') {
+            e.preventDefault();
+            handleCycleStatusFilter();
+        }
+    }, [view, showSearch, handleBackToSelector, buildShortcutKey, shortcuts, handleLaunchProject, handleCycleStatusFilter]);
 
     useEffect(() => {
         document.addEventListener('keydown', handleKeyDown);
@@ -337,6 +355,8 @@ function App() {
                 <SessionSelector
                     onSelect={handleSelectSession}
                     onNewTerminal={handleNewTerminal}
+                    statusFilter={statusFilter}
+                    onCycleFilter={handleCycleStatusFilter}
                 />
                 {showCommandPalette && (
                     <CommandPalette

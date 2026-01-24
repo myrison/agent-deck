@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ListSessions } from '../wailsjs/go/main/App';
 import './SessionSelector.css';
 import { createLogger } from './logger';
@@ -7,7 +7,7 @@ import { useTooltip } from './Tooltip';
 
 const logger = createLogger('SessionSelector');
 
-export default function SessionSelector({ onSelect, onNewTerminal }) {
+export default function SessionSelector({ onSelect, onNewTerminal, statusFilter = 'all', onCycleFilter }) {
     const [sessions, setSessions] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -59,6 +59,35 @@ export default function SessionSelector({ onSelect, onNewTerminal }) {
         }
     };
 
+    // Filter sessions based on current status filter
+    const filteredSessions = useMemo(() => {
+        if (statusFilter === 'all') return sessions;
+        if (statusFilter === 'active') {
+            return sessions.filter(s => s.status === 'running' || s.status === 'waiting');
+        }
+        if (statusFilter === 'idle') {
+            return sessions.filter(s => s.status === 'idle');
+        }
+        return sessions;
+    }, [sessions, statusFilter]);
+
+    // Get display label for current filter mode
+    const getFilterLabel = () => {
+        switch (statusFilter) {
+            case 'active': return 'Active';
+            case 'idle': return 'Idle';
+            default: return 'All';
+        }
+    };
+
+    // Get color for filter badge
+    const getFilterColor = () => {
+        switch (statusFilter) {
+            case 'active': return '#4ecdc4'; // cyan for active
+            case 'idle': return '#6c757d';   // gray for idle
+            default: return '#888';          // neutral for all
+        }
+    };
 
     if (loading) {
         return (
@@ -72,9 +101,20 @@ export default function SessionSelector({ onSelect, onNewTerminal }) {
         <div className="session-selector">
             <div className="session-header">
                 <h2>Agent Deck Sessions</h2>
-                <button className="refresh-btn" onClick={loadSessions} title="Refresh">
-                    ↻
-                </button>
+                <div className="header-controls">
+                    <button
+                        className="filter-btn"
+                        onClick={onCycleFilter}
+                        title="Cycle status filter (Shift+5)"
+                        style={{ borderColor: getFilterColor() }}
+                    >
+                        <span className="filter-indicator" style={{ backgroundColor: getFilterColor() }} />
+                        {getFilterLabel()}
+                    </button>
+                    <button className="refresh-btn" onClick={loadSessions} title="Refresh">
+                        ↻
+                    </button>
+                </div>
             </div>
 
             {error && (
@@ -82,14 +122,24 @@ export default function SessionSelector({ onSelect, onNewTerminal }) {
             )}
 
             <div className="session-list">
-                {sessions.length === 0 ? (
+                {filteredSessions.length === 0 ? (
                     <div className="no-sessions">
-                        No active sessions found.
-                        <br />
-                        <small>Start sessions using the Agent Deck TUI.</small>
+                        {sessions.length === 0 ? (
+                            <>
+                                No active sessions found.
+                                <br />
+                                <small>Start sessions using the Agent Deck TUI.</small>
+                            </>
+                        ) : (
+                            <>
+                                No {statusFilter === 'active' ? 'active' : 'idle'} sessions.
+                                <br />
+                                <small>Press Shift+5 to show all sessions.</small>
+                            </>
+                        )}
                     </div>
                 ) : (
-                    sessions.map((session) => (
+                    filteredSessions.map((session) => (
                         <button
                             key={session.id}
                             className="session-item"
