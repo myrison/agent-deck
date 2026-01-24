@@ -7,7 +7,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 // import { WebglAddon } from '@xterm/addon-webgl'; // Disabled - breaks scroll detection
 import '@xterm/xterm/css/xterm.css';
 import './Terminal.css';
-import { StartTerminal, WriteTerminal, ResizeTerminal, CloseTerminal, StartTmuxSession, LogFrontendDiagnostic, GetTerminalSettings } from '../wailsjs/go/main/App';
+import { StartTerminal, WriteTerminal, ResizeTerminal, CloseTerminal, StartTmuxSession, StartRemoteTmuxSession, LogFrontendDiagnostic, GetTerminalSettings } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE } from './constants/terminal';
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
@@ -424,15 +424,30 @@ export default function Terminal({ searchRef, session, fontSize = DEFAULT_FONT_S
         const startTerminal = async () => {
             try {
                 if (session && session.tmuxSession) {
-                    logger.info('Connecting to tmux session (polling mode):', session.tmuxSession);
-                    // Backend handles:
-                    // 1. History fetch + emit via terminal:history event
-                    // 2. PTY attach for user input
-                    // 3. Polling loop for display updates
-                    await StartTmuxSession(session.tmuxSession, cols, rows);
-                    logger.info('Polling session started');
-                    console.log('%c[LOAD] Polling session started', 'color: cyan; font-weight: bold');
-                    LogFrontendDiagnostic('[LOAD] Polling session started');
+                    if (session.isRemote && session.remoteHost) {
+                        // Remote session - use SSH polling
+                        logger.info('Connecting to remote tmux session (SSH polling mode):',
+                            session.remoteHost, session.tmuxSession);
+                        // Backend handles:
+                        // 1. SSH connection to remote host
+                        // 2. History fetch + emit via terminal:history event
+                        // 3. Polling loop for display updates via SSH
+                        await StartRemoteTmuxSession(session.remoteHost, session.tmuxSession, cols, rows);
+                        logger.info('Remote polling session started');
+                        console.log('%c[LOAD] Remote SSH polling session started', 'color: cyan; font-weight: bold');
+                        LogFrontendDiagnostic('[LOAD] Remote SSH polling session started');
+                    } else {
+                        // Local session - use local polling
+                        logger.info('Connecting to tmux session (polling mode):', session.tmuxSession);
+                        // Backend handles:
+                        // 1. History fetch + emit via terminal:history event
+                        // 2. PTY attach for user input
+                        // 3. Polling loop for display updates
+                        await StartTmuxSession(session.tmuxSession, cols, rows);
+                        logger.info('Polling session started');
+                        console.log('%c[LOAD] Polling session started', 'color: cyan; font-weight: bold');
+                        LogFrontendDiagnostic('[LOAD] Polling session started');
+                    }
                 } else {
                     logger.info('Starting new terminal');
                     await StartTerminal(cols, rows);
