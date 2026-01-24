@@ -7,7 +7,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 // import { WebglAddon } from '@xterm/addon-webgl'; // Disabled - breaks scroll detection
 import '@xterm/xterm/css/xterm.css';
 import './Terminal.css';
-import { StartTerminal, WriteTerminal, ResizeTerminal, CloseTerminal, StartTmuxSession, RefreshScrollback, LogFrontendDiagnostic, GetTerminalSettings } from '../wailsjs/go/main/App';
+import { StartTerminal, WriteTerminal, ResizeTerminal, CloseTerminal, StartTmuxSession, LogFrontendDiagnostic, GetTerminalSettings } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
 import { useTheme } from './context/ThemeContext';
@@ -52,7 +52,6 @@ export default function Terminal({ searchRef, session }) {
     const searchAddonRef = useRef(null);
     const initRef = useRef(false);
     const isAtBottomRef = useRef(true);
-    const refreshingRef = useRef(false); // Flag to pause PTY data during refresh
     const [showScrollIndicator, setShowScrollIndicator] = useState(false);
     const { theme } = useTheme();
 
@@ -304,22 +303,30 @@ export default function Terminal({ searchRef, session }) {
         };
         EventsOn('terminal:debug', handleDebug);
 
-        // Handle pre-loaded history (Phase 1 of hybrid approach)
-        // NOTE: We ignore this event now - using RefreshScrollback after PTY settles instead
-        // This avoids race conditions between history write and PTY data
+        // Handle pre-loaded history (initial scrollback from tmux)
+        // In polling mode, this contains the full scrollback captured before polling starts
         const handleTerminalHistory = (history) => {
-            logger.debug('Ignoring terminal:history event (', history.length, 'bytes) - using RefreshScrollback instead');
+            logger.info('Received initial history:', history.length, 'bytes');
+            if (xtermRef.current && history) {
+                // Write initial scrollback to xterm
+                xtermRef.current.write(history);
+                xtermRef.current.scrollToBottom();
+
+                // Mark session load complete for scroll tracking
+                setTimeout(() => {
+                    if (xtermRef.current?._markSessionLoadComplete) {
+                        xtermRef.current._markSessionLoadComplete();
+                    }
+                }, 100);
+            }
         };
         EventsOn('terminal:history', handleTerminalHistory);
 
-        // Listen for data from PTY (Phase 2 - live streaming)
+        // Listen for data from backend (polling mode - history gaps and viewport diffs)
+        // In polling mode, this receives:
+        // 1. History gap lines (content that scrolled off viewport)
+        // 2. Viewport diff updates (efficient in-place updates)
         const handleTerminalData = (data) => {
-            // Skip writes during refresh to prevent corruption
-            if (refreshingRef.current) {
-                logger.debug('[DATA] Skipped during refresh:', data.length, 'bytes');
-                return;
-            }
-
             if (xtermRef.current) {
                 xtermRef.current.write(data);
             }
@@ -340,6 +347,7 @@ export default function Terminal({ searchRef, session }) {
 
         // Debounced scrollback refresh - fixes xterm.js reflow issues with box-drawing chars
         // Only triggers after resize settles (no resize events for 400ms)
+        // In polling mode, this clears xterm so polling can rebuild display cleanly
         let scrollbackRefreshTimer = null;
         const refreshScrollbackAfterResize = async () => {
             if (!session?.tmuxSession || !xtermRef.current) {
@@ -348,22 +356,13 @@ export default function Terminal({ searchRef, session }) {
             }
 
             try {
-                refreshingRef.current = true; // Pause PTY data writes
-                logger.info('[RESIZE-REFRESH] Fetching fresh scrollback from tmux...');
-                const scrollback = await RefreshScrollback();
-
-                if (scrollback && xtermRef.current) {
-                    // Clear buffer and rewrite with fresh content from tmux
-                    xtermRef.current.clear();
-                    xtermRef.current.write(scrollback);
-                    logger.info('[RESIZE-REFRESH] Done:', scrollback.length, 'bytes');
-                } else {
-                    logger.warn('[RESIZE-REFRESH] No scrollback returned or xterm gone');
-                }
+                logger.info('[RESIZE-REFRESH] Clearing xterm for clean polling rebuild...');
+                // In polling mode, just clear xterm - polling will rebuild the display
+                // The backend Resize() already reset the history tracker
+                xtermRef.current.clear();
+                logger.info('[RESIZE-REFRESH] Done - polling will rebuild display');
             } catch (err) {
                 logger.error('[RESIZE-REFRESH] Failed:', err);
-            } finally {
-                refreshingRef.current = false; // Resume PTY data writes
             }
         };
 
@@ -414,42 +413,15 @@ export default function Terminal({ searchRef, session }) {
         const startTerminal = async () => {
             try {
                 if (session && session.tmuxSession) {
-                    logger.info('Connecting to tmux session (hybrid mode):', session.tmuxSession);
-                    // Backend handles history fetch + PTY attach in one call
+                    logger.info('Connecting to tmux session (polling mode):', session.tmuxSession);
+                    // Backend handles:
+                    // 1. History fetch + emit via terminal:history event
+                    // 2. PTY attach for user input
+                    // 3. Polling loop for display updates
                     await StartTmuxSession(session.tmuxSession, cols, rows);
-                    logger.info('Hybrid session started, waiting for PTY to settle...');
-
-                    // Wait for PTY to settle, then refresh scrollback
-                    // This ensures clean content without race conditions
-                    setTimeout(async () => {
-                        logger.info('Refreshing scrollback after PTY settle...');
-                        console.log('%c[LOAD] Starting scrollback refresh...', 'color: cyan; font-weight: bold');
-                        LogFrontendDiagnostic('[LOAD] Starting scrollback refresh');
-                        try {
-                            refreshingRef.current = true; // Pause PTY data writes
-                            const scrollback = await RefreshScrollback();
-                            if (scrollback && xtermRef.current) {
-                                xtermRef.current.clear();
-                                xtermRef.current.write(scrollback);
-                                xtermRef.current.scrollToBottom();
-                                logger.info('Initial scrollback loaded:', scrollback.length, 'bytes');
-                                console.log(`%c[LOAD] Scrollback written: ${scrollback.length} bytes`, 'color: cyan; font-weight: bold');
-                                LogFrontendDiagnostic(`[LOAD] Scrollback written: ${scrollback.length} bytes`);
-
-                                // Mark session load complete so RAF polling can start tracking user scrolls
-                                // Small delay to let xterm.js finish rendering
-                                setTimeout(() => {
-                                    if (xtermRef.current?._markSessionLoadComplete) {
-                                        xtermRef.current._markSessionLoadComplete();
-                                    }
-                                }, 100);
-                            }
-                        } catch (err) {
-                            logger.error('Failed to refresh initial scrollback:', err);
-                        } finally {
-                            refreshingRef.current = false; // Resume PTY data writes
-                        }
-                    }, 300);
+                    logger.info('Polling session started');
+                    console.log('%c[LOAD] Polling session started', 'color: cyan; font-weight: bold');
+                    LogFrontendDiagnostic('[LOAD] Polling session started');
                 } else {
                     logger.info('Starting new terminal');
                     await StartTerminal(cols, rows);

@@ -115,6 +115,12 @@ type Terminal struct {
 
 	// Current tmux session (for hybrid mode)
 	tmuxSession string
+
+	// Polling mode - for proper scrollback accumulation
+	tmuxPolling    bool
+	tmuxStopChan   chan struct{}
+	tmuxLastState  string
+	historyTracker *HistoryTracker
 }
 
 // NewTerminal creates a new Terminal instance.
@@ -156,11 +162,13 @@ func (t *Terminal) Start(cols, rows int) error {
 	return nil
 }
 
-// StartTmuxSession connects to a tmux session using the hybrid approach:
+// StartTmuxSession connects to a tmux session using polling mode:
 // 1. Fetch and emit sanitized history via terminal:history event
-// 2. Attach PTY for live streaming
+// 2. Attach PTY for user input only
+// 3. Use polling for display updates (ensures scrollback accumulates properly)
 //
-// This is the industry-standard approach used by VS Code terminal, web SSH clients, etc.
+// This approach solves the scrollback problem where TUI applications like Claude Code
+// use escape sequences that prevent xterm.js from building up scrollback buffer.
 func (t *Terminal) StartTmuxSession(tmuxSession string, cols, rows int) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -169,15 +177,15 @@ func (t *Terminal) StartTmuxSession(tmuxSession string, cols, rows int) error {
 		return nil // Already started
 	}
 
-	t.debugLog("[HYBRID] Starting hybrid session for tmux=%s cols=%d rows=%d", tmuxSession, cols, rows)
+	t.debugLog("[POLLING] Starting polling session for tmux=%s cols=%d rows=%d", tmuxSession, cols, rows)
 
 	// 1. Resize tmux window to match terminal dimensions
 	if cols > 0 && rows > 0 {
 		resizeCmd := exec.Command("tmux", "resize-window", "-t", tmuxSession, "-x", itoa(cols), "-y", itoa(rows))
 		if err := resizeCmd.Run(); err != nil {
-			t.debugLog("[HYBRID] resize-window error: %v", err)
+			t.debugLog("[POLLING] resize-window error: %v", err)
 		} else {
-			t.debugLog("[HYBRID] Resized tmux window to %dx%d", cols, rows)
+			t.debugLog("[POLLING] Resized tmux window to %dx%d", cols, rows)
 		}
 		// Wait for tmux to reflow content after resize
 		time.Sleep(50 * time.Millisecond)
@@ -191,7 +199,7 @@ func (t *Terminal) StartTmuxSession(tmuxSession string, cols, rows int) error {
 	historyCmd := exec.Command("tmux", "capture-pane", "-t", tmuxSession, "-p", "-e", "-S", "-", "-E", "-")
 	historyOutput, err := historyCmd.Output()
 	if err != nil {
-		t.debugLog("[HYBRID] capture-pane error: %v", err)
+		t.debugLog("[POLLING] capture-pane error: %v", err)
 		// Continue anyway - history is optional
 	}
 
@@ -199,7 +207,7 @@ func (t *Terminal) StartTmuxSession(tmuxSession string, cols, rows int) error {
 	if len(historyOutput) > 0 {
 		history := sanitizeHistoryForXterm(string(historyOutput))
 		history = normalizeCRLF(history)
-		t.debugLog("[HYBRID] Emitting %d bytes of sanitized history", len(history))
+		t.debugLog("[POLLING] Emitting %d bytes of sanitized history", len(history))
 		if t.ctx != nil {
 			runtime.EventsEmit(t.ctx, "terminal:history", history)
 		}
@@ -208,8 +216,8 @@ func (t *Terminal) StartTmuxSession(tmuxSession string, cols, rows int) error {
 	// 4. Short delay for frontend to process history
 	time.Sleep(50 * time.Millisecond)
 
-	// 5. Attach PTY to tmux
-	t.debugLog("[HYBRID] Attaching PTY to tmux session")
+	// 5. Attach PTY to tmux (for user input only - output is handled by polling)
+	t.debugLog("[POLLING] Attaching PTY to tmux session for input")
 	pty, err := SpawnPTYWithCommand("tmux", "attach-session", "-t", tmuxSession)
 	if err != nil {
 		return fmt.Errorf("failed to attach to tmux: %w", err)
@@ -223,11 +231,171 @@ func (t *Terminal) StartTmuxSession(tmuxSession string, cols, rows int) error {
 	t.tmuxSession = tmuxSession
 	t.closed = false
 
-	// 6. Start streaming with seam filter for initial output
-	go t.readLoopWithSeamFilter()
+	// 6. Start PTY read loop (we'll discard output, using polling for display instead)
+	// This keeps the PTY connection alive and allows tmux to detect our terminal size
+	go t.readLoopDiscard()
 
-	t.debugLog("[HYBRID] Session started successfully")
+	// 7. Start polling mode for display updates
+	t.startTmuxPolling(tmuxSession, rows)
+
+	t.debugLog("[POLLING] Session started successfully with polling mode")
 	return nil
+}
+
+// readLoopDiscard reads from PTY but discards output.
+// This is used in polling mode where display is handled by polling tmux directly.
+// The PTY is kept open for user input and to maintain the tmux connection.
+func (t *Terminal) readLoopDiscard() {
+	buf := make([]byte, 32*1024)
+
+	for {
+		t.mu.Lock()
+		p := t.pty
+		closed := t.closed
+		t.mu.Unlock()
+
+		if p == nil || closed {
+			return
+		}
+
+		n, err := p.Read(buf)
+		if err != nil {
+			if t.ctx != nil && !t.closed {
+				runtime.EventsEmit(t.ctx, "terminal:exit", err.Error())
+			}
+			// Stop polling when PTY exits
+			t.stopTmuxPolling()
+			return
+		}
+
+		// In polling mode, we discard PTY output.
+		// Display updates come from polling tmux directly.
+		// This prevents TUI escape sequences from corrupting xterm scrollback.
+		_ = n
+	}
+}
+
+// startTmuxPolling begins polling tmux for display updates.
+func (t *Terminal) startTmuxPolling(tmuxSession string, rows int) {
+	t.tmuxPolling = true
+	t.tmuxStopChan = make(chan struct{})
+	t.tmuxLastState = ""
+	t.historyTracker = NewHistoryTracker(tmuxSession, rows)
+
+	go t.pollTmuxLoop()
+}
+
+// stopTmuxPolling stops the polling goroutine.
+func (t *Terminal) stopTmuxPolling() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.tmuxPolling && t.tmuxStopChan != nil {
+		close(t.tmuxStopChan)
+		t.tmuxPolling = false
+		t.tmuxSession = ""
+		t.tmuxLastState = ""
+		t.historyTracker = nil
+	}
+}
+
+// pollTmuxLoop continuously polls tmux for display updates.
+func (t *Terminal) pollTmuxLoop() {
+	ticker := time.NewTicker(80 * time.Millisecond) // ~12.5 fps
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-t.tmuxStopChan:
+			return
+		case <-ticker.C:
+			t.pollTmuxOnce()
+		}
+	}
+}
+
+// pollTmuxOnce captures current tmux pane and emits any changes.
+// Uses two-phase approach:
+// 1. Fetch any history gap (lines that scrolled off between polls)
+// 2. Diff viewport for in-place updates (spinners, progress bars)
+func (t *Terminal) pollTmuxOnce() {
+	t.mu.Lock()
+	session := t.tmuxSession
+	polling := t.tmuxPolling
+	tracker := t.historyTracker
+	t.mu.Unlock()
+
+	if !polling || session == "" || tracker == nil {
+		return
+	}
+
+	// Step 1: Get tmux info - history size and alt-screen status
+	historySize, inAltScreen, err := tracker.GetTmuxInfo()
+	if err != nil {
+		t.debugLog("[POLL] GetTmuxInfo error: %v", err)
+		// Session might have ended
+		if t.ctx != nil {
+			runtime.EventsEmit(t.ctx, "terminal:exit", "tmux session ended")
+		}
+		t.stopTmuxPolling()
+		return
+	}
+
+	// Step 2: Track alt-screen state changes (vim, less, htop)
+	if inAltScreen != tracker.inAltScreen {
+		t.debugLog("[POLL] Alt-screen changed: %v -> %v", tracker.inAltScreen, inAltScreen)
+		tracker.SetAltScreen(inAltScreen)
+	}
+
+	// Step 3: If NOT in alt-screen, fetch any history gap
+	// (Don't append TUI frames to scrollback when in vim/less)
+	if !inAltScreen && historySize > 0 {
+		gap, err := tracker.FetchHistoryGap(historySize)
+		if err != nil {
+			t.debugLog("[POLL] FetchHistoryGap error: %v", err)
+		} else if len(gap) > 0 {
+			// Append gap lines to xterm (blind, no diff - these are history)
+			t.debugLog("[POLL] Appending %d bytes of history gap (historySize=%d)", len(gap), historySize)
+			if t.ctx != nil {
+				runtime.EventsEmit(t.ctx, "terminal:data", gap)
+			}
+		}
+	}
+
+	// Step 4: Capture current viewport
+	cmd := exec.Command("tmux", "capture-pane", "-t", session, "-p", "-e")
+	output, err := cmd.Output()
+	if err != nil {
+		t.debugLog("[POLL] capture-pane error: %v", err)
+		return
+	}
+
+	currentState := string(output)
+
+	// Step 5: Only process if viewport changed
+	t.mu.Lock()
+	lastState := t.tmuxLastState
+	t.mu.Unlock()
+
+	if currentState != lastState {
+		t.mu.Lock()
+		t.tmuxLastState = currentState
+		t.mu.Unlock()
+
+		if t.ctx != nil {
+			content := stripTTSMarkers(currentState)
+
+			// Step 6: Diff viewport and emit minimal updates
+			updateSequence := tracker.DiffViewport(content)
+
+			if len(updateSequence) > 0 {
+				lines := strings.Count(content, "\n")
+				t.debugLog("[POLL] Viewport diff: %d bytes update, %d content lines, historySize=%d, altScreen=%v",
+					len(updateSequence), lines, historySize, inAltScreen)
+				runtime.EventsEmit(t.ctx, "terminal:data", updateSequence)
+			}
+		}
+	}
 }
 
 // sanitizeHistoryForXterm removes escape sequences that would interfere
@@ -399,6 +567,7 @@ func (t *Terminal) Resize(cols, rows int) error {
 	t.mu.Lock()
 	p := t.pty
 	session := t.tmuxSession
+	tracker := t.historyTracker
 	t.mu.Unlock()
 
 	if p == nil {
@@ -415,6 +584,13 @@ func (t *Terminal) Resize(cols, rows int) error {
 		cmd := exec.Command("tmux", "resize-window", "-t", session, "-x", itoa(cols), "-y", itoa(rows))
 		if err := cmd.Run(); err != nil {
 			t.debugLog("[RESIZE] tmux resize-window error: %v", err)
+		}
+
+		// Reset history tracker on resize - content will reflow at new width
+		if tracker != nil {
+			tracker.Reset()
+			tracker.SetViewportRows(rows)
+			t.debugLog("[RESIZE] Reset history tracker for new dimensions %dx%d", cols, rows)
 		}
 	}
 
@@ -483,8 +659,11 @@ func (t *Terminal) GetScrollback() (string, error) {
 	return content, nil
 }
 
-// Close terminates the PTY.
+// Close terminates the PTY and stops polling.
 func (t *Terminal) Close() error {
+	// Stop polling first (uses its own lock)
+	t.stopTmuxPolling()
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
