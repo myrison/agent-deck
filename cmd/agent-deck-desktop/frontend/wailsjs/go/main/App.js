@@ -26,6 +26,10 @@ export function GetGitBranch(arg1) {
   return window['go']['main']['App']['GetGitBranch'](arg1);
 }
 
+export function IsGitWorktree(arg1) {
+  return window['go']['main']['App']['IsGitWorktree'](arg1);
+}
+
 export function GetQuickLaunchBarVisibility() {
   return window['go']['main']['App']['GetQuickLaunchBarVisibility']();
 }

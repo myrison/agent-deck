@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -162,13 +163,7 @@ func (a *App) UpdateQuickLaunchFavoriteName(path, name string) error {
 // GetGitBranch returns the current git branch for a given directory.
 // Returns empty string if not a git repository or on error.
 func (a *App) GetGitBranch(projectPath string) string {
-	// Expand ~ to home directory
-	if strings.HasPrefix(projectPath, "~") {
-		home, err := exec.Command("sh", "-c", "echo $HOME").Output()
-		if err == nil {
-			projectPath = filepath.Join(strings.TrimSpace(string(home)), projectPath[1:])
-		}
-	}
+	projectPath = expandHome(projectPath)
 
 	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
 	cmd.Dir = projectPath
@@ -177,4 +172,30 @@ func (a *App) GetGitBranch(projectPath string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(output))
+}
+
+// IsGitWorktree returns true if the given path is a git worktree (not the main clone).
+// Worktrees have a .git file pointing to the main repo, not a .git directory.
+func (a *App) IsGitWorktree(projectPath string) bool {
+	projectPath = expandHome(projectPath)
+
+	// Check if .git is a file (worktree) vs directory (main clone)
+	gitPath := filepath.Join(projectPath, ".git")
+	info, err := os.Stat(gitPath)
+	if err != nil {
+		return false
+	}
+	// If .git is a file, it's a worktree (contains "gitdir: /path/to/main/.git/worktrees/...")
+	return !info.IsDir()
+}
+
+// expandHome expands ~ to the user's home directory.
+func expandHome(path string) string {
+	if strings.HasPrefix(path, "~") {
+		home, err := exec.Command("sh", "-c", "echo $HOME").Output()
+		if err == nil {
+			path = filepath.Join(strings.TrimSpace(string(home)), path[1:])
+		}
+	}
+	return path
 }

@@ -111,12 +111,46 @@
     text-overflow: ellipsis;
 }
 
-.session-group {
+.session-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 12px;
     color: #888;
     white-space: nowrap;
     overflow: hidden;
+}
+
+.session-group {
+    overflow: hidden;
     text-overflow: ellipsis;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.meta-separator {
+    color: #555;
+    flex-shrink: 0;
+}
+
+.session-branch {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: #4ecdc4;
+    flex-shrink: 0;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.session-branch .branch-icon {
+    font-size: 10px;
+    opacity: 0.8;
+}
+
+.session-branch.is-worktree {
+    color: #9ece6a;
 }
 
 .session-status {

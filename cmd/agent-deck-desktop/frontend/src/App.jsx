@@ -6,7 +6,7 @@ import SessionSelector from './SessionSelector';
 import CommandPalette from './CommandPalette';
 import ToolPicker from './ToolPicker';
 import QuickLaunchBar from './QuickLaunchBar';
-import { ListSessions, DiscoverProjects, CreateSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch } from '../wailsjs/go/main/App';
+import { ListSessions, DiscoverProjects, CreateSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 
 const logger = createLogger('App');
@@ -29,6 +29,7 @@ function App() {
     const [shortcuts, setShortcuts] = useState({}); // shortcut -> {path, name, tool}
     const [favorites, setFavorites] = useState([]); // All quick launch favorites
     const [gitBranch, setGitBranch] = useState(''); // Current git branch for selected session
+    const [isWorktree, setIsWorktree] = useState(false); // Whether session is in a git worktree
     const sessionSelectorRef = useRef(null);
 
     // Build shortcut key from event
@@ -157,13 +158,18 @@ function App() {
             // Record usage for frecency
             await RecordProjectUsage(projectPath);
 
-            // Load git branch
+            // Load git branch and worktree status
             try {
-                const branch = await GetGitBranch(projectPath);
+                const [branch, worktree] = await Promise.all([
+                    GetGitBranch(projectPath),
+                    IsGitWorktree(projectPath)
+                ]);
                 setGitBranch(branch || '');
-                logger.info('Git branch:', branch || '(not a git repo)');
+                setIsWorktree(worktree);
+                logger.info('Git info:', { branch: branch || '(not a git repo)', isWorktree: worktree });
             } catch (err) {
                 setGitBranch('');
+                setIsWorktree(false);
             }
 
             // Switch to terminal view with the new session
@@ -228,18 +234,24 @@ function App() {
         setSelectedSession(session);
         setView('terminal');
 
-        // Load git branch if session has a project path
+        // Load git branch and worktree status if session has a project path
         if (session.projectPath) {
             try {
-                const branch = await GetGitBranch(session.projectPath);
+                const [branch, worktree] = await Promise.all([
+                    GetGitBranch(session.projectPath),
+                    IsGitWorktree(session.projectPath)
+                ]);
                 setGitBranch(branch || '');
-                logger.info('Git branch:', branch || '(not a git repo)');
+                setIsWorktree(worktree);
+                logger.info('Git info:', { branch: branch || '(not a git repo)', isWorktree: worktree });
             } catch (err) {
-                logger.warn('Failed to get git branch:', err);
+                logger.warn('Failed to get git info:', err);
                 setGitBranch('');
+                setIsWorktree(false);
             }
         } else {
             setGitBranch('');
+            setIsWorktree(false);
         }
     }, []);
 
@@ -255,6 +267,7 @@ function App() {
         setSelectedSession(null);
         setShowSearch(false);
         setGitBranch('');
+        setIsWorktree(false);
     }, []);
 
     // Handle keyboard shortcuts
@@ -365,8 +378,8 @@ function App() {
                     <div className="session-title-header">
                         {selectedSession.title}
                         {gitBranch && (
-                            <span className="git-branch">
-                                <span className="git-branch-icon">⎇</span>
+                            <span className={`git-branch${isWorktree ? ' is-worktree' : ''}`}>
+                                <span className="git-branch-icon">{isWorktree ? '🌿' : '⎇'}</span>
                                 {gitBranch}
                             </span>
                         )}

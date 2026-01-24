@@ -21,6 +21,8 @@ type SessionInfo struct {
 	TmuxSession string `json:"tmuxSession"`
 	IsRemote    bool   `json:"isRemote"`
 	RemoteHost  string `json:"remoteHost,omitempty"`
+	GitBranch   string `json:"gitBranch,omitempty"`
+	IsWorktree  bool   `json:"isWorktree,omitempty"`
 }
 
 // sessionsJSON mirrors the storage format from internal/session/storage.go
@@ -87,6 +89,9 @@ func (tm *TmuxManager) ListSessions() ([]SessionInfo, error) {
 			continue
 		}
 
+		// Get git info for the project path
+		gitBranch, isWorktree := tm.getGitInfo(inst.ProjectPath)
+
 		result = append(result, SessionInfo{
 			ID:          inst.ID,
 			Title:       inst.Title,
@@ -97,10 +102,38 @@ func (tm *TmuxManager) ListSessions() ([]SessionInfo, error) {
 			TmuxSession: inst.TmuxSession,
 			IsRemote:    isRemote,
 			RemoteHost:  inst.RemoteHost,
+			GitBranch:   gitBranch,
+			IsWorktree:  isWorktree,
 		})
 	}
 
 	return result, nil
+}
+
+// getGitInfo returns the git branch and whether the path is a worktree.
+func (tm *TmuxManager) getGitInfo(projectPath string) (branch string, isWorktree bool) {
+	if projectPath == "" {
+		return "", false
+	}
+
+	// Get git branch
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = projectPath
+	output, err := cmd.Output()
+	if err != nil {
+		return "", false
+	}
+	branch = strings.TrimSpace(string(output))
+
+	// Check if worktree: .git is a file (worktree) vs directory (main clone)
+	gitPath := filepath.Join(projectPath, ".git")
+	info, err := os.Stat(gitPath)
+	if err != nil {
+		return branch, false
+	}
+	isWorktree = !info.IsDir()
+
+	return branch, isWorktree
 }
 
 // getRunningTmuxSessions returns a map of currently running tmux session names.

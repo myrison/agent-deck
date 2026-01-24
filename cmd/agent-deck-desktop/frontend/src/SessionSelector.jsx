@@ -23,6 +23,9 @@ export default function SessionSelector({ onSelect, onNewTerminal }) {
         if (session.projectPath) {
             lines.push(session.projectPath);
         }
+        if (session.isWorktree) {
+            lines.push('Git worktree (separate working directory)');
+        }
         if (session.isRemote) {
             lines.push('Remote sessions not supported yet');
         }
@@ -103,7 +106,18 @@ export default function SessionSelector({ onSelect, onNewTerminal }) {
                             </span>
                             <div className="session-info">
                                 <div className="session-title">{session.title}</div>
-                                <div className="session-group">{session.groupPath || 'ungrouped'}</div>
+                                <div className="session-meta">
+                                    <span className="session-group">{session.groupPath || 'ungrouped'}</span>
+                                    {session.gitBranch && (
+                                        <>
+                                            <span className="meta-separator">•</span>
+                                            <span className={`session-branch${session.isWorktree ? ' is-worktree' : ''}`}>
+                                                <span className="branch-icon">{session.isWorktree ? '🌿' : '⎇'}</span>
+                                                {session.gitBranch}
+                                            </span>
+                                        </>
+                                    )}
+                                </div>
                             </div>
                             <span
                                 className="session-status"

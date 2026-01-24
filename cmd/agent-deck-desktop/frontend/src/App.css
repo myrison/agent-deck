@@ -70,6 +70,12 @@ html, body, #root {
     opacity: 0.8;
 }
 
+.git-branch.is-worktree {
+    background: rgba(156, 206, 106, 0.15);
+    border-left: 2px solid #9ece6a;
+    color: #9ece6a;
+}
+
 .terminal-container {
     flex: 1;
     overflow: hidden;
