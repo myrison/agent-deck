@@ -54,6 +54,10 @@ export function ListSessions() {
   return window['go']['main']['App']['ListSessions']();
 }
 
+export function MarkSessionAccessed(arg1) {
+  return window['go']['main']['App']['MarkSessionAccessed'](arg1);
+}
+
 export function RecordProjectUsage(arg1) {
   return window['go']['main']['App']['RecordProjectUsage'](arg1);
 }

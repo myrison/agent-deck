@@ -160,6 +160,12 @@ func (a *App) UpdateQuickLaunchFavoriteName(path, name string) error {
 	return a.quickLaunch.UpdateFavoriteName(path, name)
 }
 
+// MarkSessionAccessed updates the last_accessed_at timestamp for a session.
+// Call this when a user selects/opens a session to keep the list sorted by recency.
+func (a *App) MarkSessionAccessed(sessionID string) error {
+	return a.tmux.MarkSessionAccessed(sessionID)
+}
+
 // GetGitBranch returns the current git branch for a given directory.
 // Returns empty string if not a git repository or on error.
 func (a *App) GetGitBranch(projectPath string) string {

@@ -6,23 +6,25 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
 
 // SessionInfo represents an Agent Deck session for the frontend.
 type SessionInfo struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	ProjectPath string `json:"projectPath"`
-	GroupPath   string `json:"groupPath"`
-	Tool        string `json:"tool"`
-	Status      string `json:"status"`
-	TmuxSession string `json:"tmuxSession"`
-	IsRemote    bool   `json:"isRemote"`
-	RemoteHost  string `json:"remoteHost,omitempty"`
-	GitBranch   string `json:"gitBranch,omitempty"`
-	IsWorktree  bool   `json:"isWorktree,omitempty"`
+	ID             string    `json:"id"`
+	Title          string    `json:"title"`
+	ProjectPath    string    `json:"projectPath"`
+	GroupPath      string    `json:"groupPath"`
+	Tool           string    `json:"tool"`
+	Status         string    `json:"status"`
+	TmuxSession    string    `json:"tmuxSession"`
+	IsRemote       bool      `json:"isRemote"`
+	RemoteHost     string    `json:"remoteHost,omitempty"`
+	GitBranch      string    `json:"gitBranch,omitempty"`
+	IsWorktree     bool      `json:"isWorktree,omitempty"`
+	LastAccessedAt time.Time `json:"lastAccessedAt,omitempty"`
 }
 
 // sessionsJSON mirrors the storage format from internal/session/storage.go
@@ -31,15 +33,16 @@ type sessionsJSON struct {
 }
 
 type instanceJSON struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	ProjectPath string    `json:"project_path"`
-	GroupPath   string    `json:"group_path"`
-	Tool        string    `json:"tool"`
-	Status      string    `json:"status"`
-	TmuxSession string    `json:"tmux_session"`
-	CreatedAt   time.Time `json:"created_at"`
-	RemoteHost  string    `json:"remote_host,omitempty"`
+	ID             string    `json:"id"`
+	Title          string    `json:"title"`
+	ProjectPath    string    `json:"project_path"`
+	GroupPath      string    `json:"group_path"`
+	Tool           string    `json:"tool"`
+	Status         string    `json:"status"`
+	TmuxSession    string    `json:"tmux_session"`
+	CreatedAt      time.Time `json:"created_at"`
+	LastAccessedAt time.Time `json:"last_accessed_at,omitempty"`
+	RemoteHost     string    `json:"remote_host,omitempty"`
 }
 
 // TmuxManager handles tmux session operations.
@@ -92,20 +95,32 @@ func (tm *TmuxManager) ListSessions() ([]SessionInfo, error) {
 		// Get git info for the project path
 		gitBranch, isWorktree := tm.getGitInfo(inst.ProjectPath)
 
+		// Use LastAccessedAt if set, otherwise fall back to CreatedAt
+		lastAccessed := inst.LastAccessedAt
+		if lastAccessed.IsZero() {
+			lastAccessed = inst.CreatedAt
+		}
+
 		result = append(result, SessionInfo{
-			ID:          inst.ID,
-			Title:       inst.Title,
-			ProjectPath: inst.ProjectPath,
-			GroupPath:   inst.GroupPath,
-			Tool:        inst.Tool,
-			Status:      inst.Status,
-			TmuxSession: inst.TmuxSession,
-			IsRemote:    isRemote,
-			RemoteHost:  inst.RemoteHost,
-			GitBranch:   gitBranch,
-			IsWorktree:  isWorktree,
+			ID:             inst.ID,
+			Title:          inst.Title,
+			ProjectPath:    inst.ProjectPath,
+			GroupPath:      inst.GroupPath,
+			Tool:           inst.Tool,
+			Status:         inst.Status,
+			TmuxSession:    inst.TmuxSession,
+			IsRemote:       isRemote,
+			RemoteHost:     inst.RemoteHost,
+			GitBranch:      gitBranch,
+			IsWorktree:     isWorktree,
+			LastAccessedAt: lastAccessed,
 		})
 	}
+
+	// Sort by LastAccessedAt (most recent first)
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].LastAccessedAt.After(result[j].LastAccessedAt)
+	})
 
 	return result, nil
 }
@@ -227,4 +242,62 @@ func (tm *TmuxManager) CreateSession(projectPath, title, tool string) (SessionIn
 		Status:      "running",
 		TmuxSession: sessionName,
 	}, nil
+}
+
+// MarkSessionAccessed updates the last_accessed_at timestamp for a session.
+// This keeps the session list sorted by most recently used.
+func (tm *TmuxManager) MarkSessionAccessed(sessionID string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	sessionsPath := filepath.Join(home, ".agent-deck", "profiles", "default", "sessions.json")
+
+	// Read current sessions
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		return err
+	}
+
+	// Parse as raw JSON to preserve all fields
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	// Parse instances array
+	var instances []map[string]interface{}
+	if err := json.Unmarshal(raw["instances"], &instances); err != nil {
+		return err
+	}
+
+	// Find and update the session
+	found := false
+	for i, inst := range instances {
+		if id, ok := inst["id"].(string); ok && id == sessionID {
+			instances[i]["last_accessed_at"] = time.Now().Format(time.RFC3339Nano)
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	// Marshal instances back
+	instancesData, err := json.Marshal(instances)
+	if err != nil {
+		return err
+	}
+	raw["instances"] = instancesData
+
+	// Write back with indentation
+	output, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(sessionsPath, output, 0644)
 }

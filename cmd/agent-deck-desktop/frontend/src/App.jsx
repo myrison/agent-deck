@@ -6,7 +6,7 @@ import SessionSelector from './SessionSelector';
 import CommandPalette from './CommandPalette';
 import ToolPicker from './ToolPicker';
 import QuickLaunchBar from './QuickLaunchBar';
-import { ListSessions, DiscoverProjects, CreateSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree } from '../wailsjs/go/main/App';
+import { ListSessions, DiscoverProjects, CreateSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, MarkSessionAccessed } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 
 const logger = createLogger('App');
@@ -233,6 +233,13 @@ function App() {
         logger.info('Selecting session:', session.title);
         setSelectedSession(session);
         setView('terminal');
+
+        // Update last accessed timestamp for sorting
+        try {
+            await MarkSessionAccessed(session.id);
+        } catch (err) {
+            logger.warn('Failed to mark session accessed:', err);
+        }
 
         // Load git branch and worktree status if session has a project path
         if (session.projectPath) {

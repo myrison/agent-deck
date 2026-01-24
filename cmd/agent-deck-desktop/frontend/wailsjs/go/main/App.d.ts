@@ -28,6 +28,8 @@ export function IsTmuxPolling():Promise<boolean>;
 
 export function ListSessions():Promise<Array<main.SessionInfo>>;
 
+export function MarkSessionAccessed(arg1:string):Promise<void>;
+
 export function RecordProjectUsage(arg1:string):Promise<void>;
 
 export function RemoveQuickLaunchFavorite(arg1:string):Promise<void>;
