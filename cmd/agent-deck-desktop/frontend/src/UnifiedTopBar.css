@@ -169,7 +169,7 @@
     border-radius: 6px;
     box-shadow: 0 8px 24px var(--modal-shadow);
     padding: 4px;
-    z-index: 1200;
+    z-index: 10000; /* Above tooltip (9999) */
     min-width: 180px;
 }
 
@@ -204,7 +204,7 @@
     border-radius: 6px;
     box-shadow: 0 8px 24px var(--modal-shadow);
     padding: 4px;
-    z-index: 1200;
+    z-index: 10000; /* Above tooltip (9999) */
     min-width: 180px;
 }
 
