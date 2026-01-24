@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import Fuse from 'fuse.js';
 import './CommandPalette.css';
 import { createLogger } from './logger';
-import { getToolIcon } from './utils/tools';
+import ToolIcon from './ToolIcon';
 import { formatShortcut } from './utils/shortcuts';
 
 const logger = createLogger('CommandPalette');
@@ -268,7 +268,7 @@ export default function CommandPalette({
                                             className="palette-tool-icon"
                                             style={{ backgroundColor: getStatusColor(item.status) }}
                                         >
-                                            {getToolIcon(item.tool)}
+                                            <ToolIcon tool={item.tool} size={14} />
                                         </span>
                                         <div className="palette-item-info">
                                             <div className="palette-item-title">{item.title}</div>

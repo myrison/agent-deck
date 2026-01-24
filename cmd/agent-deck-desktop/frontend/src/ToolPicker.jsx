@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import './ToolPicker.css';
 import { createLogger } from './logger';
 import { TOOLS } from './utils/tools';
+import ToolIcon from './ToolIcon';
 
 const logger = createLogger('ToolPicker');
 
@@ -81,7 +82,7 @@ export default function ToolPicker({ projectPath, projectName, onSelect, onCance
                                 className="tool-picker-icon"
                                 style={{ backgroundColor: tool.color }}
                             >
-                                {tool.icon}
+                                <ToolIcon tool={tool.id} size={18} />
                             </span>
                             <div className="tool-picker-info">
                                 <div className="tool-picker-name">{tool.name}</div>

@@ -48,6 +48,26 @@ html, body, #root {
     color: #888;
     font-size: 13px;
     font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.git-branch {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #4ecdc4;
+    font-size: 12px;
+    font-weight: 400;
+    background: rgba(78, 205, 196, 0.1);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.git-branch-icon {
+    font-size: 11px;
+    opacity: 0.8;
 }
 
 .terminal-container {

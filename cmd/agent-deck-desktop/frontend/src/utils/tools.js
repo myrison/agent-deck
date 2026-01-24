@@ -15,7 +15,7 @@ export const TOOLS = [
  */
 export function getToolIcon(tool) {
     const found = TOOLS.find(t => t.id === tool);
-    return found ? found.icon : '$';
+    return found ? found.icon : '>';
 }
 
 /**

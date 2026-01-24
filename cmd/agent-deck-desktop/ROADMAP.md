@@ -94,8 +94,8 @@
 - [ ] Keyboard shortcut hints in UI
 
 **Tool Icons:**
-- [ ] Change shell icon from `$` to `>` (right caret) - more common representation
-- [ ] Replace Claude `C` icon with Anthropic's official Claude logo
+- [x] Change shell icon from `$` to `>` (right caret) - more common representation
+- [x] Replace Claude `C` icon with Anthropic's official Claude logo
 - [ ] Consider official logos for Gemini and OpenCode as well
 
 ---

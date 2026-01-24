@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"os/exec"
+	"path/filepath"
+	"strings"
 )
 
 // Version is set at build time via ldflags.
@@ -154,4 +157,24 @@ func (a *App) SetQuickLaunchBarVisibility(show bool) error {
 // UpdateQuickLaunchFavoriteName updates the display name for a favorite.
 func (a *App) UpdateQuickLaunchFavoriteName(path, name string) error {
 	return a.quickLaunch.UpdateFavoriteName(path, name)
+}
+
+// GetGitBranch returns the current git branch for a given directory.
+// Returns empty string if not a git repository or on error.
+func (a *App) GetGitBranch(projectPath string) string {
+	// Expand ~ to home directory
+	if strings.HasPrefix(projectPath, "~") {
+		home, err := exec.Command("sh", "-c", "echo $HOME").Output()
+		if err == nil {
+			projectPath = filepath.Join(strings.TrimSpace(string(home)), projectPath[1:])
+		}
+	}
+
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = projectPath
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
 }

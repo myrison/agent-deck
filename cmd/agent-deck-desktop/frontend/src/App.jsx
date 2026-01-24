@@ -6,7 +6,7 @@ import SessionSelector from './SessionSelector';
 import CommandPalette from './CommandPalette';
 import ToolPicker from './ToolPicker';
 import QuickLaunchBar from './QuickLaunchBar';
-import { ListSessions, DiscoverProjects, CreateSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility } from '../wailsjs/go/main/App';
+import { ListSessions, DiscoverProjects, CreateSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 
 const logger = createLogger('App');
@@ -28,6 +28,7 @@ function App() {
     const [quickLaunchKey, setQuickLaunchKey] = useState(0); // For forcing refresh
     const [shortcuts, setShortcuts] = useState({}); // shortcut -> {path, name, tool}
     const [favorites, setFavorites] = useState([]); // All quick launch favorites
+    const [gitBranch, setGitBranch] = useState(''); // Current git branch for selected session
     const sessionSelectorRef = useRef(null);
 
     // Build shortcut key from event
@@ -156,6 +157,15 @@ function App() {
             // Record usage for frecency
             await RecordProjectUsage(projectPath);
 
+            // Load git branch
+            try {
+                const branch = await GetGitBranch(projectPath);
+                setGitBranch(branch || '');
+                logger.info('Git branch:', branch || '(not a git repo)');
+            } catch (err) {
+                setGitBranch('');
+            }
+
             // Switch to terminal view with the new session
             setSelectedSession(session);
             setView('terminal');
@@ -213,10 +223,24 @@ function App() {
         setToolPickerProject(null);
     }, []);
 
-    const handleSelectSession = useCallback((session) => {
+    const handleSelectSession = useCallback(async (session) => {
         logger.info('Selecting session:', session.title);
         setSelectedSession(session);
         setView('terminal');
+
+        // Load git branch if session has a project path
+        if (session.projectPath) {
+            try {
+                const branch = await GetGitBranch(session.projectPath);
+                setGitBranch(branch || '');
+                logger.info('Git branch:', branch || '(not a git repo)');
+            } catch (err) {
+                logger.warn('Failed to get git branch:', err);
+                setGitBranch('');
+            }
+        } else {
+            setGitBranch('');
+        }
     }, []);
 
     const handleNewTerminal = useCallback(() => {
@@ -230,6 +254,7 @@ function App() {
         setView('selector');
         setSelectedSession(null);
         setShowSearch(false);
+        setGitBranch('');
     }, []);
 
     // Handle keyboard shortcuts
@@ -339,6 +364,12 @@ function App() {
                 {selectedSession && (
                     <div className="session-title-header">
                         {selectedSession.title}
+                        {gitBranch && (
+                            <span className="git-branch">
+                                <span className="git-branch-icon">⎇</span>
+                                {gitBranch}
+                            </span>
+                        )}
                     </div>
                 )}
             </div>

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ListSessions } from '../wailsjs/go/main/App';
 import './SessionSelector.css';
 import { createLogger } from './logger';
+import ToolIcon from './ToolIcon';
 
 const logger = createLogger('SessionSelector');
 
@@ -41,14 +42,6 @@ export default function SessionSelector({ onSelect, onNewTerminal }) {
         }
     };
 
-    const getToolIcon = (tool) => {
-        switch (tool) {
-            case 'claude': return 'C';
-            case 'gemini': return 'G';
-            case 'opencode': return 'O';
-            default: return '$';
-        }
-    };
 
     if (loading) {
         return (
@@ -91,7 +84,7 @@ export default function SessionSelector({ onSelect, onNewTerminal }) {
                                 className="session-tool"
                                 style={{ backgroundColor: getStatusColor(session.status) }}
                             >
-                                {getToolIcon(session.tool)}
+                                <ToolIcon tool={session.tool} size={16} />
                             </span>
                             <div className="session-info">
                                 <div className="session-title">{session.title}</div>

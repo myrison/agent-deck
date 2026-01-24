@@ -4,7 +4,8 @@ import { GetQuickLaunchFavorites, RemoveQuickLaunchFavorite, UpdateQuickLaunchSh
 import ShortcutEditor from './ShortcutEditor';
 import { createLogger } from './logger';
 import { formatShortcut } from './utils/shortcuts';
-import { getToolIcon, getToolColor } from './utils/tools';
+import { getToolColor } from './utils/tools';
+import ToolIcon from './ToolIcon';
 
 const logger = createLogger('QuickLaunchBar');
 
@@ -179,7 +180,7 @@ export default function QuickLaunchBar({ onLaunch, onShowToolPicker, onOpenPalet
                             className="quick-launch-icon"
                             style={{ backgroundColor: getToolColor(fav.tool) }}
                         >
-                            {getToolIcon(fav.tool)}
+                            <ToolIcon tool={fav.tool} size={12} />
                         </span>
                         <span className="quick-launch-name">{fav.name}</span>
                         {fav.shortcut && (
