@@ -100,7 +100,7 @@ func FetchRemoteStorageSnapshot(sshExec *tmux.SSHExecutor) *RemoteStorageSnapsho
 // TransformRemoteGroupPath converts a remote group path to local path
 // Example: "jeeves/workers" with prefix="remote" and hostname="jeeves" -> "remote/jeeves/jeeves/workers"
 // Empty remote path maps to just "{prefix}/{hostname}"
-// Remote-of-remote paths (starting with groupPrefix/) are mapped to host's root group
+// Remote-of-remote paths (starting with groupPrefix/ or exactly groupPrefix) are mapped to host's root group
 // to prevent circular nesting like "remote/host/remote/otherhost"
 func TransformRemoteGroupPath(remoteGroupPath, groupPrefix, groupName string) string {
 	if remoteGroupPath == "" || remoteGroupPath == DefaultGroupPath {
@@ -108,15 +108,16 @@ func TransformRemoteGroupPath(remoteGroupPath, groupPrefix, groupName string) st
 		return groupPrefix + "/" + groupName
 	}
 	// Skip paths that are themselves remote groups - map to host's root group
-	if strings.HasPrefix(remoteGroupPath, groupPrefix+"/") {
+	// This includes both "remote/..." and exactly "remote"
+	if strings.HasPrefix(remoteGroupPath, groupPrefix+"/") || remoteGroupPath == groupPrefix {
 		return groupPrefix + "/" + groupName
 	}
 	return groupPrefix + "/" + groupName + "/" + remoteGroupPath
 }
 
 // TransformRemoteGroups converts remote groups to local groups with transformed paths
-// Filters out groups that are themselves remote groups (e.g., "remote/*") to prevent
-// creating empty nested remote group hierarchies
+// Filters out groups that are themselves remote groups (e.g., "remote/*" or exactly "remote")
+// to prevent creating empty nested remote group hierarchies
 func TransformRemoteGroups(remoteGroups []*GroupData, groupPrefix, groupName string) []*GroupData {
 	if len(remoteGroups) == 0 {
 		return nil
@@ -130,8 +131,11 @@ func TransformRemoteGroups(remoteGroups []*GroupData, groupPrefix, groupName str
 		}
 
 		// Skip groups that are themselves remote groups on the remote host
-		// These would create empty "remote/host/remote/otherhost" hierarchies
-		if strings.HasPrefix(rg.Path, groupPrefix+"/") {
+		// This includes:
+		// 1. Groups starting with "remote/" (e.g., "remote/Docker")
+		// 2. Groups named exactly "remote" (the remote root group itself)
+		// These would create empty "remote/host/remote" hierarchies
+		if strings.HasPrefix(rg.Path, groupPrefix+"/") || rg.Path == groupPrefix {
 			continue
 		}
 
