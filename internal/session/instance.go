@@ -1087,8 +1087,12 @@ func (i *Instance) UpdateStatus() error {
 	}
 
 	// Update tool detection dynamically (enables fork when Claude starts)
-	if detectedTool := i.tmuxSession.DetectTool(); detectedTool != "" {
-		i.Tool = detectedTool
+	// For remote sessions, skip detection - trust the stored Tool from remote's sessions.json
+	// For local sessions, only upgrade from shell to preserve existing tool assignment
+	if i.RemoteHost == "" && i.Tool == "shell" {
+		if detectedTool := i.tmuxSession.DetectTool(); detectedTool != "" {
+			i.Tool = detectedTool
+		}
 	}
 
 	// Update Claude session tracking (non-blocking, best-effort)

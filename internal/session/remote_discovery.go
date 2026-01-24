@@ -42,6 +42,7 @@ type UpdatedInstance struct {
 type RemoteStorageSnapshot struct {
 	Groups            []*GroupData      // Remote's group definitions
 	SessionGroupPaths map[string]string // tmux_session name -> group_path mapping
+	SessionTools      map[string]string // tmux_session name -> tool mapping
 }
 
 // agentDeckSessionPattern matches agentdeck_<title>_<8-hex-chars> tmux session names
@@ -69,17 +70,24 @@ func FetchRemoteStorageSnapshot(sshExec *tmux.SSHExecutor) *RemoteStorageSnapsho
 		return nil
 	}
 
-	// Build session-to-group mapping
+	// Build session-to-group and session-to-tool mappings
 	sessionGroupPaths := make(map[string]string)
+	sessionTools := make(map[string]string)
 	for _, inst := range data.Instances {
-		if inst.TmuxSession != "" && inst.GroupPath != "" {
-			sessionGroupPaths[inst.TmuxSession] = inst.GroupPath
+		if inst.TmuxSession != "" {
+			if inst.GroupPath != "" {
+				sessionGroupPaths[inst.TmuxSession] = inst.GroupPath
+			}
+			if inst.Tool != "" {
+				sessionTools[inst.TmuxSession] = inst.Tool
+			}
 		}
 	}
 
 	return &RemoteStorageSnapshot{
 		Groups:            data.Groups,
 		SessionGroupPaths: sessionGroupPaths,
+		SessionTools:      sessionTools,
 	}
 }
 
@@ -248,7 +256,7 @@ func DiscoverRemoteSessionsForHost(hostID string, existing []*Instance) ([]*Inst
 
 		// Check if this session already exists locally
 		if existingInst, exists := existingByRemoteID[remoteID]; exists {
-			// Session exists - check if group path needs updating based on remote's current state
+			// Session exists - check if group path or tool needs updating based on remote's current state
 			if remoteSnapshot != nil {
 				remoteGroupPath := remoteSnapshot.SessionGroupPaths[rs.Name]
 				newLocalPath := TransformRemoteGroupPath(remoteGroupPath, groupPrefix, groupName)
@@ -265,6 +273,13 @@ func DiscoverRemoteSessionsForHost(hostID string, existing []*Instance) ([]*Inst
 					log.Printf("[REMOTE-DISCOVERY] Updated group path: %s on %s: %s -> %s",
 						rs.Name, hostID, oldPath, newLocalPath)
 				}
+
+				// Sync tool from remote - trust remote's authoritative value
+				if remoteTool := remoteSnapshot.SessionTools[rs.Name]; remoteTool != "" && existingInst.Tool != remoteTool {
+					log.Printf("[REMOTE-DISCOVERY] Updated tool: %s on %s: %s -> %s",
+						rs.Name, hostID, existingInst.Tool, remoteTool)
+					existingInst.Tool = remoteTool
+				}
 			}
 			continue
 		}
@@ -272,10 +287,14 @@ func DiscoverRemoteSessionsForHost(hostID string, existing []*Instance) ([]*Inst
 		// Parse title from tmux session name
 		title := ParseTitleFromTmuxName(rs.Name)
 
-		// Determine group path - use remote's group if available, otherwise default to host's root
+		// Determine group path and tool - use remote's values if available
 		remoteGroupPath := ""
+		remoteTool := "shell" // Default to shell if not in remote storage
 		if remoteSnapshot != nil {
 			remoteGroupPath = remoteSnapshot.SessionGroupPaths[rs.Name]
+			if tool := remoteSnapshot.SessionTools[rs.Name]; tool != "" {
+				remoteTool = tool
+			}
 		}
 		localGroupPath := TransformRemoteGroupPath(remoteGroupPath, groupPrefix, groupName)
 
@@ -285,7 +304,7 @@ func DiscoverRemoteSessionsForHost(hostID string, existing []*Instance) ([]*Inst
 			Title:          title,
 			ProjectPath:    rs.WorkingDir,
 			GroupPath:      localGroupPath,
-			Tool:           "claude", // Assume Claude since it's agentdeck_*
+			Tool:           remoteTool,
 			Status:         StatusIdle,
 			CreatedAt:      time.Now(),
 			RemoteHost:     hostID,
