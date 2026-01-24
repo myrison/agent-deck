@@ -1,0 +1,139 @@
+/* Help Modal Overlay */
+.help-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1100;
+}
+
+/* Help Modal Container */
+.help-container {
+    width: 100%;
+    max-width: 640px;
+    background: #252540;
+    border: 1px solid #444;
+    border-radius: 10px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+    overflow: hidden;
+}
+
+/* Header */
+.help-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid #333;
+}
+
+.help-header h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: #eee;
+}
+
+.help-close {
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: color 0.15s, background 0.15s;
+}
+
+.help-close:hover {
+    color: #eee;
+    background: #333;
+}
+
+/* Content - Two columns */
+.help-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    padding: 20px;
+}
+
+.help-column {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* Sections */
+.help-section h3 {
+    margin: 0 0 10px 0;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #888;
+}
+
+/* Shortcut rows */
+.help-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 0;
+    font-size: 13px;
+    color: #ccc;
+}
+
+.help-row kbd {
+    display: inline-block;
+    min-width: 28px;
+    background: #333;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: #4cc9f0;
+    text-align: center;
+}
+
+.help-keys {
+    display: flex;
+    gap: 4px;
+}
+
+.help-action {
+    display: inline-block;
+    min-width: 28px;
+    padding: 4px 8px;
+    font-size: 11px;
+    color: #888;
+    font-style: italic;
+}
+
+/* Footer */
+.help-footer {
+    padding: 12px 20px;
+    border-top: 1px solid #333;
+    background: #1f1f35;
+    text-align: center;
+    font-size: 12px;
+    color: #666;
+}
+
+/* Responsive - Stack columns on narrow screens */
+@media (max-width: 500px) {
+    .help-content {
+        grid-template-columns: 1fr;
+    }
+}

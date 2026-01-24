@@ -1,0 +1,43 @@
+.shortcut-bar {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    padding: 14px 20px;
+    background: #16162a;
+    border-top: 1px solid #444;
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.shortcut-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    border: none;
+    color: #999;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    transition: color 0.15s, background 0.15s;
+}
+
+.shortcut-item:hover {
+    color: #eee;
+    background: #2a2a4a;
+}
+
+.shortcut-item kbd {
+    display: inline-block;
+    background: #2a2a45;
+    border: 1px solid #444;
+    border-radius: 4px;
+    padding: 3px 7px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: #4cc9f0;
+}
+
+.shortcut-item span {
+    white-space: nowrap;
+}

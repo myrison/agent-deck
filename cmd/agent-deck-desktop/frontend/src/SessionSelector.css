@@ -192,25 +192,3 @@
     flex-shrink: 0;
 }
 
-.session-footer {
-    margin-top: 20px;
-    padding-top: 20px;
-    border-top: 1px solid #333;
-}
-
-.new-terminal-btn {
-    width: 100%;
-    padding: 12px;
-    background: #4cc9f0;
-    color: #1a1a2e;
-    border: none;
-    border-radius: 6px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.15s;
-}
-
-.new-terminal-btn:hover {
-    background: #72d4f7;
-}

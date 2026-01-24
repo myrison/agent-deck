@@ -1,0 +1,133 @@
+import { useEffect, useCallback } from 'react';
+import './KeyboardHelpModal.css';
+
+// Detect platform for modifier key display
+const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+const modKey = isMac ? '⌘' : 'Ctrl+';
+
+export default function KeyboardHelpModal({ onClose }) {
+    // Close on Escape or any other key
+    const handleKeyDown = useCallback((e) => {
+        e.preventDefault();
+        onClose();
+    }, [onClose]);
+
+    useEffect(() => {
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [handleKeyDown]);
+
+    return (
+        <div className="help-overlay" onClick={onClose}>
+            <div className="help-container" onClick={(e) => e.stopPropagation()}>
+                <div className="help-header">
+                    <h2>Keyboard Shortcuts</h2>
+                    <button className="help-close" onClick={onClose}>
+                        &times;
+                    </button>
+                </div>
+
+                <div className="help-content">
+                    <div className="help-column">
+                        <div className="help-section">
+                            <h3>Sessions</h3>
+                            <div className="help-row">
+                                <kbd>{modKey}N</kbd>
+                                <span>New terminal</span>
+                            </div>
+                            <div className="help-row">
+                                <kbd>Enter</kbd>
+                                <span>Open session</span>
+                            </div>
+                        </div>
+
+                        <div className="help-section">
+                            <h3>Navigation</h3>
+                            <div className="help-row">
+                                <kbd>{modKey},</kbd>
+                                <span>Back to sessions</span>
+                            </div>
+                            <div className="help-row">
+                                <kbd>{modKey}F</kbd>
+                                <span>Find in terminal</span>
+                            </div>
+                        </div>
+
+                        <div className="help-section">
+                            <h3>Quick Launch</h3>
+                            <div className="help-row">
+                                <span className="help-action">Click</span>
+                                <span>Launch project</span>
+                            </div>
+                            <div className="help-row">
+                                <span className="help-action">{modKey}+Click</span>
+                                <span>Tool picker</span>
+                            </div>
+                            <div className="help-row">
+                                <span className="help-action">Custom</span>
+                                <span>User shortcuts</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="help-column">
+                        <div className="help-section">
+                            <h3>Command Palette</h3>
+                            <div className="help-row">
+                                <kbd>{modKey}K</kbd>
+                                <span>Open palette</span>
+                            </div>
+                            <div className="help-row">
+                                <kbd>&uarr;&darr;</kbd>
+                                <span>Navigate</span>
+                            </div>
+                            <div className="help-row">
+                                <kbd>Enter</kbd>
+                                <span>Select item</span>
+                            </div>
+                            <div className="help-row">
+                                <kbd>{modKey}Enter</kbd>
+                                <span>Tool picker</span>
+                            </div>
+                            <div className="help-row">
+                                <kbd>{modKey}P</kbd>
+                                <span>Pin to Quick Launch</span>
+                            </div>
+                            <div className="help-row">
+                                <kbd>Esc</kbd>
+                                <span>Close palette</span>
+                            </div>
+                        </div>
+
+                        <div className="help-section">
+                            <h3>General</h3>
+                            <div className="help-row">
+                                <kbd>⇧5</kbd>
+                                <span>Cycle filter</span>
+                            </div>
+                            <div className="help-row">
+                                <kbd>{modKey}W</kbd>
+                                <span>Close terminal</span>
+                            </div>
+                            <div className="help-row">
+                                <span className="help-keys">
+                                    <kbd>?</kbd>
+                                    <kbd>{modKey}/</kbd>
+                                </span>
+                                <span>This help</span>
+                            </div>
+                            <div className="help-row">
+                                <kbd>Esc</kbd>
+                                <span>Close dialog</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="help-footer">
+                    Press Esc or any key to close
+                </div>
+            </div>
+        </div>
+    );
+}

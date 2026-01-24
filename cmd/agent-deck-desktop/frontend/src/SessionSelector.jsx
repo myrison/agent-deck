@@ -4,6 +4,7 @@ import './SessionSelector.css';
 import { createLogger } from './logger';
 import ToolIcon from './ToolIcon';
 import { useTooltip } from './Tooltip';
+import ShortcutBar from './ShortcutBar';
 
 const logger = createLogger('SessionSelector');
 
@@ -60,7 +61,7 @@ function getRelativeProjectPath(fullPath, projectRoots) {
     return fullPath;
 }
 
-export default function SessionSelector({ onSelect, onNewTerminal, statusFilter = 'all', onCycleFilter }) {
+export default function SessionSelector({ onSelect, onNewTerminal, statusFilter = 'all', onCycleFilter, onOpenPalette, onOpenHelp }) {
     const [sessions, setSessions] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -295,11 +296,13 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
                 )}
             </div>
 
-            <div className="session-footer">
-                <button className="new-terminal-btn" onClick={onNewTerminal}>
-                    New Terminal
-                </button>
-            </div>
+            <ShortcutBar
+                view="selector"
+                onNewTerminal={onNewTerminal}
+                onOpenPalette={onOpenPalette}
+                onCycleFilter={onCycleFilter}
+                onOpenHelp={onOpenHelp}
+            />
 
             <Tooltip />
         </div>

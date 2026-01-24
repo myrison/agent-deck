@@ -6,6 +6,8 @@ import SessionSelector from './SessionSelector';
 import CommandPalette from './CommandPalette';
 import ToolPicker from './ToolPicker';
 import QuickLaunchBar from './QuickLaunchBar';
+import ShortcutBar from './ShortcutBar';
+import KeyboardHelpModal from './KeyboardHelpModal';
 import { ListSessions, DiscoverProjects, CreateSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, MarkSessionAccessed } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 
@@ -31,6 +33,7 @@ function App() {
     const [gitBranch, setGitBranch] = useState(''); // Current git branch for selected session
     const [isWorktree, setIsWorktree] = useState(false); // Whether session is in a git worktree
     const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'active', 'idle'
+    const [showHelpModal, setShowHelpModal] = useState(false);
     const sessionSelectorRef = useRef(null);
 
     // Cycle through status filter modes: all -> active -> idle -> all
@@ -290,8 +293,19 @@ function App() {
         setIsWorktree(false);
     }, []);
 
+    // Handle opening help modal
+    const handleOpenHelp = useCallback(() => {
+        logger.info('Opening help modal');
+        setShowHelpModal(true);
+    }, []);
+
     // Handle keyboard shortcuts
     const handleKeyDown = useCallback((e) => {
+        // Don't handle shortcuts when help modal is open (it has its own handler)
+        if (showHelpModal) {
+            return;
+        }
+
         // Check custom shortcuts first (user-defined)
         const shortcutKey = buildShortcutKey(e);
         if (shortcuts[shortcutKey]) {
@@ -302,6 +316,33 @@ function App() {
             return;
         }
 
+        // ? key to open help (only when not in an input field)
+        if (e.key === '?' && !e.metaKey && !e.ctrlKey) {
+            const activeEl = document.activeElement;
+            const isInput = activeEl && (
+                activeEl.tagName === 'INPUT' ||
+                activeEl.tagName === 'TEXTAREA' ||
+                activeEl.isContentEditable
+            );
+            if (!isInput) {
+                e.preventDefault();
+                handleOpenHelp();
+                return;
+            }
+        }
+        // Cmd+/ or Ctrl+/ to open help (works anywhere)
+        if ((e.metaKey || e.ctrlKey) && e.key === '/') {
+            e.preventDefault();
+            handleOpenHelp();
+            return;
+        }
+        // Cmd+N or Ctrl+N to open new terminal (in selector view)
+        if ((e.metaKey || e.ctrlKey) && e.key === 'n' && view === 'selector') {
+            e.preventDefault();
+            logger.info('Cmd+N pressed - opening new terminal');
+            handleNewTerminal();
+            return;
+        }
         // Cmd+F or Ctrl+F to open search (only in terminal view)
         if ((e.metaKey || e.ctrlKey) && e.key === 'f' && view === 'terminal') {
             e.preventDefault();
@@ -331,7 +372,7 @@ function App() {
             e.preventDefault();
             handleCycleStatusFilter();
         }
-    }, [view, showSearch, handleBackToSelector, buildShortcutKey, shortcuts, handleLaunchProject, handleCycleStatusFilter]);
+    }, [view, showSearch, showHelpModal, handleBackToSelector, buildShortcutKey, shortcuts, handleLaunchProject, handleCycleStatusFilter, handleOpenHelp, handleNewTerminal]);
 
     useEffect(() => {
         document.addEventListener('keydown', handleKeyDown);
@@ -357,6 +398,8 @@ function App() {
                     onNewTerminal={handleNewTerminal}
                     statusFilter={statusFilter}
                     onCycleFilter={handleCycleStatusFilter}
+                    onOpenPalette={() => setShowCommandPalette(true)}
+                    onOpenHelp={handleOpenHelp}
                 />
                 {showCommandPalette && (
                     <CommandPalette
@@ -379,6 +422,9 @@ function App() {
                         onSelect={handleToolSelected}
                         onCancel={handleCancelToolPicker}
                     />
+                )}
+                {showHelpModal && (
+                    <KeyboardHelpModal onClose={() => setShowHelpModal(false)} />
                 )}
             </div>
         );
@@ -419,6 +465,16 @@ function App() {
                     session={selectedSession}
                 />
             </div>
+            <ShortcutBar
+                view="terminal"
+                onBackToSessions={handleBackToSelector}
+                onOpenSearch={() => {
+                    setShowSearch(true);
+                    setSearchFocusTrigger(prev => prev + 1);
+                }}
+                onOpenPalette={() => setShowCommandPalette(true)}
+                onOpenHelp={handleOpenHelp}
+            />
             {showSearch && (
                 <Search
                     searchAddon={searchAddonRef.current}
@@ -466,6 +522,9 @@ function App() {
                     onSelect={handleToolSelected}
                     onCancel={handleCancelToolPicker}
                 />
+            )}
+            {showHelpModal && (
+                <KeyboardHelpModal onClose={() => setShowHelpModal(false)} />
             )}
         </div>
     );
