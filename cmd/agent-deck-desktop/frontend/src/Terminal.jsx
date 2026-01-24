@@ -131,6 +131,55 @@ export default function Terminal({ searchRef, session, fontSize = DEFAULT_FONT_S
         // Get the session ID for this terminal (used for multi-pane support)
         const sessionId = session?.id || 'default';
 
+        // ============================================================
+        // ALT-SCREEN TRACKING (from backend via tmux)
+        // ============================================================
+        // The backend polls tmux for #{alternate_on} and emits terminal:altscreen
+        // when apps like nano/vim/less switch to/from alternate screen buffer.
+        // We use this to decide whether to send Page Up/Down for scrolling.
+        // ============================================================
+        let isInAltScreen = false;
+
+        const handleAltScreenChange = (payload) => {
+            if (payload?.sessionId !== sessionId) return;
+            isInAltScreen = payload.inAltScreen;
+            console.log(`%c[ALT-SCREEN] Changed to: ${isInAltScreen}`, 'color: magenta; font-weight: bold');
+            LogFrontendDiagnostic(`[ALT-SCREEN] Changed to: ${isInAltScreen}`);
+        };
+        EventsOn('terminal:altscreen', handleAltScreenChange);
+
+        // ============================================================
+        // MOUSE MODE TRACKING (parser hooks - may not work in polling mode)
+        // ============================================================
+        // Track which mouse modes the backend application has enabled.
+        // NOTE: In polling mode, these sequences may be stripped, so
+        // alt-screen tracking above is more reliable.
+        // ============================================================
+        const mouseModes = new Set();
+
+        // Monitor mouse mode enable sequences (CSI ? ... h)
+        const enableHandler = term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, (params) => {
+            for (const p of params) {
+                if ([1000, 1002, 1003, 1006].includes(p)) {
+                    mouseModes.add(p);
+                    console.log(`%c[MOUSE] Enabled mode ${p}. Active modes:`, 'color: cyan', [...mouseModes]);
+                    LogFrontendDiagnostic(`[MOUSE] Enabled mode ${p}. Active: ${[...mouseModes].join(',')}`);
+                }
+            }
+            return false; // Allow xterm to process it too
+        });
+
+        // Monitor mouse mode disable sequences (CSI ? ... l)
+        const disableHandler = term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, (params) => {
+            for (const p of params) {
+                if (mouseModes.delete(p)) {
+                    console.log(`%c[MOUSE] Disabled mode ${p}. Active modes:`, 'color: orange', [...mouseModes]);
+                    LogFrontendDiagnostic(`[MOUSE] Disabled mode ${p}. Active: ${[...mouseModes].join(',')}`);
+                }
+            }
+            return false;
+        });
+
         // Handle data from terminal (user input) - send to PTY
         const dataDisposable = term.onData((data) => {
             WriteTerminal(sessionId, data).catch(console.error);
@@ -263,10 +312,38 @@ export default function Terminal({ searchRef, session, fontSize = DEFAULT_FONT_S
         });
 
         // Method 2: Direct DOM scroll listener on viewport
+        // In alt-screen mode, intercept scrollbar and send Page Up/Down to app
         const viewportEl = terminalRef.current?.querySelector('.xterm-viewport');
+        let lastScrollTop = 0;
+        let scrollbarThrottleTime = 0;
+        const SCROLLBAR_THROTTLE_MS = 400;
+
         const handleDOMScroll = () => {
-            console.log(`%c[DOM-SCROLL] scrollTop=${viewportEl?.scrollTop}`, 'color: cyan; font-weight: bold');
-            LogFrontendDiagnostic(`[DOM-SCROLL] scrollTop=${viewportEl?.scrollTop}`);
+            if (!viewportEl || !xtermRef.current) return;
+
+            const currentScrollTop = viewportEl.scrollTop;
+            const scrollingUp = currentScrollTop < lastScrollTop;
+            lastScrollTop = currentScrollTop;
+
+            // In alt-screen mode, intercept scrollbar and send commands to app
+            if (isInAltScreen) {
+                const now = Date.now();
+                if (now - scrollbarThrottleTime < SCROLLBAR_THROTTLE_MS) {
+                    // Reset scroll position to prevent visual movement
+                    xtermRef.current.scrollToBottom();
+                    return;
+                }
+                scrollbarThrottleTime = now;
+
+                // Send Page Up/Down based on scroll direction
+                const pageSeq = scrollingUp ? '\x1b[5~' : '\x1b[6~';
+                console.log(`%c[SCROLLBAR] Alt: Page ${scrollingUp ? 'Up' : 'Down'}`, 'color: cyan');
+                WriteTerminal(sessionId, pageSeq).catch(console.error);
+
+                // Reset scroll position
+                xtermRef.current.scrollToBottom();
+                return;
+            }
         };
         if (viewportEl) {
             viewportEl.addEventListener('scroll', handleDOMScroll, { passive: true });
@@ -285,23 +362,58 @@ export default function Terminal({ searchRef, session, fontSize = DEFAULT_FONT_S
             term.refresh(0, term.rows - 1);
         };
 
-        // INTERCEPT wheel events and use programmatic scroll instead
-        // Key insight: Scrollbar drag renders correctly, wheel scroll corrupts
-        // By intercepting wheel and using scrollLines(), we use the "good" rendering path
+        // ============================================================
+        // WHEEL EVENT HANDLER FOR ALTERNATE BUFFER APPS
+        // ============================================================
+        // Since we use polling mode (tmux capture-pane), mouse mode escape
+        // sequences from apps go to tmux, not xterm.js. We can't track them.
+        //
+        // Strategy:
+        // - Alt buffer (nano, micro, vim, less): Send throttled Page Up/Down
+        // - Normal buffer (shell): Use programmatic xterm scroll
+        //
+        // We throttle alt-buffer scrolling aggressively to prevent rapid page jumps.
+        // ============================================================
+        let lastAltScrollTime = 0;
+        let pendingDirection = null; // 'up' or 'down'
+        const ALT_SCROLL_THROTTLE_MS = 400; // One page scroll per 400ms max
+
         const handleWheel = (e) => {
-            // PREVENT default wheel behavior - we'll scroll programmatically
+            // Always prevent default to stop browser from scrolling the viewport
             e.preventDefault();
             e.stopPropagation();
 
             if (!xtermRef.current) return;
 
-            // Calculate lines to scroll based on deltaY
-            // Typical wheel deltaY is ~100 for one "notch", we want ~3 lines per notch
-            const linesToScroll = Math.sign(e.deltaY) * Math.max(1, Math.ceil(Math.abs(e.deltaY) / 30));
+            const term = xtermRef.current;
+            const now = Date.now();
 
-            // Use xterm's programmatic scroll - this should use same path as scrollbar
-            xtermRef.current.scrollLines(linesToScroll);
+            // Alt buffer (nano, micro, vim, less, htop, etc.)
+            if (isInAltScreen) {
+                const scrollUp = e.deltaY < 0;
+                pendingDirection = scrollUp ? 'up' : 'down';
+
+                // Strict throttle: only send if enough time has passed
+                if (now - lastAltScrollTime < ALT_SCROLL_THROTTLE_MS) {
+                    return; // Swallow event, direction is saved
+                }
+
+                lastAltScrollTime = now;
+
+                // Page Up = \x1b[5~, Page Down = \x1b[6~
+                const pageSeq = pendingDirection === 'up' ? '\x1b[5~' : '\x1b[6~';
+                pendingDirection = null;
+
+                console.log(`%c[WHEEL] Alt: Page ${scrollUp ? 'Up' : 'Down'} (throttled)`, 'color: lime');
+                WriteTerminal(sessionId, pageSeq).catch(console.error);
+                return;
+            }
+
+            // Normal buffer (shell) - use programmatic xterm scroll
+            const linesToScroll = Math.sign(e.deltaY) * Math.max(1, Math.ceil(Math.abs(e.deltaY) / 30));
+            term.scrollLines(linesToScroll);
         };
+
 
         // Use capture phase and NOT passive (so we can preventDefault)
         terminalRef.current?.addEventListener('wheel', handleWheel, { passive: false, capture: true });
@@ -503,6 +615,9 @@ export default function Terminal({ searchRef, session, fontSize = DEFAULT_FONT_S
             scrollDisposable.dispose();
             dataDisposable.dispose();
             if (customKeyHandler) customKeyHandler.dispose();
+            // Clean up mouse mode parser handlers
+            if (enableHandler) enableHandler.dispose();
+            if (disableHandler) disableHandler.dispose();
             // Clean up scroll event listeners
             if (viewportEl) viewportEl.removeEventListener('scroll', handleDOMScroll);
             if (terminalRef.current) terminalRef.current.removeEventListener('wheel', handleWheel);

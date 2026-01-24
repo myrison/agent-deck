@@ -407,15 +407,3 @@ type SSHHostStatus struct {
 	Connected bool   `json:"connected"`
 	LastError string `json:"lastError,omitempty"`
 }
-
-// shutdown is called when the app is closing.
-func (a *App) shutdown(ctx context.Context) {
-	// Clean up SSH connections
-	if a.sshBridge != nil {
-		a.sshBridge.CloseAll()
-	}
-	// Close terminal
-	if a.terminal != nil {
-		a.terminal.Close()
-	}
-}

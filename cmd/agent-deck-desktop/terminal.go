@@ -558,6 +558,14 @@ func (t *Terminal) pollTmuxOnce() {
 	if inAltScreen != tracker.inAltScreen {
 		t.debugLog("[POLL] Alt-screen changed: %v -> %v", tracker.inAltScreen, inAltScreen)
 		tracker.SetAltScreen(inAltScreen)
+
+		// Notify frontend of alt-screen state change for mouse handling
+		if t.ctx != nil {
+			runtime.EventsEmit(t.ctx, "terminal:altscreen", map[string]interface{}{
+				"sessionId":   t.sessionID,
+				"inAltScreen": inAltScreen,
+			})
+		}
 	}
 
 	// Step 3: If NOT in alt-screen, fetch any history gap
