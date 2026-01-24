@@ -1,15 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './Search.css';
 
-export default function Search({ searchAddon, onClose }) {
+export default function Search({ searchAddon, onClose, focusTrigger }) {
     const [query, setQuery] = useState('');
     const [matchCount, setMatchCount] = useState(null);
     const inputRef = useRef(null);
 
-    // Focus input on mount
+    // Focus input on mount and whenever focusTrigger changes (Cmd+F pressed again)
     useEffect(() => {
         inputRef.current?.focus();
-    }, []);
+        inputRef.current?.select(); // Also select text for easy replacement
+    }, [focusTrigger]);
 
     // Handle search
     const doSearch = useCallback((searchQuery, direction = 'next') => {
