@@ -145,6 +145,7 @@ func (h *HelpOverlay) View() string {
 			title: "OTHER",
 			items: [][2]string{
 				{"S", "Settings"},
+				{"T", "Toggle light/dark theme"},
 				{"Ctrl+R", "Reload from disk"},
 				{"Shift+D", "Discover remote"},
 				{"i", "Import tmux sessions"},

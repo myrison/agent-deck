@@ -730,12 +730,13 @@ func GetDefaultTool() string {
 }
 
 // GetTheme returns the current theme, defaulting to "dark"
+// Valid values: "dark", "light", "auto"
 func GetTheme() string {
 	config, err := LoadUserConfig()
 	if err != nil || config == nil {
 		return "dark"
 	}
-	if config.Theme == "" || (config.Theme != "dark" && config.Theme != "light") {
+	if config.Theme == "" || (config.Theme != "dark" && config.Theme != "light" && config.Theme != "auto") {
 		return "dark"
 	}
 	return config.Theme
