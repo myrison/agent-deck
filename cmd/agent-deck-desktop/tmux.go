@@ -139,7 +139,14 @@ func (tm *TmuxManager) GetScrollback(tmuxSession string, lines int) (string, err
 		return "", err
 	}
 
-	return string(output), nil
+	// Convert LF to CRLF for xterm.js
+	// tmux outputs \n line endings, but xterm.js interprets \n as "move down"
+	// without returning to column 0. We need \r\n for proper rendering.
+	content := string(output)
+	content = strings.ReplaceAll(content, "\r\n", "\n") // Normalize any existing CRLF
+	content = strings.ReplaceAll(content, "\n", "\r\n") // Convert all LF to CRLF
+
+	return content, nil
 }
 
 // SessionExists checks if a tmux session exists.

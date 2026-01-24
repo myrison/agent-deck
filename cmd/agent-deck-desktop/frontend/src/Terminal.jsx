@@ -1,11 +1,11 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import './Terminal.css';
-import { StartTerminal, WriteTerminal, ResizeTerminal, AttachSession, GetScrollback, CloseTerminal } from '../wailsjs/go/main/App';
+import { StartTerminal, WriteTerminal, ResizeTerminal, GetScrollback, CloseTerminal, StartTmuxPolling, SendTmuxInput, ResizeTmuxPane } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
 
@@ -69,6 +69,7 @@ export default function Terminal({ searchRef, session }) {
     const fitAddonRef = useRef(null);
     const searchAddonRef = useRef(null);
     const initRef = useRef(false);
+    const isTmuxPollingRef = useRef(false);
 
     // Initialize terminal
     useEffect(() => {
@@ -102,13 +103,29 @@ export default function Terminal({ searchRef, session }) {
             searchRef.current = searchAddon;
         }
 
-        // Handle data from terminal (user input) - send to PTY
+        // Handle data from terminal (user input) - send to PTY or tmux
         const dataDisposable = term.onData((data) => {
-            WriteTerminal(data).catch(console.error);
+            if (isTmuxPollingRef.current) {
+                SendTmuxInput(data).catch(console.error);
+            } else {
+                WriteTerminal(data).catch(console.error);
+            }
         });
+
+        // Listen for debug messages from backend
+        const handleDebug = (msg) => {
+            logger.debug('[Backend]', msg);
+        };
+        EventsOn('terminal:debug', handleDebug);
 
         // Listen for data from PTY
         const handleTerminalData = (data) => {
+            // Log data characteristics for debugging
+            const hasClr = data.includes('\x1b[2J');
+            const hasHome = data.includes('\x1b[H');
+            const lines = data.split('\n').length;
+            logger.debug(`[DATA] received: ${data.length} bytes, ${lines} lines, clearScreen=${hasClr}, home=${hasHome}`);
+
             if (xtermRef.current) {
                 xtermRef.current.write(data);
             }
@@ -127,6 +144,41 @@ export default function Terminal({ searchRef, session }) {
         let lastCols = term.cols;
         let lastRows = term.rows;
 
+        // Debounced scrollback refresh - fires after resize activity stops
+        // This reloads scrollback from tmux at the new width so it reflows properly
+        let scrollbackRefreshTimer = null;
+        const SCROLLBACK_REFRESH_DELAY = 400; // ms after resize stops
+
+        const refreshScrollbackAfterResize = async () => {
+            if (!isTmuxPollingRef.current || !session?.tmuxSession || !xtermRef.current) {
+                return;
+            }
+
+            logger.info('Refreshing scrollback after resize...');
+            try {
+                // Clear xterm buffer completely (visible + scrollback)
+                // This is necessary because old scrollback was rendered at old width
+                xtermRef.current.clear();
+
+                // Re-fetch scrollback from tmux (now reflowed to new width)
+                const scrollback = await GetScrollback(session.tmuxSession);
+                if (scrollback && xtermRef.current) {
+                    const scrollbackLines = scrollback.split('\n').length;
+                    logger.debug(`[RESIZE-REFRESH] Got ${scrollback.length} bytes, ${scrollbackLines} lines`);
+
+                    // Write reflowed scrollback to buffer
+                    xtermRef.current.write(scrollback);
+
+                    // Add separator
+                    xtermRef.current.write('\r\n\x1b[2m─── History above, live session below ───\x1b[0m\r\n');
+
+                    logger.info('Scrollback refreshed at new width');
+                }
+            } catch (err) {
+                logger.warn('Failed to refresh scrollback:', err);
+            }
+        };
+
         // RAF-throttled resize handler - fires at most once per frame
         const handleResize = rafThrottle(() => {
             if (fitAddonRef.current && xtermRef.current) {
@@ -141,16 +193,26 @@ export default function Terminal({ searchRef, session }) {
                         lastCols = cols;
                         lastRows = rows;
 
-                        // Send resize to PTY immediately
-                        ResizeTerminal(cols, rows)
+                        // Send resize to PTY or tmux pane
+                        const resizeFn = isTmuxPollingRef.current ? ResizeTmuxPane : ResizeTerminal;
+                        resizeFn(cols, rows)
                             .then(() => {
-                                // After PTY resize, refresh terminal display
+                                // After resize, refresh terminal display
                                 // This helps clear artifacts from stale content
                                 if (xtermRef.current) {
                                     xtermRef.current.refresh(0, rows - 1);
                                 }
                             })
                             .catch(console.error);
+
+                        // For tmux polling mode, debounce scrollback refresh
+                        // This reloads scrollback at new width after resize settles
+                        if (isTmuxPollingRef.current) {
+                            if (scrollbackRefreshTimer) {
+                                clearTimeout(scrollbackRefreshTimer);
+                            }
+                            scrollbackRefreshTimer = setTimeout(refreshScrollbackAfterResize, SCROLLBACK_REFRESH_DELAY);
+                        }
                     }
                 } catch (e) {
                     console.error('Resize error:', e);
@@ -168,34 +230,45 @@ export default function Terminal({ searchRef, session }) {
         const startTerminal = async () => {
             try {
                 if (session && session.tmuxSession) {
-                    logger.info('Attaching to tmux session:', session.tmuxSession);
+                    logger.info('Connecting to tmux session:', session.tmuxSession);
 
-                    // Load scrollback into xterm buffer so search works
+                    // Load scrollback into xterm buffer so Cmd+F search works on history
                     try {
-                        logger.info('Loading scrollback...');
+                        logger.info('Loading scrollback for search...');
                         const scrollback = await GetScrollback(session.tmuxSession);
                         if (scrollback) {
+                            const scrollbackLines = scrollback.split('\n').length;
+                            logger.debug(`[SCROLLBACK] Got ${scrollback.length} bytes, ${scrollbackLines} lines`);
+
                             // Write scrollback directly to buffer
+                            // Note: GetScrollback now returns CRLF line endings for proper xterm rendering
                             term.write(scrollback);
-                            logger.info('Scrollback loaded:', scrollback.length, 'chars');
+                            logger.info('Scrollback loaded:', scrollback.length, 'chars,', scrollbackLines, 'lines');
 
-                            // Add visual separator so user can see where live session starts
-                            term.write('\r\n\x1b[2m─── Reconnecting to live session ───\x1b[0m\r\n');
+                            // Add visual separator so user can see where history ends
+                            term.write('\r\n\x1b[2m─── History above, live session below ───\x1b[0m\r\n');
 
-                            // Scroll to absolute bottom - user sees end of scrollback + separator
-                            term.scrollToBottom();
-
-                            // Brief pause to let rendering settle
-                            await new Promise(resolve => setTimeout(resolve, 100));
+                            // Log terminal state after scrollback
+                            logger.debug(`[SCROLLBACK] Terminal buffer after load: cols=${term.cols}, rows=${term.rows}`);
                         }
                     } catch (scrollErr) {
                         logger.warn('Failed to load scrollback:', scrollErr);
                     }
 
-                    // Now attach to live session - output continues after separator
-                    logger.info('Attaching to live session...');
-                    await AttachSession(session.tmuxSession, cols, rows);
-                    logger.info('Attached successfully');
+                    // Wait for xterm to finish rendering scrollback
+                    logger.debug('[TIMING] Waiting 100ms for xterm to render scrollback...');
+                    await new Promise(resolve => setTimeout(resolve, 100));
+
+                    // Log terminal state before polling
+                    logger.debug(`[TIMING] Starting polling. xterm: cols=${term.cols}, rows=${term.rows}`);
+
+                    // Start polling instead of attaching
+                    // Polling avoids cursor position conflicts - it clears and redraws
+                    // the visible screen each update, leaving scrollback buffer intact
+                    logger.info('Starting tmux polling...');
+                    isTmuxPollingRef.current = true;
+                    await StartTmuxPolling(session.tmuxSession, cols, rows);
+                    logger.info('Polling started successfully');
                 } else {
                     logger.info('Starting new terminal');
                     await StartTerminal(cols, rows);
@@ -215,12 +288,18 @@ export default function Terminal({ searchRef, session }) {
         return () => {
             logger.info('Cleaning up terminal');
 
-            // Close the PTY backend
+            // Cancel any pending scrollback refresh
+            if (scrollbackRefreshTimer) {
+                clearTimeout(scrollbackRefreshTimer);
+            }
+
+            // Close the PTY/polling backend
             CloseTerminal().catch((err) => {
                 logger.error('Failed to close terminal:', err);
             });
 
             // Clean up frontend
+            EventsOff('terminal:debug');
             EventsOff('terminal:data');
             EventsOff('terminal:exit');
             resizeObserver.disconnect();
@@ -230,6 +309,7 @@ export default function Terminal({ searchRef, session }) {
             fitAddonRef.current = null;
             searchAddonRef.current = null;
             initRef.current = false;
+            isTmuxPollingRef.current = false;
         };
     }, [searchRef, session]);
 

@@ -10,6 +10,7 @@ const logger = createLogger('App');
 function App() {
     const searchAddonRef = useRef(null);
     const [showSearch, setShowSearch] = useState(false);
+    const [searchFocusTrigger, setSearchFocusTrigger] = useState(0); // Increments to trigger focus
     const [view, setView] = useState('selector'); // 'selector' or 'terminal'
     const [selectedSession, setSelectedSession] = useState(null);
     const [showCloseConfirm, setShowCloseConfirm] = useState(false);
@@ -43,6 +44,8 @@ function App() {
         if ((e.metaKey || e.ctrlKey) && e.key === 'f' && view === 'terminal') {
             e.preventDefault();
             setShowSearch(true);
+            // Always trigger focus - works whether search is opening or already open
+            setSearchFocusTrigger(prev => prev + 1);
         }
         // Cmd+K - Reserved for command palette (future feature)
         if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -103,6 +106,7 @@ function App() {
                 <Search
                     searchAddon={searchAddonRef.current}
                     onClose={handleCloseSearch}
+                    focusTrigger={searchFocusTrigger}
                 />
             )}
             {showCloseConfirm && (
