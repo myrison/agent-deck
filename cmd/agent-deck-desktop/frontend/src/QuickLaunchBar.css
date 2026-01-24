@@ -61,6 +61,7 @@
 
 /* Name */
 .quick-launch-name {
+    font-size: var(--font-base);
     max-width: 80px;
     white-space: nowrap;
     overflow: hidden;

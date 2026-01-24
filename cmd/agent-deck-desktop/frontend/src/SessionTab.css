@@ -44,6 +44,7 @@
 /* Tab title */
 .tab-title {
     flex: 1;
+    font-size: var(--font-base);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -95,6 +96,7 @@
 }
 
 .tooltip-title {
+    font-size: var(--font-xl);
     color: var(--text-primary);
     font-weight: 500;
 }

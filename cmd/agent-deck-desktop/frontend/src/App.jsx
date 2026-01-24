@@ -517,8 +517,12 @@ function App() {
         }
     }, [fontSize]);
 
-    // Calculate font scale for CSS custom property (14px is baseline)
-    const fontScale = fontSize / 14;
+    // Set font scale on document root so CSS variables in :root can use it
+    useEffect(() => {
+        const fontScale = fontSize / 14;
+        document.documentElement.style.setProperty('--font-scale', fontScale);
+        logger.debug('Font scale updated', { fontSize, fontScale });
+    }, [fontSize]);
 
     // Handle keyboard shortcuts
     const handleKeyDown = useCallback((e) => {
@@ -674,7 +678,7 @@ function App() {
     // Show session selector
     if (view === 'selector') {
         return (
-            <div id="App" style={{ '--font-scale': fontScale }}>
+            <div id="App">
                 {showQuickLaunch && (
                     <UnifiedTopBar
                         key={quickLaunchKey}
@@ -747,7 +751,7 @@ function App() {
 
     // Show terminal
     return (
-        <div id="App" style={{ '--font-scale': fontScale }}>
+        <div id="App">
             {showQuickLaunch && (
                 <UnifiedTopBar
                     key={quickLaunchKey}

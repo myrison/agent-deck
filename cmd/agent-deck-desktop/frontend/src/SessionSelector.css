@@ -139,6 +139,7 @@
 }
 
 .session-title {
+    font-size: var(--font-xl);
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
