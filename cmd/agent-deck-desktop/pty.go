@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"sync"
@@ -111,8 +112,8 @@ func SpawnSSHPTY(hostID, tmuxSession string, sshBridge *SSHBridge) (*PTY, error)
 	// Get remote tmux path
 	tmuxPath := sshBridge.GetTmuxPath(hostID)
 
-	// Build the attach command
-	attachCmd := tmuxPath + " attach-session -t " + tmuxSession
+	// Build the attach command with proper quoting to prevent shell injection
+	attachCmd := fmt.Sprintf("%s attach-session -t %q", tmuxPath, tmuxSession)
 
 	// Use StartInteractiveSession which builds the proper SSH command with -t for PTY
 	sshCmd, err := conn.StartInteractiveSession(attachCmd)

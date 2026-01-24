@@ -261,28 +261,31 @@ func (t *Terminal) SetSSHBridge(bridge *SSHBridge) {
 //   - tmuxSession: tmux session name on the remote host
 //   - cols, rows: initial terminal dimensions
 func (t *Terminal) StartRemoteTmuxSession(hostID, tmuxSession string, cols, rows int) error {
+	// Quick lock to check if already started and get sshBridge reference
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	if t.pty != nil {
+		t.mu.Unlock()
 		return nil // Already started
 	}
-
 	if t.sshBridge == nil {
+		t.mu.Unlock()
 		return fmt.Errorf("SSH bridge not initialized")
 	}
+	sshBridge := t.sshBridge
+	ctx := t.ctx
+	t.mu.Unlock()
 
 	t.debugLog("[REMOTE] Starting remote session hostID=%s tmux=%s cols=%d rows=%d",
 		hostID, tmuxSession, cols, rows)
 
 	// Get tmux path for this host
-	tmuxPath := t.sshBridge.GetTmuxPath(hostID)
+	tmuxPath := sshBridge.GetTmuxPath(hostID)
 
-	// 1. Resize tmux window on remote host
+	// 1. Resize tmux window on remote host (outside lock - network call)
 	if cols > 0 && rows > 0 {
 		resizeCmd := fmt.Sprintf("%s resize-window -t %q -x %d -y %d",
 			tmuxPath, tmuxSession, cols, rows)
-		if _, err := t.sshBridge.RunCommand(hostID, resizeCmd); err != nil {
+		if _, err := sshBridge.RunCommand(hostID, resizeCmd); err != nil {
 			t.debugLog("[REMOTE] resize-window error: %v", err)
 		} else {
 			t.debugLog("[REMOTE] Resized tmux window to %dx%d", cols, rows)
@@ -290,9 +293,9 @@ func (t *Terminal) StartRemoteTmuxSession(hostID, tmuxSession string, cols, rows
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// 2. Fetch full history from remote
+	// 2. Fetch full history from remote (outside lock - network call)
 	historyCmd := fmt.Sprintf("%s capture-pane -t %q -p -e -S - -E -", tmuxPath, tmuxSession)
-	historyOutput, err := t.sshBridge.RunCommand(hostID, historyCmd)
+	historyOutput, err := sshBridge.RunCommand(hostID, historyCmd)
 	if err != nil {
 		t.debugLog("[REMOTE] capture-pane error: %v", err)
 		// Continue anyway - history is optional
@@ -303,41 +306,56 @@ func (t *Terminal) StartRemoteTmuxSession(hostID, tmuxSession string, cols, rows
 		history := sanitizeHistoryForXterm(historyOutput)
 		history = normalizeCRLF(history)
 		t.debugLog("[REMOTE] Emitting %d bytes of sanitized history", len(history))
-		if t.ctx != nil {
-			runtime.EventsEmit(t.ctx, "terminal:history", history)
+		if ctx != nil {
+			runtime.EventsEmit(ctx, "terminal:history", history)
 		}
 	}
 
 	// 4. Short delay for frontend to process history
 	time.Sleep(50 * time.Millisecond)
 
-	// 5. Attach SSH PTY for interactive input
+	// 5. Attach SSH PTY for interactive input (outside lock - network call)
 	t.debugLog("[REMOTE] Attaching SSH PTY for interactive session")
-	pty, err := SpawnSSHPTY(hostID, tmuxSession, t.sshBridge)
+	newPty, err := SpawnSSHPTY(hostID, tmuxSession, sshBridge)
 	if err != nil {
 		t.debugLog("[REMOTE] SSH PTY attach failed: %v", err)
 		// Fall back to read-only mode - continue without PTY
+		newPty = nil
 	} else {
 		// Set PTY size
 		if cols > 0 && rows > 0 {
-			pty.Resize(uint16(cols), uint16(rows))
+			newPty.Resize(uint16(cols), uint16(rows))
 		}
-		t.pty = pty
-
-		// Start PTY read loop (discard output - polling handles display)
-		go t.readLoopDiscard()
 		t.debugLog("[REMOTE] SSH PTY attached successfully")
 	}
 
-	// 6. Store remote context
+	// 6. Re-lock to commit results
+	t.mu.Lock()
+	// Check again that nothing changed while we were unlocked
+	if t.pty != nil {
+		t.mu.Unlock()
+		// Another goroutine started a session - close our PTY if we made one
+		if newPty != nil {
+			newPty.Close()
+		}
+		return nil
+	}
+
+	t.pty = newPty
 	t.remoteHostID = hostID
 	t.tmuxSession = tmuxSession
 	t.closed = false
+	t.mu.Unlock()
+
+	// Start PTY read loop after unlocking (if we have a PTY)
+	if newPty != nil {
+		go t.readLoopDiscard()
+	}
 
 	// 7. Start remote polling mode for display updates (100ms for SSH latency)
 	t.startRemoteTmuxPolling(hostID, tmuxSession, rows)
 
-	if t.pty != nil {
+	if newPty != nil {
 		t.debugLog("[REMOTE] Session started successfully (interactive mode)")
 	} else {
 		t.debugLog("[REMOTE] Session started successfully (read-only polling mode)")
