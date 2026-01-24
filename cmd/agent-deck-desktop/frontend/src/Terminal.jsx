@@ -54,6 +54,7 @@ export default function Terminal({ searchRef, session, fontSize = DEFAULT_FONT_S
     const initRef = useRef(false);
     const isAtBottomRef = useRef(true);
     const [showScrollIndicator, setShowScrollIndicator] = useState(false);
+    const [isAltScreen, setIsAltScreen] = useState(false);
     const { theme } = useTheme();
 
     // Update terminal theme when app theme changes
@@ -143,6 +144,7 @@ export default function Terminal({ searchRef, session, fontSize = DEFAULT_FONT_S
         const handleAltScreenChange = (payload) => {
             if (payload?.sessionId !== sessionId) return;
             isInAltScreen = payload.inAltScreen;
+            setIsAltScreen(payload.inAltScreen); // Update state for CSS class
             console.log(`%c[ALT-SCREEN] Changed to: ${isInAltScreen}`, 'color: magenta; font-weight: bold');
             LogFrontendDiagnostic(`[ALT-SCREEN] Changed to: ${isInAltScreen}`);
         };
@@ -640,7 +642,7 @@ export default function Terminal({ searchRef, session, fontSize = DEFAULT_FONT_S
     };
 
     return (
-        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+        <div style={{ position: 'relative', width: '100%', height: '100%' }} className={isAltScreen ? 'terminal-alt-screen' : ''}>
             <div
                 ref={terminalRef}
                 data-testid="terminal"

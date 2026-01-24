@@ -34,6 +34,17 @@
     filter: brightness(1.15);
 }
 
+/* Hide scrollbar in alt-screen mode (nano, vim, less, etc.)
+   Wheel events are intercepted and send Page Up/Down to the TUI app */
+.terminal-alt-screen .xterm-viewport::-webkit-scrollbar {
+    width: 0 !important;
+    display: none !important;
+}
+
+.terminal-alt-screen .xterm-viewport::-webkit-scrollbar-thumb {
+    display: none !important;
+}
+
 /* Scroll indicator - shows when scrolled up during output */
 .scroll-indicator {
     position: absolute;
