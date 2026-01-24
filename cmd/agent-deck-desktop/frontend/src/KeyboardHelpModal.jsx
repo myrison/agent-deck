@@ -58,6 +58,26 @@ export default function KeyboardHelpModal({ onClose }) {
                         </div>
 
                         <div className="help-section">
+                            <h3>Tabs</h3>
+                            <div className="help-row">
+                                <kbd>{modKey}1-9</kbd>
+                                <span>Switch to tab N</span>
+                            </div>
+                            <div className="help-row">
+                                <kbd>{modKey}[</kbd>
+                                <span>Previous tab</span>
+                            </div>
+                            <div className="help-row">
+                                <kbd>{modKey}]</kbd>
+                                <span>Next tab</span>
+                            </div>
+                            <div className="help-row">
+                                <kbd>{modKey}W</kbd>
+                                <span>Close tab</span>
+                            </div>
+                        </div>
+
+                        <div className="help-section">
                             <h3>Quick Launch</h3>
                             <div className="help-row">
                                 <span className="help-action">Click</span>
@@ -111,10 +131,6 @@ export default function KeyboardHelpModal({ onClose }) {
                             <div className="help-row">
                                 <kbd>⇧5</kbd>
                                 <span>Cycle filter</span>
-                            </div>
-                            <div className="help-row">
-                                <kbd>{modKey}W</kbd>
-                                <span>Close terminal</span>
                             </div>
                             <div className="help-row">
                                 <span className="help-keys">

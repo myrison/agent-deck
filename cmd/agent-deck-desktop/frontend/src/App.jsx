@@ -7,7 +7,7 @@ import CommandPalette from './CommandPalette';
 import ToolPicker from './ToolPicker';
 import ConfigPicker from './ConfigPicker';
 import SettingsModal from './SettingsModal';
-import QuickLaunchBar from './QuickLaunchBar';
+import UnifiedTopBar from './UnifiedTopBar';
 import ShortcutBar from './ShortcutBar';
 import KeyboardHelpModal from './KeyboardHelpModal';
 import RenameDialog from './RenameDialog';
@@ -41,6 +41,8 @@ function App() {
     const [configPickerTool, setConfigPickerTool] = useState(null);
     const [showSettings, setShowSettings] = useState(false);
     const [showLabelDialog, setShowLabelDialog] = useState(false);
+    const [openTabs, setOpenTabs] = useState([]); // Array of {id, session, openedAt}
+    const [activeTabId, setActiveTabId] = useState(null);
     const sessionSelectorRef = useRef(null);
 
     // Cycle through status filter modes: all -> active -> idle -> all
@@ -207,14 +209,15 @@ function App() {
                 setIsWorktree(false);
             }
 
-            // Switch to terminal view with the new session
+            // Open as tab and switch to terminal view
+            handleOpenTab(session);
             setSelectedSession(session);
             setView('terminal');
         } catch (err) {
             logger.error('Failed to launch project:', err);
             // Could show an error toast here
         }
-    }, []);
+    }, [handleOpenTab]);
 
     // Show tool picker for a project
     const handleShowToolPicker = useCallback((projectPath, projectName) => {
@@ -321,8 +324,92 @@ function App() {
         setShowLabelDialog(false);
     }, [selectedSession]);
 
+    // Tab management handlers
+    const handleOpenTab = useCallback((session) => {
+        setOpenTabs(prev => {
+            // Check if tab already exists
+            const existingTab = prev.find(t => t.session.id === session.id);
+            if (existingTab) {
+                // Tab exists, just switch to it
+                setActiveTabId(existingTab.id);
+                return prev;
+            }
+            // Create new tab
+            const newTab = {
+                id: `tab-${session.id}-${Date.now()}`,
+                session,
+                openedAt: Date.now(),
+            };
+            logger.info('Opening new tab', { tabId: newTab.id, sessionTitle: session.title });
+            setActiveTabId(newTab.id);
+            return [...prev, newTab];
+        });
+    }, []);
+
+    const handleCloseTab = useCallback((tabId) => {
+        setOpenTabs(prev => {
+            const tabIndex = prev.findIndex(t => t.id === tabId);
+            if (tabIndex === -1) return prev;
+
+            const newTabs = prev.filter(t => t.id !== tabId);
+            logger.info('Closing tab', { tabId, remainingTabs: newTabs.length });
+
+            // If closing active tab, switch to adjacent
+            if (tabId === activeTabId) {
+                if (newTabs.length === 0) {
+                    // No tabs left, return to selector
+                    setActiveTabId(null);
+                    setSelectedSession(null);
+                    setView('selector');
+                    setGitBranch('');
+                    setIsWorktree(false);
+                } else {
+                    // Switch to previous tab, or next if at start
+                    const newIndex = Math.min(tabIndex, newTabs.length - 1);
+                    const newActiveTab = newTabs[newIndex];
+                    setActiveTabId(newActiveTab.id);
+                    setSelectedSession(newActiveTab.session);
+                }
+            }
+
+            return newTabs;
+        });
+    }, [activeTabId]);
+
+    const handleSwitchTab = useCallback(async (tabId) => {
+        const tab = openTabs.find(t => t.id === tabId);
+        if (!tab) return;
+
+        logger.info('Switching to tab', { tabId, sessionTitle: tab.session.title });
+        setActiveTabId(tabId);
+        setSelectedSession(tab.session);
+        setView('terminal');
+
+        // Update git info for the new session
+        if (tab.session.projectPath) {
+            try {
+                const [branch, worktree] = await Promise.all([
+                    GetGitBranch(tab.session.projectPath),
+                    IsGitWorktree(tab.session.projectPath)
+                ]);
+                setGitBranch(branch || '');
+                setIsWorktree(worktree);
+            } catch (err) {
+                setGitBranch('');
+                setIsWorktree(false);
+            }
+        } else {
+            setGitBranch('');
+            setIsWorktree(false);
+        }
+    }, [openTabs]);
+
     const handleSelectSession = useCallback(async (session) => {
         logger.info('Selecting session:', session.title);
+
+        // Open as tab
+        handleOpenTab(session);
+
         setSelectedSession(session);
         setView('terminal');
 
@@ -352,7 +439,7 @@ function App() {
             setGitBranch('');
             setIsWorktree(false);
         }
-    }, []);
+    }, [handleOpenTab]);
 
     const handleNewTerminal = useCallback(() => {
         logger.info('Starting new terminal');
@@ -426,11 +513,47 @@ function App() {
             logger.info('Cmd+K pressed - opening command palette');
             setShowCommandPalette(true);
         }
-        // Cmd+W to close/back with confirmation
+        // Cmd+W to close current tab
         if ((e.metaKey || e.ctrlKey) && e.key === 'w' && view === 'terminal') {
             e.preventDefault();
-            logger.info('Cmd+W pressed - showing close confirmation');
-            setShowCloseConfirm(true);
+            if (activeTabId) {
+                logger.info('Cmd+W pressed - closing current tab');
+                handleCloseTab(activeTabId);
+            } else {
+                // Fallback: show confirmation if no tabs
+                logger.info('Cmd+W pressed - showing close confirmation');
+                setShowCloseConfirm(true);
+            }
+        }
+        // Cmd+1-9 to switch to tab by number
+        if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '9') {
+            e.preventDefault();
+            const tabIndex = parseInt(e.key, 10) - 1;
+            if (tabIndex < openTabs.length) {
+                const tab = openTabs[tabIndex];
+                logger.info('Tab shortcut pressed', { key: e.key, tabId: tab.id });
+                handleSwitchTab(tab.id);
+            }
+        }
+        // Cmd+[ for previous tab
+        if ((e.metaKey || e.ctrlKey) && e.key === '[' && openTabs.length > 1) {
+            e.preventDefault();
+            const currentIndex = openTabs.findIndex(t => t.id === activeTabId);
+            if (currentIndex > 0) {
+                const prevTab = openTabs[currentIndex - 1];
+                logger.info('Switching to previous tab');
+                handleSwitchTab(prevTab.id);
+            }
+        }
+        // Cmd+] for next tab
+        if ((e.metaKey || e.ctrlKey) && e.key === ']' && openTabs.length > 1) {
+            e.preventDefault();
+            const currentIndex = openTabs.findIndex(t => t.id === activeTabId);
+            if (currentIndex < openTabs.length - 1) {
+                const nextTab = openTabs[currentIndex + 1];
+                logger.info('Switching to next tab');
+                handleSwitchTab(nextTab.id);
+            }
         }
         // Cmd+, to go back to session selector
         if ((e.metaKey || e.ctrlKey) && e.key === ',' && view === 'terminal') {
@@ -453,7 +576,7 @@ function App() {
             e.preventDefault();
             handleOpenSettings();
         }
-    }, [view, showSearch, showHelpModal, handleBackToSelector, buildShortcutKey, shortcuts, handleLaunchProject, handleCycleStatusFilter, handleOpenHelp, handleNewTerminal, handleOpenSettings, selectedSession]);
+    }, [view, showSearch, showHelpModal, handleBackToSelector, buildShortcutKey, shortcuts, handleLaunchProject, handleCycleStatusFilter, handleOpenHelp, handleNewTerminal, handleOpenSettings, selectedSession, activeTabId, openTabs, handleCloseTab, handleSwitchTab]);
 
     useEffect(() => {
         // Use capture phase to intercept keys before terminal swallows them
@@ -466,13 +589,17 @@ function App() {
         return (
             <div id="App">
                 {showQuickLaunch && (
-                    <QuickLaunchBar
+                    <UnifiedTopBar
                         key={quickLaunchKey}
                         onLaunch={handleLaunchProject}
                         onShowToolPicker={handleShowToolPicker}
                         onOpenPalette={() => setShowCommandPalette(true)}
                         onOpenPaletteForPinning={handleOpenPaletteForPinning}
                         onShortcutsChanged={loadShortcuts}
+                        openTabs={openTabs}
+                        activeTabId={activeTabId}
+                        onSwitchTab={handleSwitchTab}
+                        onCloseTab={handleCloseTab}
                     />
                 )}
                 <SessionSelector
@@ -529,13 +656,17 @@ function App() {
     return (
         <div id="App">
             {showQuickLaunch && (
-                <QuickLaunchBar
+                <UnifiedTopBar
                     key={quickLaunchKey}
                     onLaunch={handleLaunchProject}
                     onShowToolPicker={handleShowToolPicker}
                     onOpenPalette={() => setShowCommandPalette(true)}
                     onOpenPaletteForPinning={handleOpenPaletteForPinning}
                     onShortcutsChanged={loadShortcuts}
+                    openTabs={openTabs}
+                    activeTabId={activeTabId}
+                    onSwitchTab={handleSwitchTab}
+                    onCloseTab={handleCloseTab}
                 />
             )}
             <div className="terminal-header">
