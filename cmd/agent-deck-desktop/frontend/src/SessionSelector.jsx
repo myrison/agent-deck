@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ListSessions, GetProjectRoots, UpdateSessionCustomLabel } from '../wailsjs/go/main/App';
+import { ListSessions, GetProjectRoots, UpdateSessionCustomLabel, GetSSHHostStatus } from '../wailsjs/go/main/App';
 import './SessionSelector.css';
 import { createLogger } from './logger';
 import ToolIcon from './ToolIcon';
@@ -70,6 +70,7 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [contextMenu, setContextMenu] = useState(null); // { x, y, session }
     const [labelingSession, setLabelingSession] = useState(null); // session being labeled
+    const [sshHostStatus, setSshHostStatus] = useState({}); // hostId -> { connected, lastError }
     const { show: showTooltip, hide: hideTooltip, Tooltip } = useTooltip();
 
     useEffect(() => {
@@ -80,6 +81,33 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
         }).catch(err => {
             logger.warn('Failed to load project roots:', err);
         });
+    }, []);
+
+    // Fetch SSH host status periodically (for remote session indicators)
+    useEffect(() => {
+        const fetchHostStatus = async () => {
+            try {
+                const statuses = await GetSSHHostStatus();
+                if (statuses && statuses.length > 0) {
+                    const statusMap = {};
+                    statuses.forEach(s => {
+                        statusMap[s.hostId] = {
+                            connected: s.connected,
+                            lastError: s.lastError,
+                        };
+                    });
+                    setSshHostStatus(statusMap);
+                }
+            } catch (err) {
+                // Silently ignore - SSH may not be configured
+                logger.debug('Failed to fetch SSH host status:', err);
+            }
+        };
+
+        // Fetch immediately and then every 30 seconds
+        fetchHostStatus();
+        const interval = setInterval(fetchHostStatus, 30000);
+        return () => clearInterval(interval);
     }, []);
 
     // Tooltip content builder for sessions - returns JSX for rich formatting
@@ -403,7 +431,11 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
                                         <span className="session-danger-icon" title="Dangerous mode enabled">⚠</span>
                                     )}
                                     {session.isRemote && (
-                                        <span className="session-remote-badge" title={`Remote session on ${session.remoteHost}`}>
+                                        <span
+                                            className={`session-remote-badge ${sshHostStatus[session.remoteHost]?.connected === false ? 'disconnected' : ''}`}
+                                            title={`Remote session on ${session.remoteHost}${sshHostStatus[session.remoteHost]?.connected === false ? ' (disconnected)' : ''}`}
+                                        >
+                                            <span className={`ssh-status-dot ${sshHostStatus[session.remoteHost]?.connected === false ? 'disconnected' : 'connected'}`} />
                                             {session.remoteHost}
                                         </span>
                                     )}

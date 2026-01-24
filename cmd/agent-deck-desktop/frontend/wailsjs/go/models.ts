@@ -68,6 +68,22 @@ export namespace main {
 	        this.shortcut = source["shortcut"];
 	    }
 	}
+	export class SSHHostStatus {
+	    hostId: string;
+	    connected: boolean;
+	    lastError?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SSHHostStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hostId = source["hostId"];
+	        this.connected = source["connected"];
+	        this.lastError = source["lastError"];
+	    }
+	}
 	export class SessionInfo {
 	    id: string;
 	    title: string;

@@ -46,6 +46,14 @@ function rafThrottle(fn) {
 
 const logger = createLogger('Terminal');
 
+// Connection status constants
+const CONN_STATE = {
+    CONNECTED: 'connected',
+    DISCONNECTED: 'disconnected',
+    RECONNECTING: 'reconnecting',
+    FAILED: 'failed',
+};
+
 export default function Terminal({ searchRef, session, fontSize = DEFAULT_FONT_SIZE }) {
     const terminalRef = useRef(null);
     const xtermRef = useRef(null);
@@ -55,6 +63,10 @@ export default function Terminal({ searchRef, session, fontSize = DEFAULT_FONT_S
     const isAtBottomRef = useRef(true);
     const [showScrollIndicator, setShowScrollIndicator] = useState(false);
     const { theme } = useTheme();
+
+    // Connection status state (for remote sessions)
+    const [connectionState, setConnectionState] = useState(CONN_STATE.CONNECTED);
+    const [connectionInfo, setConnectionInfo] = useState(null); // { hostId, error, attempt, maxAttempts }
 
     // Update terminal theme when app theme changes
     useEffect(() => {
@@ -352,6 +364,48 @@ export default function Terminal({ searchRef, session, fontSize = DEFAULT_FONT_S
         };
         EventsOn('terminal:exit', handleTerminalExit);
 
+        // Connection status events (for remote sessions)
+        const handleConnectionLost = (data) => {
+            logger.warn('SSH connection lost:', data);
+            setConnectionState(CONN_STATE.DISCONNECTED);
+            setConnectionInfo({ hostId: data.hostId, error: data.error });
+            if (xtermRef.current) {
+                xtermRef.current.write(`\r\n\x1b[33m[Connection lost to ${data.hostId}]\x1b[0m\r\n`);
+            }
+        };
+        EventsOn('terminal:connection-lost', handleConnectionLost);
+
+        const handleReconnecting = (data) => {
+            logger.info('SSH reconnecting:', data);
+            setConnectionState(CONN_STATE.RECONNECTING);
+            setConnectionInfo({
+                hostId: data.hostId,
+                attempt: data.attempt,
+                maxAttempts: data.maxAttempts,
+            });
+        };
+        EventsOn('terminal:reconnecting', handleReconnecting);
+
+        const handleConnectionRestored = (hostId) => {
+            logger.info('SSH connection restored:', hostId);
+            setConnectionState(CONN_STATE.CONNECTED);
+            setConnectionInfo(null);
+            if (xtermRef.current) {
+                xtermRef.current.write(`\r\n\x1b[32m[Connection restored]\x1b[0m\r\n`);
+            }
+        };
+        EventsOn('terminal:connection-restored', handleConnectionRestored);
+
+        const handleConnectionFailed = (data) => {
+            logger.error('SSH connection failed:', data);
+            setConnectionState(CONN_STATE.FAILED);
+            setConnectionInfo({ hostId: data.hostId, attempts: data.attempts });
+            if (xtermRef.current) {
+                xtermRef.current.write(`\r\n\x1b[31m[Connection failed after ${data.attempts} attempts]\x1b[0m\r\n`);
+            }
+        };
+        EventsOn('terminal:connection-failed', handleConnectionFailed);
+
         // Track last sent dimensions to avoid duplicate calls
         let lastCols = term.cols;
         let lastRows = term.rows;
@@ -477,6 +531,10 @@ export default function Terminal({ searchRef, session, fontSize = DEFAULT_FONT_S
             EventsOff('terminal:history');
             EventsOff('terminal:data');
             EventsOff('terminal:exit');
+            EventsOff('terminal:connection-lost');
+            EventsOff('terminal:reconnecting');
+            EventsOff('terminal:connection-restored');
+            EventsOff('terminal:connection-failed');
             if (scrollbackRefreshTimer) {
                 clearTimeout(scrollbackRefreshTimer);
             }
@@ -505,6 +563,56 @@ export default function Terminal({ searchRef, session, fontSize = DEFAULT_FONT_S
         }
     };
 
+    // Render connection status message
+    const renderConnectionStatus = () => {
+        if (!session?.isRemote) return null;
+        if (connectionState === CONN_STATE.CONNECTED) return null;
+
+        let statusClass = 'connection-status';
+        let message = '';
+        let subMessage = '';
+
+        switch (connectionState) {
+            case CONN_STATE.DISCONNECTED:
+                statusClass += ' disconnected';
+                message = 'Connection Lost';
+                subMessage = connectionInfo?.error || 'Attempting to reconnect...';
+                break;
+            case CONN_STATE.RECONNECTING:
+                statusClass += ' reconnecting';
+                message = 'Reconnecting...';
+                subMessage = connectionInfo
+                    ? `Attempt ${connectionInfo.attempt} of ${connectionInfo.maxAttempts}`
+                    : '';
+                break;
+            case CONN_STATE.FAILED:
+                statusClass += ' failed';
+                message = 'Connection Failed';
+                subMessage = connectionInfo
+                    ? `Unable to reconnect after ${connectionInfo.attempts} attempts`
+                    : 'Unable to reconnect to remote host';
+                break;
+            default:
+                return null;
+        }
+
+        return (
+            <div className={statusClass}>
+                <div className="connection-status-content">
+                    <span className="connection-status-icon">
+                        {connectionState === CONN_STATE.RECONNECTING ? '🔄' : '⚠️'}
+                    </span>
+                    <div className="connection-status-text">
+                        <div className="connection-status-message">{message}</div>
+                        {subMessage && (
+                            <div className="connection-status-submessage">{subMessage}</div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div style={{ position: 'relative', width: '100%', height: '100%' }}>
             <div
@@ -524,6 +632,7 @@ export default function Terminal({ searchRef, session, fontSize = DEFAULT_FONT_S
                     New output ↓
                 </button>
             )}
+            {renderConnectionStatus()}
         </div>
     );
 }

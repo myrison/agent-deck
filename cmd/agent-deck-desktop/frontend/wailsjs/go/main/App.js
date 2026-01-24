@@ -70,6 +70,10 @@ export function GetQuickLaunchFavorites() {
   return window['go']['main']['App']['GetQuickLaunchFavorites']();
 }
 
+export function GetSSHHostStatus() {
+  return window['go']['main']['App']['GetSSHHostStatus']();
+}
+
 export function GetScrollback(arg1) {
   return window['go']['main']['App']['GetScrollback'](arg1);
 }
@@ -88,6 +92,10 @@ export function GetVersion() {
 
 export function IsGitWorktree(arg1) {
   return window['go']['main']['App']['IsGitWorktree'](arg1);
+}
+
+export function ListSSHHosts() {
+  return window['go']['main']['App']['ListSSHHosts']();
 }
 
 export function ListSessions() {
@@ -142,12 +150,20 @@ export function SetSoftNewlineMode(arg1) {
   return window['go']['main']['App']['SetSoftNewlineMode'](arg1);
 }
 
+export function StartRemoteTmuxSession(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['StartRemoteTmuxSession'](arg1, arg2, arg3, arg4);
+}
+
 export function StartTerminal(arg1, arg2) {
   return window['go']['main']['App']['StartTerminal'](arg1, arg2);
 }
 
 export function StartTmuxSession(arg1, arg2, arg3) {
   return window['go']['main']['App']['StartTmuxSession'](arg1, arg2, arg3);
+}
+
+export function TestSSHConnection(arg1) {
+  return window['go']['main']['App']['TestSSHConnection'](arg1);
 }
 
 export function UpdateQuickLaunchFavoriteName(arg1, arg2) {

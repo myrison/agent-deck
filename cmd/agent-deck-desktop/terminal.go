@@ -106,6 +106,23 @@ func stripTTSMarkers(s string) string {
 	return s
 }
 
+// Connection state constants for remote sessions
+const (
+	connStateConnected    = "connected"
+	connStateDisconnected = "disconnected"
+	connStateReconnecting = "reconnecting"
+	connStateFailed       = "failed"
+
+	// Error threshold before considering connection lost
+	maxConsecutiveErrors = 3
+	// Maximum reconnection attempts before giving up
+	maxReconnectAttempts = 5
+	// Base backoff duration (doubles with each attempt)
+	baseBackoff = 500 * time.Millisecond
+	// Maximum backoff duration
+	maxBackoff = 30 * time.Second
+)
+
 // Terminal manages the PTY and communication with the frontend.
 type Terminal struct {
 	ctx    context.Context
@@ -125,6 +142,13 @@ type Terminal struct {
 	// Remote session support (SSH)
 	remoteHostID string     // Empty for local, hostID for remote sessions
 	sshBridge    *SSHBridge // Reference to SSH bridge for remote commands
+
+	// Remote connection state tracking
+	connState         string // Current connection state (connected, disconnected, reconnecting, failed)
+	consecutiveErrors int    // Count of consecutive polling errors
+	reconnectAttempts int    // Current reconnection attempt number
+	lastReconnectTime time.Time
+	reconnecting      bool // Flag to prevent concurrent reconnection attempts
 }
 
 // NewTerminal creates a new Terminal instance.
@@ -345,6 +369,10 @@ func (t *Terminal) StartRemoteTmuxSession(hostID, tmuxSession string, cols, rows
 	t.remoteHostID = hostID
 	t.tmuxSession = tmuxSession
 	t.closed = false
+	t.connState = connStateConnected
+	t.consecutiveErrors = 0
+	t.reconnectAttempts = 0
+	t.reconnecting = false
 	t.mu.Unlock()
 
 	// Start PTY read loop after unlocking (if we have a PTY)
@@ -389,14 +417,27 @@ func (t *Terminal) pollRemoteTmuxLoop(hostID, tmuxSession string) {
 }
 
 // pollRemoteTmuxOnce captures current remote tmux pane and emits any changes.
+// Implements error tracking and reconnection logic for robust SSH connections.
 func (t *Terminal) pollRemoteTmuxOnce(hostID, tmuxSession string) {
 	t.mu.Lock()
 	polling := t.tmuxPolling
 	sshBridge := t.sshBridge
 	tracker := t.historyTracker
+	connState := t.connState
+	reconnecting := t.reconnecting
 	t.mu.Unlock()
 
 	if !polling || sshBridge == nil || tracker == nil {
+		return
+	}
+
+	// Skip polling while actively reconnecting
+	if reconnecting {
+		return
+	}
+
+	// If connection failed permanently, don't poll
+	if connState == connStateFailed {
 		return
 	}
 
@@ -406,13 +447,24 @@ func (t *Terminal) pollRemoteTmuxOnce(hostID, tmuxSession string) {
 	captureCmd := fmt.Sprintf("%s capture-pane -t %q -p -e", tmuxPath, tmuxSession)
 	output, err := sshBridge.RunCommand(hostID, captureCmd)
 	if err != nil {
-		t.debugLog("[REMOTE-POLL] capture-pane error: %v", err)
-		// Session might have ended
-		if t.ctx != nil {
-			runtime.EventsEmit(t.ctx, "terminal:exit", "remote tmux session ended")
-		}
-		t.stopTmuxPolling()
+		t.handleRemoteError(hostID, tmuxSession, err)
 		return
+	}
+
+	// Successful poll - reset error state
+	t.mu.Lock()
+	wasDisconnected := t.connState == connStateDisconnected || t.connState == connStateReconnecting
+	t.consecutiveErrors = 0
+	t.reconnectAttempts = 0
+	if wasDisconnected {
+		t.connState = connStateConnected
+	}
+	t.mu.Unlock()
+
+	// Emit connection restored event if we recovered
+	if wasDisconnected && t.ctx != nil {
+		t.debugLog("[REMOTE-POLL] Connection restored")
+		runtime.EventsEmit(t.ctx, "terminal:connection-restored", hostID)
 	}
 
 	currentState := output
@@ -440,6 +492,153 @@ func (t *Terminal) pollRemoteTmuxOnce(hostID, tmuxSession string) {
 				runtime.EventsEmit(t.ctx, "terminal:data", updateSequence)
 			}
 		}
+	}
+}
+
+// handleRemoteError handles SSH errors during polling and initiates reconnection if needed.
+func (t *Terminal) handleRemoteError(hostID, tmuxSession string, err error) {
+	t.mu.Lock()
+	t.consecutiveErrors++
+	errCount := t.consecutiveErrors
+	currentState := t.connState
+	t.mu.Unlock()
+
+	t.debugLog("[REMOTE-POLL] capture-pane error (%d/%d): %v", errCount, maxConsecutiveErrors, err)
+
+	// Check if error threshold exceeded
+	if errCount >= maxConsecutiveErrors && currentState == connStateConnected {
+		t.mu.Lock()
+		t.connState = connStateDisconnected
+		t.mu.Unlock()
+
+		t.debugLog("[REMOTE-POLL] Connection lost after %d consecutive errors", errCount)
+
+		// Emit connection lost event
+		if t.ctx != nil {
+			runtime.EventsEmit(t.ctx, "terminal:connection-lost", map[string]interface{}{
+				"hostId": hostID,
+				"error":  err.Error(),
+			})
+		}
+
+		// Start reconnection in background
+		go t.attemptReconnection(hostID, tmuxSession)
+	}
+}
+
+// attemptReconnection tries to re-establish the SSH connection with exponential backoff.
+func (t *Terminal) attemptReconnection(hostID, tmuxSession string) {
+	t.mu.Lock()
+	if t.reconnecting {
+		t.mu.Unlock()
+		return // Another reconnection already in progress
+	}
+	t.reconnecting = true
+	t.connState = connStateReconnecting
+	sshBridge := t.sshBridge
+	t.mu.Unlock()
+
+	if sshBridge == nil {
+		t.mu.Lock()
+		t.connState = connStateFailed
+		t.reconnecting = false
+		t.mu.Unlock()
+		return
+	}
+
+	t.debugLog("[REMOTE-RECONNECT] Starting reconnection attempts")
+
+	for attempt := 1; attempt <= maxReconnectAttempts; attempt++ {
+		// Check if terminal was closed during reconnection
+		t.mu.Lock()
+		closed := t.closed
+		polling := t.tmuxPolling
+		t.reconnectAttempts = attempt
+		t.mu.Unlock()
+
+		if closed || !polling {
+			t.debugLog("[REMOTE-RECONNECT] Aborted - terminal closed or polling stopped")
+			t.mu.Lock()
+			t.reconnecting = false
+			t.mu.Unlock()
+			return
+		}
+
+		// Calculate backoff with exponential increase
+		backoff := baseBackoff * time.Duration(1<<uint(attempt-1))
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+
+		t.debugLog("[REMOTE-RECONNECT] Attempt %d/%d (backoff: %v)", attempt, maxReconnectAttempts, backoff)
+
+		// Emit reconnecting event with attempt info
+		if t.ctx != nil {
+			runtime.EventsEmit(t.ctx, "terminal:reconnecting", map[string]interface{}{
+				"hostId":      hostID,
+				"attempt":     attempt,
+				"maxAttempts": maxReconnectAttempts,
+			})
+		}
+
+		// Wait before attempting
+		time.Sleep(backoff)
+
+		// Try to test connection
+		err := sshBridge.TestConnection(hostID)
+		if err == nil {
+			// Connection restored - also verify tmux session still exists
+			tmuxPath := sshBridge.GetTmuxPath(hostID)
+			checkCmd := fmt.Sprintf("%s has-session -t %q 2>/dev/null && echo ok", tmuxPath, tmuxSession)
+			output, checkErr := sshBridge.RunCommand(hostID, checkCmd)
+			if checkErr == nil && strings.Contains(output, "ok") {
+				t.debugLog("[REMOTE-RECONNECT] Connection restored on attempt %d", attempt)
+
+				t.mu.Lock()
+				t.connState = connStateConnected
+				t.consecutiveErrors = 0
+				t.reconnectAttempts = 0
+				t.reconnecting = false
+				t.mu.Unlock()
+
+				// Emit success event
+				if t.ctx != nil {
+					runtime.EventsEmit(t.ctx, "terminal:connection-restored", hostID)
+				}
+				return
+			}
+
+			// Connection works but tmux session is gone
+			t.debugLog("[REMOTE-RECONNECT] Connection ok but tmux session ended")
+			t.mu.Lock()
+			t.connState = connStateFailed
+			t.reconnecting = false
+			t.mu.Unlock()
+
+			if t.ctx != nil {
+				runtime.EventsEmit(t.ctx, "terminal:exit", "remote tmux session ended")
+			}
+			t.stopTmuxPolling()
+			return
+		}
+
+		t.debugLog("[REMOTE-RECONNECT] Attempt %d failed: %v", attempt, err)
+	}
+
+	// All attempts exhausted
+	t.debugLog("[REMOTE-RECONNECT] Failed after %d attempts", maxReconnectAttempts)
+
+	t.mu.Lock()
+	t.connState = connStateFailed
+	t.reconnecting = false
+	t.mu.Unlock()
+
+	// Emit failure event
+	if t.ctx != nil {
+		runtime.EventsEmit(t.ctx, "terminal:connection-failed", map[string]interface{}{
+			"hostId":   hostID,
+			"attempts": maxReconnectAttempts,
+		})
 	}
 }
 
@@ -498,6 +697,11 @@ func (t *Terminal) stopTmuxPolling() {
 		t.tmuxLastState = ""
 		t.historyTracker = nil
 		t.remoteHostID = "" // Clear remote context
+		// Reset connection state
+		t.connState = ""
+		t.consecutiveErrors = 0
+		t.reconnectAttempts = 0
+		t.reconnecting = false
 	}
 }
 

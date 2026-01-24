@@ -254,7 +254,9 @@
 
 /* Remote Session Badge */
 .session-remote-badge {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     margin-right: 8px;
     padding: 2px 8px;
     background: #3b82f6;
@@ -263,12 +265,44 @@
     font-weight: 600;
     border-radius: 10px;
     vertical-align: middle;
-    max-width: 100px;
+    max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     text-transform: uppercase;
     letter-spacing: 0.3px;
+    transition: background 0.2s;
+}
+
+.session-remote-badge.disconnected {
+    background: #6b7280;
+}
+
+/* SSH Connection Status Dot */
+.ssh-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.ssh-status-dot.connected {
+    background: #10b981;
+    box-shadow: 0 0 4px #10b981;
+}
+
+.ssh-status-dot.disconnected {
+    background: #ef4444;
+    animation: pulse-red 2s infinite;
+}
+
+@keyframes pulse-red {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
 }
 
 /* Context Menu */
