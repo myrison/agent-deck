@@ -147,41 +147,30 @@ func (tm *TmuxManager) PersistSession(s SessionInfo) error {
 		}
 	}
 
-	// Parse instances array
-	var instances []map[string]interface{}
+	// Parse instances array using typed struct
+	var instances []instanceJSON
 	if rawInstances, ok := raw["instances"]; ok {
 		if err := json.Unmarshal(rawInstances, &instances); err != nil {
 			return fmt.Errorf("failed to parse instances: %w", err)
 		}
 	}
 
-	// Create new instance entry (using snake_case for JSON field names to match TUI)
+	// Create new instance entry using typed struct (provides compile-time safety)
 	now := time.Now()
-	newInstance := map[string]interface{}{
-		"id":               s.ID,
-		"title":            s.Title,
-		"project_path":     s.ProjectPath,
-		"group_path":       s.GroupPath,
-		"command":          "",
-		"tool":             s.Tool,
-		"status":           s.Status,
-		"created_at":       now.Format(time.RFC3339Nano),
-		"last_accessed_at": now.Format(time.RFC3339Nano),
-		"tmux_session":     s.TmuxSession,
-	}
-
-	// Only add optional fields if they have values
-	if s.CustomLabel != "" {
-		newInstance["custom_label"] = s.CustomLabel
-	}
-	if s.LaunchConfigName != "" {
-		newInstance["launch_config_name"] = s.LaunchConfigName
-	}
-	if len(s.LoadedMCPs) > 0 {
-		newInstance["loaded_mcp_names"] = s.LoadedMCPs
-	}
-	if s.DangerousMode {
-		newInstance["dangerous_mode"] = true
+	newInstance := instanceJSON{
+		ID:               s.ID,
+		Title:            s.Title,
+		CustomLabel:      s.CustomLabel,
+		ProjectPath:      s.ProjectPath,
+		GroupPath:        s.GroupPath,
+		Tool:             s.Tool,
+		Status:           s.Status,
+		TmuxSession:      s.TmuxSession,
+		CreatedAt:        now,
+		LastAccessedAt:   now,
+		LaunchConfigName: s.LaunchConfigName,
+		LoadedMCPNames:   s.LoadedMCPs,
+		DangerousMode:    s.DangerousMode,
 	}
 
 	// Append new instance
@@ -564,13 +553,23 @@ func (tm *TmuxManager) MarkSessionAccessed(sessionID string) error {
 	}
 	raw["instances"] = instancesData
 
-	// Write back with indentation
+	// Write back with indentation (atomic write via temp file)
 	output, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(sessionsPath, output, 0644)
+	tmpPath := sessionsPath + ".tmp"
+	if err := os.WriteFile(tmpPath, output, 0600); err != nil {
+		return fmt.Errorf("failed to write temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, sessionsPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to finalize save: %w", err)
+	}
+
+	return nil
 }
 
 // UpdateSessionCustomLabel updates the custom_label field for a session.
@@ -625,11 +624,21 @@ func (tm *TmuxManager) UpdateSessionCustomLabel(sessionID, customLabel string) e
 	}
 	raw["instances"] = instancesData
 
-	// Write back with indentation
+	// Write back with indentation (atomic write via temp file)
 	output, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(sessionsPath, output, 0644)
+	tmpPath := sessionsPath + ".tmp"
+	if err := os.WriteFile(tmpPath, output, 0600); err != nil {
+		return fmt.Errorf("failed to write temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, sessionsPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to finalize save: %w", err)
+	}
+
+	return nil
 }
