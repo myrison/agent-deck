@@ -130,6 +130,10 @@ func SpawnSSHPTY(hostID, tmuxSession string, sshBridge *SSHBridge) (*PTY, error)
 	// Start the SSH command with a local PTY
 	ptmx, err := pty.Start(sshCmd)
 	if err != nil {
+		// Clean up the SSH command if PTY start fails
+		if sshCmd.Process != nil {
+			sshCmd.Process.Kill()
+		}
 		return nil, err
 	}
 
