@@ -192,7 +192,15 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
         const nextLabel = nextLabels[next];
         const nextDesc = descriptions[next];
 
-        return `Showing: ${current}\n\nClick or Shift+5 to switch to:\n${nextLabel}: ${nextDesc}`;
+        return (
+            <>
+                Showing: {current}
+                {'\n\n'}
+                Click or <strong>Shift+5</strong> to switch to:
+                {'\n'}
+                {nextLabel}: {nextDesc}
+            </>
+        );
     }, [statusFilter]);
 
     if (loading) {
