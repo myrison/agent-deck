@@ -32,7 +32,7 @@ func TestTmuxManagerCreateSession(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create a session
-	session, err := tm.CreateSession(tmpDir, "Test Session", "claude")
+	session, err := tm.CreateSession(tmpDir, "Test Session", "claude", "")
 	if err != nil {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
