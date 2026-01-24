@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
@@ -71,6 +71,10 @@ export default function Terminal({ searchRef, session }) {
     const initRef = useRef(false);
     const isTmuxPollingRef = useRef(false);
 
+    // Scroll lock state - track if user is at bottom for auto-scroll behavior
+    const isAtBottomRef = useRef(true);
+    const [showScrollIndicator, setShowScrollIndicator] = useState(false);
+
     // Initialize terminal
     useEffect(() => {
         // Prevent double initialization (React StrictMode)
@@ -118,6 +122,28 @@ export default function Terminal({ searchRef, session }) {
         };
         EventsOn('terminal:debug', handleDebug);
 
+        // Track scroll position to implement scroll lock behavior
+        // When user scrolls up, we stop auto-scrolling and show "new output" indicator
+        const scrollDisposable = term.onScroll(() => {
+            const buffer = term.buffer.active;
+            // viewportY is the top row of viewport relative to buffer start
+            // baseY is the index of the first row not in scrollback (top of active area)
+            // When viewportY >= baseY - rows, user is at bottom
+            const viewportBottom = buffer.viewportY + term.rows;
+            const bufferBottom = buffer.baseY + term.rows;
+            const atBottom = viewportBottom >= bufferBottom - 1; // Allow 1 line tolerance
+
+            if (isAtBottomRef.current !== atBottom) {
+                isAtBottomRef.current = atBottom;
+                logger.debug(`[SCROLL] atBottom changed: ${atBottom} (viewportY=${buffer.viewportY}, baseY=${buffer.baseY})`);
+
+                // Hide indicator when user scrolls back to bottom
+                if (atBottom) {
+                    setShowScrollIndicator(false);
+                }
+            }
+        });
+
         // Listen for data from PTY
         const handleTerminalData = (data) => {
             // Log data characteristics for debugging
@@ -128,6 +154,14 @@ export default function Terminal({ searchRef, session }) {
 
             if (xtermRef.current) {
                 xtermRef.current.write(data);
+
+                // Only auto-scroll if user was at bottom (follow-tail behavior)
+                if (isAtBottomRef.current) {
+                    xtermRef.current.scrollToBottom();
+                } else {
+                    // User is scrolled up - show indicator that new output arrived
+                    setShowScrollIndicator(true);
+                }
             }
         };
         EventsOn('terminal:data', handleTerminalData);
@@ -304,24 +338,52 @@ export default function Terminal({ searchRef, session }) {
             EventsOff('terminal:exit');
             resizeObserver.disconnect();
             dataDisposable.dispose();
+            scrollDisposable.dispose();
             term.dispose();
             xtermRef.current = null;
             fitAddonRef.current = null;
             searchAddonRef.current = null;
             initRef.current = false;
             isTmuxPollingRef.current = false;
+            isAtBottomRef.current = true;
         };
     }, [searchRef, session]);
 
+    // Handle click on "new output" indicator - scroll to bottom
+    const handleScrollToBottom = useCallback(() => {
+        if (xtermRef.current) {
+            xtermRef.current.scrollToBottom();
+            isAtBottomRef.current = true;
+            setShowScrollIndicator(false);
+        }
+    }, []);
+
     return (
         <div
-            ref={terminalRef}
-            data-testid="terminal"
             style={{
+                position: 'relative',
                 width: '100%',
                 height: '100%',
-                backgroundColor: '#1a1a2e',
             }}
-        />
+        >
+            <div
+                ref={terminalRef}
+                data-testid="terminal"
+                style={{
+                    width: '100%',
+                    height: '100%',
+                    backgroundColor: '#1a1a2e',
+                }}
+            />
+            {showScrollIndicator && (
+                <button
+                    className="scroll-indicator"
+                    onClick={handleScrollToBottom}
+                    aria-label="Scroll to bottom - new output available"
+                >
+                    New output ↓
+                </button>
+            )}
+        </div>
     );
 }

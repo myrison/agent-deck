@@ -62,10 +62,11 @@ type Terminal struct {
 	closed bool
 
 	// Tmux polling mode
-	tmuxSession   string
-	tmuxPolling   bool
-	tmuxStopChan  chan struct{}
-	tmuxLastState string
+	tmuxSession    string
+	tmuxPolling    bool
+	tmuxStopChan   chan struct{}
+	tmuxLastState  string
+	historyTracker *HistoryTracker // Tracks scrollback to prevent data loss
 }
 
 // NewTerminal creates a new Terminal instance.
@@ -253,6 +254,7 @@ func (t *Terminal) StartTmuxPolling(tmuxSession string, cols, rows int) error {
 	t.tmuxStopChan = make(chan struct{})
 	t.tmuxLastState = ""
 	t.closed = false
+	t.historyTracker = NewHistoryTracker(tmuxSession, rows)
 
 	// Start the polling goroutine
 	go t.pollTmuxLoop()
@@ -277,39 +279,24 @@ func (t *Terminal) pollTmuxLoop() {
 }
 
 // pollTmuxOnce captures current tmux pane and emits any changes.
+// Uses two-phase approach:
+// 1. Fetch any history gap (lines that scrolled off between polls)
+// 2. Diff viewport for in-place updates (spinners, progress bars)
 func (t *Terminal) pollTmuxOnce() {
 	t.mu.Lock()
 	session := t.tmuxSession
 	polling := t.tmuxPolling
-	lastState := t.tmuxLastState
+	tracker := t.historyTracker
 	t.mu.Unlock()
 
-	if !polling || session == "" {
+	if !polling || session == "" || tracker == nil {
 		return
 	}
 
-	// Get pane dimensions and cursor position from tmux
-	// cursor_x and cursor_y are 0-indexed in tmux
-	infoCmd := exec.Command("tmux", "display-message", "-t", session, "-p", "#{pane_width}x#{pane_height},#{cursor_x},#{cursor_y}")
-	infoOut, _ := infoCmd.Output()
-	infoStr := strings.TrimSpace(string(infoOut))
-
-	// Parse cursor position (format: "WxH,X,Y")
-	var cursorX, cursorY int
-	var paneDims string
-	if parts := strings.Split(infoStr, ","); len(parts) == 3 {
-		paneDims = parts[0]
-		fmt.Sscanf(parts[1], "%d", &cursorX)
-		fmt.Sscanf(parts[2], "%d", &cursorY)
-	}
-
-	// Capture current pane state with ANSI colors
-	// -e = preserve escape sequences
-	// -p = output to stdout
-	cmd := exec.Command("tmux", "capture-pane", "-t", session, "-p", "-e")
-	output, err := cmd.Output()
+	// Step 1: Get tmux info - history size and alt-screen status
+	historySize, inAltScreen, err := tracker.GetTmuxInfo()
 	if err != nil {
-		t.debugLog("[POLL] capture-pane error: %v", err)
+		t.debugLog("[POLL] GetTmuxInfo error: %v", err)
 		// Session might have ended
 		if t.ctx != nil {
 			runtime.EventsEmit(t.ctx, "terminal:exit", "tmux session ended")
@@ -318,64 +305,59 @@ func (t *Terminal) pollTmuxOnce() {
 		return
 	}
 
+	// Step 2: Track alt-screen state changes (vim, less, htop)
+	if inAltScreen != tracker.inAltScreen {
+		t.debugLog("[POLL] Alt-screen changed: %v -> %v", tracker.inAltScreen, inAltScreen)
+		tracker.SetAltScreen(inAltScreen)
+	}
+
+	// Step 3: If NOT in alt-screen, fetch any history gap
+	// (Don't append TUI frames to scrollback when in vim/less)
+	if !inAltScreen && historySize > 0 {
+		gap, err := tracker.FetchHistoryGap(historySize)
+		if err != nil {
+			t.debugLog("[POLL] FetchHistoryGap error: %v", err)
+		} else if len(gap) > 0 {
+			// Append gap lines to xterm (blind, no diff - these are history)
+			t.debugLog("[POLL] Appending %d bytes of history gap (historySize=%d)", len(gap), historySize)
+			if t.ctx != nil {
+				runtime.EventsEmit(t.ctx, "terminal:data", gap)
+			}
+		}
+	}
+
+	// Step 4: Capture current viewport
+	cmd := exec.Command("tmux", "capture-pane", "-t", session, "-p", "-e")
+	output, err := cmd.Output()
+	if err != nil {
+		t.debugLog("[POLL] capture-pane error: %v", err)
+		return
+	}
+
 	currentState := string(output)
-	lines := strings.Count(currentState, "\n")
-	bytes := len(currentState)
 
-	// Only emit if state changed
+	// Step 5: Only process if viewport changed
+	t.mu.Lock()
+	lastState := t.tmuxLastState
+	t.mu.Unlock()
+
 	if currentState != lastState {
-		t.debugLog("[POLL] State changed: %d bytes, %d lines, pane=%s, cursor=(%d,%d)", bytes, lines, paneDims, cursorX, cursorY)
-
 		t.mu.Lock()
 		t.tmuxLastState = currentState
 		t.mu.Unlock()
 
 		if t.ctx != nil {
-			// Overwrite screen from tmux state WITHOUT clearing scrollback
-			// Previous approach used \x1b[2J which clears the viewport in-place,
-			// preventing new content from accumulating in the scrollback buffer.
-			//
-			// New approach: Overwrite line-by-line with end-of-line clear
-			// \x1b[H = move cursor to home (0,0)
-			// \x1b[K = clear from cursor to end of line (after each line)
-			// \x1b[J = clear from cursor to end of screen (after all content)
 			content := stripTTSMarkers(currentState)
 
-			// Strip trailing blank lines to avoid cursor ending up below content
-			// capture-pane pads output to fill the pane height with empty lines
-			content = strings.TrimRight(content, "\n")
+			// Step 6: Diff viewport and emit minimal updates
+			updateSequence := tracker.DiffViewport(content)
 
-			// Split into lines for line-by-line rendering
-			lines := strings.Split(content, "\n")
-
-			// Build output: home, then each line with clear-to-EOL
-			var output strings.Builder
-			output.WriteString("\x1b[H") // Move cursor to home (0,0)
-
-			for i, line := range lines {
-				output.WriteString(line)
-				output.WriteString("\x1b[K") // Clear from cursor to end of line
-				if i < len(lines)-1 {
-					output.WriteString("\r\n") // Move to next line
-				}
+			if len(updateSequence) > 0 {
+				lines := strings.Count(content, "\n")
+				t.debugLog("[POLL] Viewport diff: %d bytes update, %d content lines, historySize=%d, altScreen=%v",
+					len(updateSequence), lines, historySize, inAltScreen)
+				runtime.EventsEmit(t.ctx, "terminal:data", updateSequence)
 			}
-
-			// Clear any remaining lines below (in case new content is shorter)
-			// \x1b[J = Erase from cursor to end of screen
-			output.WriteString("\r\n\x1b[J")
-
-			// Hide the hardware cursor in polling mode
-			// TUI apps like Claude Code draw their own visual cursor at the input prompt
-			// using escape sequences (reverse video, etc.). The terminal cursor position
-			// reported by tmux is often at a "neutral" location (like bottom-left) after
-			// the TUI finishes drawing. Positioning xterm.js cursor there creates a second
-			// cursor in the wrong place.
-			// \x1b[?25l = hide cursor
-			output.WriteString("\x1b[?25l")
-
-			result := output.String()
-			t.debugLog("[POLL] Emitting overwrite content (cursor hidden): %d total bytes, %d lines, tmux cursor was at (%d,%d)", len(result), len(lines), cursorX+1, cursorY+1)
-			runtime.EventsEmit(t.ctx, "terminal:data", result)
 		}
 	}
 }
@@ -470,6 +452,7 @@ func (t *Terminal) ResizeTmuxPane(cols, rows int) error {
 	t.mu.Lock()
 	session := t.tmuxSession
 	polling := t.tmuxPolling
+	tracker := t.historyTracker
 	t.mu.Unlock()
 
 	if !polling || session == "" {
@@ -477,6 +460,14 @@ func (t *Terminal) ResizeTmuxPane(cols, rows int) error {
 	}
 
 	t.debugLog("[RESIZE] Resizing tmux window to %dx%d", cols, rows)
+
+	// Reset history tracker on resize - content will reflow at new width
+	if tracker != nil {
+		tracker.Reset()
+		tracker.SetViewportRows(rows)
+		t.debugLog("[RESIZE] Reset history tracker for new dimensions")
+	}
+
 	cmd := exec.Command("tmux", "resize-window", "-t", session, "-x", itoa(cols), "-y", itoa(rows))
 	return cmd.Run()
 }
@@ -491,6 +482,7 @@ func (t *Terminal) StopTmuxPolling() {
 		t.tmuxPolling = false
 		t.tmuxSession = ""
 		t.tmuxLastState = ""
+		t.historyTracker = nil
 
 		// Re-enable cursor visibility for next terminal session
 		// (polling mode hides cursor because TUI apps draw their own)
