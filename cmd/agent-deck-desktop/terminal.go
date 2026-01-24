@@ -288,10 +288,20 @@ func (t *Terminal) pollTmuxOnce() {
 		return
 	}
 
-	// First, get the pane dimensions for debugging
-	dimCmd := exec.Command("tmux", "display-message", "-t", session, "-p", "#{pane_width}x#{pane_height}")
-	dimOut, _ := dimCmd.Output()
-	paneDims := strings.TrimSpace(string(dimOut))
+	// Get pane dimensions and cursor position from tmux
+	// cursor_x and cursor_y are 0-indexed in tmux
+	infoCmd := exec.Command("tmux", "display-message", "-t", session, "-p", "#{pane_width}x#{pane_height},#{cursor_x},#{cursor_y}")
+	infoOut, _ := infoCmd.Output()
+	infoStr := strings.TrimSpace(string(infoOut))
+
+	// Parse cursor position (format: "WxH,X,Y")
+	var cursorX, cursorY int
+	var paneDims string
+	if parts := strings.Split(infoStr, ","); len(parts) == 3 {
+		paneDims = parts[0]
+		fmt.Sscanf(parts[1], "%d", &cursorX)
+		fmt.Sscanf(parts[2], "%d", &cursorY)
+	}
 
 	// Capture current pane state with ANSI colors
 	// -e = preserve escape sequences
@@ -314,7 +324,7 @@ func (t *Terminal) pollTmuxOnce() {
 
 	// Only emit if state changed
 	if currentState != lastState {
-		t.debugLog("[POLL] State changed: %d bytes, %d lines, pane=%s", bytes, lines, paneDims)
+		t.debugLog("[POLL] State changed: %d bytes, %d lines, pane=%s, cursor=(%d,%d)", bytes, lines, paneDims, cursorX, cursorY)
 
 		t.mu.Lock()
 		t.tmuxLastState = currentState
@@ -324,8 +334,11 @@ func (t *Terminal) pollTmuxOnce() {
 			// Clear screen and redraw from tmux state
 			// \x1b[2J = clear entire screen
 			// \x1b[H = move cursor to home (0,0)
-			// This ensures clean rendering without cursor position issues
 			content := stripTTSMarkers(currentState)
+
+			// Strip trailing blank lines to avoid cursor ending up below content
+			// capture-pane pads output to fill the pane height with empty lines
+			content = strings.TrimRight(content, "\n")
 
 			// CRITICAL: Convert LF to CRLF for xterm.js
 			// tmux capture-pane outputs \n (LF) line endings, but xterm.js interprets
@@ -334,8 +347,13 @@ func (t *Terminal) pollTmuxOnce() {
 			content = strings.ReplaceAll(content, "\r\n", "\n") // Normalize any existing CRLF
 			content = strings.ReplaceAll(content, "\n", "\r\n") // Convert all LF to CRLF
 
-			cleared := "\x1b[2J\x1b[H" + content
-			t.debugLog("[POLL] Emitting clear+content: %d total bytes", len(cleared))
+			// Build output: clear screen, write content, then position cursor
+			// xterm.js uses 1-indexed cursor positions, tmux uses 0-indexed
+			// Format: \x1b[row;colH
+			cursorPos := fmt.Sprintf("\x1b[%d;%dH", cursorY+1, cursorX+1)
+
+			cleared := "\x1b[2J\x1b[H" + content + cursorPos
+			t.debugLog("[POLL] Emitting clear+content+cursor: %d total bytes, cursor at (%d,%d)", len(cleared), cursorX+1, cursorY+1)
 			runtime.EventsEmit(t.ctx, "terminal:data", cleared)
 		}
 	}
