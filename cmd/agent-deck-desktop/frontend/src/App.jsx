@@ -173,25 +173,23 @@ function App() {
 
     // Tab management handlers - defined early so other handlers can use them
     const handleOpenTab = useCallback((session) => {
-        setOpenTabs(prev => {
-            // Check if tab already exists
-            const existingTab = prev.find(t => t.session.id === session.id);
-            if (existingTab) {
-                // Tab exists, just switch to it
-                setActiveTabId(existingTab.id);
-                return prev;
-            }
-            // Create new tab
-            const newTab = {
-                id: `tab-${session.id}-${Date.now()}`,
-                session,
-                openedAt: Date.now(),
-            };
-            logger.info('Opening new tab', { tabId: newTab.id, sessionTitle: session.title });
-            setActiveTabId(newTab.id);
-            return [...prev, newTab];
-        });
-    }, []);
+        // Check if tab already exists (read state outside updater to keep it pure)
+        const existingTab = openTabs.find(t => t.session.id === session.id);
+        if (existingTab) {
+            // Tab exists, just switch to it
+            setActiveTabId(existingTab.id);
+            return;
+        }
+        // Create new tab
+        const newTab = {
+            id: `tab-${session.id}-${Date.now()}`,
+            session,
+            openedAt: Date.now(),
+        };
+        logger.info('Opening new tab', { tabId: newTab.id, sessionTitle: session.title });
+        setOpenTabs(prev => [...prev, newTab]);
+        setActiveTabId(newTab.id);
+    }, [openTabs]);
 
     const handleCloseTab = useCallback((tabId) => {
         setOpenTabs(prev => {
@@ -545,21 +543,19 @@ function App() {
         if ((e.metaKey || e.ctrlKey) && e.key === '[' && openTabs.length > 1) {
             e.preventDefault();
             const currentIndex = openTabs.findIndex(t => t.id === activeTabId);
-            if (currentIndex > 0) {
-                const prevTab = openTabs[currentIndex - 1];
-                logger.info('Switching to previous tab');
-                handleSwitchTab(prevTab.id);
-            }
+            if (currentIndex <= 0) return; // Guard: -1 (not found) or 0 (already first)
+            const prevTab = openTabs[currentIndex - 1];
+            logger.info('Switching to previous tab');
+            handleSwitchTab(prevTab.id);
         }
         // Cmd+] for next tab
         if ((e.metaKey || e.ctrlKey) && e.key === ']' && openTabs.length > 1) {
             e.preventDefault();
             const currentIndex = openTabs.findIndex(t => t.id === activeTabId);
-            if (currentIndex < openTabs.length - 1) {
-                const nextTab = openTabs[currentIndex + 1];
-                logger.info('Switching to next tab');
-                handleSwitchTab(nextTab.id);
-            }
+            if (currentIndex === -1 || currentIndex >= openTabs.length - 1) return; // Guard: not found or already last
+            const nextTab = openTabs[currentIndex + 1];
+            logger.info('Switching to next tab');
+            handleSwitchTab(nextTab.id);
         }
         // Cmd+, to go back to session selector
         if ((e.metaKey || e.ctrlKey) && e.key === ',' && view === 'terminal') {
