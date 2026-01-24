@@ -2,188 +2,13 @@
 
 ## Critical Issues
 
-### 1. Scrollback Pre-loading Visual Artifacts
-**Priority:** High (v0.2.0)
-**Status:** Known limitation in v0.1.0 prototype
-**Impact:** Visual chaos when attaching to tmux sessions - overlapping text, misaligned content
-
-#### The Problem
-When attaching to existing tmux sessions with Cmd+F search enabled, scrollback is pre-loaded into xterm's buffer to enable search across history. However, `tmux attach-session` sends absolute cursor positioning commands that assume a clean terminal slate, causing visual conflict with pre-loaded content.
-
-**User-visible symptoms:**
-- Overlapping text from multiple prompts
-- Misaligned file listings
-- Garbled terminal state on initial attach
-- Search works correctly, but display is broken
-
-#### Root Cause
-1. We pre-load scrollback: `tmux capture-pane -e -p -S -10000`
-2. We write it to xterm buffer for search functionality
-3. We attach to tmux session: `tmux attach-session -t <name>`
-4. Tmux sends its own redraw with absolute cursor positions
-5. **Conflict:** Tmux's cursor positions are relative to empty screen, but xterm has pre-loaded content
-
-#### What We've Tried (DO NOT RETRY)
-
-**Attempt 1: Clear screen after scrollback load**
-```javascript
-term.write(scrollback);
-term.write('\x1b[2J\x1b[H'); // Clear screen
-await AttachSession();
-```
-**Result:** Failed. Cleared visible area but cursor position still offset. Tmux redraw still conflicted.
-
-**Attempt 2: Terminal reset**
-```javascript
-term.write(scrollback);
-term.reset(); // Hard reset terminal state
-await AttachSession();
-```
-**Result:** Failed. `term.reset()` also clears buffer, destroying scrollback needed for search.
-
-**Attempt 3: Visual separator + scroll to bottom**
-```javascript
-term.write(scrollback);
-term.write('\r\n─── Reconnecting ───\r\n');
-term.scrollToBottom();
-await AttachSession();
-```
-**Result:** Failed. Scrolling doesn't fix cursor position conflict. Tmux still redraws with wrong positioning.
-
-**Attempt 4: Delay between scrollback and attach**
-```javascript
-term.write(scrollback);
-await sleep(100);
-await AttachSession();
-```
-**Result:** Failed. Timing doesn't solve the fundamental cursor position conflict.
-
-**Why these failed:**
-The core issue is `tmux attach-session` sends VT100 escape sequences with **absolute cursor positioning** (e.g., `ESC[5;10H` = row 5, column 10) that assume the terminal started clean. Pre-loading content shifts everything, making these positions wrong.
-
-#### The Proper Fix
-
-**Approach: Polling Instead of Attach**
-
-Instead of using `tmux attach-session`, stream tmux output via polling:
-
-**Architecture:**
-1. **Pre-load scrollback** into xterm buffer (for search)
-2. **Don't attach** - instead, poll tmux state
-3. **Send user input** to tmux via `tmux send-keys`
-4. **Poll for updates** via `tmux capture-pane` every 100ms
-5. **Diff output** and only send new content to xterm
-6. **Full control** over rendering - no cursor position conflicts
-
-**Implementation Plan:**
-
-```go
-// terminal.go - New method
-func (t *Terminal) AttachTmuxPolled(tmuxSession string, cols, rows int) error {
-    // 1. Pre-load scrollback to xterm (via frontend)
-    // Frontend handles this via GetScrollback()
-
-    // 2. Start polling loop instead of attach
-    go t.pollTmux(tmuxSession)
-
-    // 3. Handle user input via send-keys
-    go t.inputLoop(tmuxSession)
-
-    return nil
-}
-
-func (t *Terminal) pollTmux(session string) {
-    var lastContent string
-    ticker := time.NewTicker(100 * time.Millisecond)
-
-    for {
-        // Capture current pane state
-        cmd := exec.Command("tmux", "capture-pane", "-t", session, "-p", "-e")
-        output, err := cmd.Output()
-        if err != nil {
-            continue
-        }
-
-        content := string(output)
-
-        // Diff and send only new content
-        if content != lastContent {
-            diff := computeDiff(lastContent, content)
-            runtime.EventsEmit(t.ctx, "terminal:data", diff)
-            lastContent = content
-        }
-
-        <-ticker.C
-    }
-}
-
-func (t *Terminal) inputLoop(session string) {
-    // Read from user input channel
-    // Send to tmux via: tmux send-keys -t <session> <keys>
-}
-```
-
-**Frontend changes:**
-```javascript
-// Load scrollback once
-const scrollback = await GetScrollback(session.tmuxSession);
-term.write(scrollback);
-
-// Start polling (replaces AttachSession)
-await StartTmuxPolling(session.tmuxSession, cols, rows);
-
-// Input handling changes from PTY write to tmux send-keys
-```
-
-**Advantages:**
-- ✅ Clean visual (no cursor position conflicts)
-- ✅ Full search on scrollback
-- ✅ Complete rendering control
-- ✅ Can add smart diffing to minimize updates
-
-**Disadvantages:**
-- ⚠️ 100ms polling latency (acceptable for AI coding workflows)
-- ⚠️ Higher CPU usage (polling vs. event-driven)
-- ⚠️ Need to handle tmux session resize separately
-- ⚠️ Edge cases with rapid output (need buffering)
-
-**Complexity:** ~1-2 days of implementation + testing
-
-**Alternative considered:**
-Use `tmux pipe-pane` to stream output to a file, tail the file. Rejected because:
-- More complex than polling
-- File I/O overhead
-- Need cleanup logic for temp files
-
-#### Acceptance Criteria for Fix
-
-When implemented, the fix should pass these tests:
-
-1. **Visual test:**
-   - Attach to session with lots of scrollback (run `seq 1 1000` first)
-   - Terminal displays cleanly without overlapping text
-   - Current prompt is visible and correctly positioned
-
-2. **Search test:**
-   - Cmd+F search finds text in pre-loaded scrollback
-   - Can navigate through matches with Enter
-   - Search works on new output after attach
-
-3. **Interaction test:**
-   - Type commands - they execute correctly
-   - Run interactive programs (vim, top) - work correctly
-   - Resize window - tmux pane resizes correctly
-
-4. **Performance test:**
-   - Run `yes` command (rapid output)
-   - Terminal keeps up without lag
-   - CPU usage stays reasonable (<5% continuous)
+*No critical issues at this time.*
 
 ---
 
 ## Medium Priority Issues
 
-### 2. Window Resize Jitter (Prototype Acceptable)
+### 1. Window Resize Jitter (Prototype Acceptable)
 **Status:** Minor visual artifact
 **Impact:** Brief jitter when resizing window while terminal is active
 
@@ -200,7 +25,7 @@ Synchronize resize: wait for PTY resize confirmation before fitting xterm. Requi
 
 ---
 
-### 3. Remote Sessions Disabled (Feature Gap)
+### 2. Remote Sessions Disabled (Feature Gap)
 **Status:** Not implemented in prototype
 **Impact:** Can't connect to remote Agent Deck sessions via SSH
 
@@ -212,7 +37,7 @@ Synchronize resize: wait for PTY resize confirmation before fitting xterm. Requi
 
 ## Low Priority Issues
 
-### 4. No Command Palette (Feature Gap)
+### 3. No Command Palette (Feature Gap)
 **Status:** Cmd+K reserved but not implemented
 **Impact:** Can't quick-jump to sessions
 
@@ -220,42 +45,113 @@ Synchronize resize: wait for PTY resize confirmation before fitting xterm. Requi
 
 ---
 
-### 5. Terminal Doesn't Reflow on Resize (Standard Behavior)
-**Status:** Expected terminal behavior
-**Impact:** Old content stays wrapped at original width after resize
+## Resolved Issues
 
-**Not a bug:** This is how all terminal emulators work (iTerm2, Terminal.app, etc.). Content already printed doesn't reflow when terminal size changes.
+### ~~Scrollback Pre-loading Visual Artifacts~~ ✅
+**Fixed in:** v0.2.0
+**Commits:** f89302e, 96b3f41
 
-**No fix planned:** This is standard behavior users expect.
+**The Problem:**
+When connecting to tmux sessions, the terminal displayed garbled/overlapping text. This was caused by two issues:
+1. `tmux capture-pane` outputs LF (`\n`) line endings, but xterm.js interprets `\n` as "move cursor down" without carriage return, causing text to overlap
+2. `tmux send-keys -l` doesn't handle special keys (Enter, arrows, Ctrl+C, etc.) correctly
+
+**The Solution:**
+1. **LF→CRLF conversion:** Convert all `\n` to `\r\n` in both `pollTmuxOnce()` and `GetScrollback()` before sending to xterm.js
+2. **Special key handling:** `SendTmuxInput()` now maps control characters and escape sequences to tmux key names (e.g., `\r` → `Enter`, `\x1b[A` → `Up`)
+3. **Polling architecture:** Use `tmux capture-pane` polling instead of `tmux attach-session` to avoid cursor position conflicts
 
 ---
 
-## Resolved Issues
+### ~~Terminal Doesn't Reflow on Resize~~ ✅
+**Fixed in:** v0.2.0
+**Commit:** f89302e
+
+**The Problem:**
+When the window was resized, old scrollback content stayed wrapped at the original width instead of reflowing to fill the new width.
+
+**The Solution:**
+Debounced scrollback refresh on resize:
+1. When resize activity stops (400ms debounce), clear xterm buffer
+2. Re-fetch scrollback from tmux (which has reflowed to new width)
+3. Write reflowed scrollback to xterm buffer
+4. Polling continues normally for live content
+
+This works because tmux itself reflows its scrollback buffer when resized.
+
+---
+
+### ~~Cmd+F Doesn't Refocus When Already Open~~ ✅
+**Fixed in:** v0.2.0
+**Commit:** 96b3f41
+
+**The Problem:**
+Pressing Cmd+F when search was already open did nothing visible.
+
+**The Solution:**
+Added `focusTrigger` prop that increments each time Cmd+F is pressed. Search component responds by refocusing input and selecting existing text.
+
+---
 
 ### ~~Blank Terminal on Navigation~~ ✅
-**Fixed:** Terminal.jsx now calls CloseTerminal() on unmount
-**Version:** v0.1.0
-**Commit:** TBD
+**Fixed in:** v0.1.0
+
+Terminal.jsx now calls CloseTerminal() on unmount.
+
+---
 
 ### ~~Search Only Finds Visible Text~~ ✅
-**Fixed:** Pre-load scrollback into xterm buffer
-**Version:** v0.1.0
-**Side-effect:** Created Issue #1 (scrollback artifacts)
+**Fixed in:** v0.1.0
+
+Pre-load scrollback into xterm buffer for Cmd+F search.
 
 ---
 
 ## Technical Debt Prioritization
 
-**For v0.2.0:**
-1. Fix scrollback visual artifacts (polling approach) - **CRITICAL**
-2. Implement command palette (Cmd+K) - **HIGH**
-3. Fix resize jitter - **NICE TO HAVE**
+**For v0.2.0:** ✅ COMPLETE
+1. ~~Fix scrollback visual artifacts (polling approach)~~ ✅
+2. ~~Fix scrollback reflow on resize~~ ✅
+3. ~~Fix Cmd+F refocus~~ ✅
+4. Implement command palette (Cmd+K) - **DEFERRED to v0.3.0**
 
 **For v0.3.0:**
 1. Remote sessions support
 2. Session management (create/delete from app)
+3. Command palette (Cmd+K)
 
 **Deferred:**
-- Terminal reflow (not doing - standard behavior)
 - Split panes (v0.6.0+)
 - Tabs (v0.6.0+)
+
+---
+
+## Architecture Notes (v0.2.0)
+
+### Tmux Polling Architecture
+
+Instead of `tmux attach-session` (which causes cursor position conflicts), we use polling:
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│   xterm.js  │◄────│  terminal.go │◄────│    tmux     │
+│  (frontend) │     │   (backend)  │     │  (session)  │
+└─────────────┘     └──────────────┘     └─────────────┘
+       │                   │                    │
+       │   terminal:data   │  capture-pane -p   │
+       │◄──────────────────│◄───────────────────│
+       │   (50ms poll)     │                    │
+       │                   │                    │
+       │   SendTmuxInput   │  send-keys -t      │
+       │──────────────────►│───────────────────►│
+       │                   │                    │
+       │   ResizeTmuxPane  │  resize-window     │
+       │──────────────────►│───────────────────►│
+```
+
+**Key implementation details:**
+- Poll interval: 50ms (20 FPS)
+- LF→CRLF conversion for proper xterm rendering
+- Special key mapping for tmux send-keys
+- Debounced scrollback refresh on resize (400ms)
+- Debug logging to `$TMPDIR/agent-deck-desktop-debug.log`
