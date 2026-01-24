@@ -402,6 +402,19 @@ function App() {
         setShowLabelDialog(false);
     }, [selectedSession]);
 
+    // Handle tab label updated from context menu
+    const handleTabLabelUpdated = useCallback((sessionId, newLabel) => {
+        setOpenTabs(prev => prev.map(tab => {
+            if (tab.session.id === sessionId) {
+                return { ...tab, session: { ...tab.session, customLabel: newLabel || undefined } };
+            }
+            return tab;
+        }));
+        if (selectedSession?.id === sessionId) {
+            setSelectedSession(prev => prev ? { ...prev, customLabel: newLabel || undefined } : prev);
+        }
+    }, [selectedSession]);
+
     const handleSelectSession = useCallback(async (session) => {
         logger.info('Selecting session:', session.title);
 
@@ -602,6 +615,7 @@ function App() {
                         activeTabId={activeTabId}
                         onSwitchTab={handleSwitchTab}
                         onCloseTab={handleCloseTab}
+                        onTabLabelUpdated={handleTabLabelUpdated}
                     />
                 )}
                 <SessionSelector
@@ -669,6 +683,7 @@ function App() {
                     activeTabId={activeTabId}
                     onSwitchTab={handleSwitchTab}
                     onCloseTab={handleCloseTab}
+                    onTabLabelUpdated={handleTabLabelUpdated}
                 />
             )}
             <div className="terminal-header">
