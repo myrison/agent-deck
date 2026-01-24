@@ -32,6 +32,8 @@ export function MarkSessionAccessed(arg1:string):Promise<void>;
 
 export function RecordProjectUsage(arg1:string):Promise<void>;
 
+export function RefreshScrollback():Promise<string>;
+
 export function RemoveQuickLaunchFavorite(arg1:string):Promise<void>;
 
 export function ResizeTerminal(arg1:number,arg2:number):Promise<void>;

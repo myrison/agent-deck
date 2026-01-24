@@ -87,6 +87,12 @@ func (a *App) GetScrollback(tmuxSession string) (string, error) {
 	return a.tmux.GetScrollback(tmuxSession, 10000)
 }
 
+// RefreshScrollback fetches fresh scrollback from the currently attached tmux session.
+// Called by frontend after resize to bypass xterm.js reflow issues with box-drawing chars.
+func (a *App) RefreshScrollback() (string, error) {
+	return a.terminal.GetScrollback()
+}
+
 // SessionExists checks if a tmux session exists.
 func (a *App) SessionExists(tmuxSession string) bool {
 	return a.tmux.SessionExists(tmuxSession)

@@ -62,6 +62,10 @@ export function RecordProjectUsage(arg1) {
   return window['go']['main']['App']['RecordProjectUsage'](arg1);
 }
 
+export function RefreshScrollback() {
+  return window['go']['main']['App']['RefreshScrollback']();
+}
+
 export function RemoveQuickLaunchFavorite(arg1) {
   return window['go']['main']['App']['RemoveQuickLaunchFavorite'](arg1);
 }

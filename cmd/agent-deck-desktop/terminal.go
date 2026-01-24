@@ -272,9 +272,16 @@ func stripSeamSequences(s string) string {
 	s = strings.ReplaceAll(s, "\x1b[?47h", "")
 	s = strings.ReplaceAll(s, "\x1b[?47l", "")
 
-	// Note: \x1b[2J (clear screen) only clears viewport, NOT scrollback - safe to keep
-	// Note: \x1b[H (home) is fine - positions cursor
-	// Note: \x1b[J (clear to end) is fine - only clears below cursor
+	// Clear screen - remove to prevent overwriting scrollback
+	s = strings.ReplaceAll(s, "\x1b[2J", "")
+
+	// Cursor home - remove during seam to prevent cursor jumping to top
+	s = strings.ReplaceAll(s, "\x1b[H", "")
+
+	// Remove any cursor positioning sequences (ESC [ row ; col H or f)
+	// These would cause content to overwrite wrong positions
+	s = regexp.MustCompile(`\x1b\[\d*;\d*[Hf]`).ReplaceAllString(s, "")
+	s = regexp.MustCompile(`\x1b\[\d+[Hf]`).ReplaceAllString(s, "")
 
 	return s
 }
@@ -348,6 +355,68 @@ func (t *Terminal) Resize(cols, rows int) error {
 	}
 
 	return nil
+}
+
+// GetScrollback fetches fresh scrollback content from tmux.
+// Called by frontend after resize to bypass xterm.js reflow issues.
+// Returns sanitized content ready for xterm.write().
+func (t *Terminal) GetScrollback() (string, error) {
+	t.mu.Lock()
+	session := t.tmuxSession
+	t.mu.Unlock()
+
+	if session == "" {
+		t.debugLog("[SCROLLBACK] No tmux session attached")
+		return "", nil
+	}
+
+	// Wait briefly for tmux to finish reflowing after resize
+	time.Sleep(30 * time.Millisecond)
+
+	// Capture current pane content (scrollback + visible)
+	cmd := exec.Command("tmux", "capture-pane", "-t", session, "-p", "-e", "-S", "-", "-E", "-")
+	output, err := cmd.Output()
+	if err != nil {
+		t.debugLog("[SCROLLBACK] capture-pane error: %v", err)
+		return "", err
+	}
+
+	rawContent := string(output)
+	t.debugLog("[SCROLLBACK] Raw tmux output: %d bytes", len(rawContent))
+
+	// Check for box-drawing characters in raw output
+	boxDrawingCount := 0
+	questionMarkCount := 0
+	for _, r := range rawContent {
+		if r == '─' || r == '│' || r == '┌' || r == '┐' || r == '└' || r == '┘' || r == '├' || r == '┤' || r == '┬' || r == '┴' || r == '┼' {
+			boxDrawingCount++
+		}
+		if r == '?' {
+			questionMarkCount++
+		}
+	}
+	t.debugLog("[SCROLLBACK] Box-drawing chars: %d, Question marks: %d", boxDrawingCount, questionMarkCount)
+
+	// Log a sample of lines containing box-drawing chars
+	lines := strings.Split(rawContent, "\n")
+	for i, line := range lines {
+		if strings.ContainsAny(line, "─│┌┐└┘├┤┬┴┼") {
+			// Log first 100 chars of this line
+			sample := line
+			if len(sample) > 100 {
+				sample = sample[:100] + "..."
+			}
+			t.debugLog("[SCROLLBACK] Line %d with box chars: %q", i, sample)
+			break // Just log first one
+		}
+	}
+
+	// Sanitize for xterm
+	content := sanitizeHistoryForXterm(rawContent)
+	content = normalizeCRLF(content)
+
+	t.debugLog("[SCROLLBACK] After sanitize: %d bytes", len(content))
+	return content, nil
 }
 
 // Close terminates the PTY.
