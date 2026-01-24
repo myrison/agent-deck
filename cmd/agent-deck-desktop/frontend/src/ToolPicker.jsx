@@ -1,15 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import './ToolPicker.css';
 import { createLogger } from './logger';
+import { TOOLS } from './utils/tools';
 
 const logger = createLogger('ToolPicker');
-
-// Available AI tools
-const TOOLS = [
-    { id: 'claude', name: 'Claude', icon: 'C', color: '#4cc9f0', description: 'Anthropic Claude Code' },
-    { id: 'gemini', name: 'Gemini', icon: 'G', color: '#ffe66d', description: 'Google Gemini CLI' },
-    { id: 'opencode', name: 'OpenCode', icon: 'O', color: '#6c757d', description: 'OpenCode CLI' },
-];
 
 export default function ToolPicker({ projectPath, projectName, onSelect, onCancel }) {
     const [selectedIndex, setSelectedIndex] = useState(0);

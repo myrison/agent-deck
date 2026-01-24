@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './ShortcutEditor.css';
 import { createLogger } from './logger';
+import { formatShortcut } from './utils/shortcuts';
 
 const logger = createLogger('ShortcutEditor');
 
@@ -106,17 +107,6 @@ export default function ShortcutEditor({
     const handleClear = () => {
         setShortcut('');
         setError(null);
-    };
-
-    const formatShortcut = (s) => {
-        if (!s) return '';
-        return s
-            .replace(/cmd/g, '⌘')
-            .replace(/ctrl/g, '⌃')
-            .replace(/shift/g, '⇧')
-            .replace(/alt/g, '⌥')
-            .replace(/\+/g, '')
-            .toUpperCase();
     };
 
     return (

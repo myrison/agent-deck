@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import Fuse from 'fuse.js';
 import './CommandPalette.css';
 import { createLogger } from './logger';
+import { getToolIcon } from './utils/tools';
 
 const logger = createLogger('CommandPalette');
 
@@ -151,15 +152,6 @@ export default function CommandPalette({
             onSelectSession?.(item);
         }
         onClose();
-    };
-
-    const getToolIcon = (tool) => {
-        switch (tool) {
-            case 'claude': return 'C';
-            case 'gemini': return 'G';
-            case 'opencode': return 'O';
-            default: return '$';
-        }
     };
 
     const getStatusColor = (status) => {

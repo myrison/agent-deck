@@ -3,6 +3,8 @@ import './QuickLaunchBar.css';
 import { GetQuickLaunchFavorites, RemoveQuickLaunchFavorite, UpdateQuickLaunchShortcut } from '../wailsjs/go/main/App';
 import ShortcutEditor from './ShortcutEditor';
 import { createLogger } from './logger';
+import { formatShortcut } from './utils/shortcuts';
+import { getToolIcon, getToolColor } from './utils/tools';
 
 const logger = createLogger('QuickLaunchBar');
 
@@ -25,35 +27,6 @@ export default function QuickLaunchBar({ onLaunch, onShowToolPicker, onOpenPalet
     useEffect(() => {
         loadFavorites();
     }, [loadFavorites]);
-
-    const getToolIcon = (tool) => {
-        switch (tool) {
-            case 'claude': return 'C';
-            case 'gemini': return 'G';
-            case 'opencode': return 'O';
-            default: return '$';
-        }
-    };
-
-    const getToolColor = (tool) => {
-        switch (tool) {
-            case 'claude': return '#4cc9f0';
-            case 'gemini': return '#ffe66d';
-            case 'opencode': return '#6c757d';
-            default: return '#6c757d';
-        }
-    };
-
-    const formatShortcut = (s) => {
-        if (!s) return '';
-        return s
-            .replace(/cmd/g, '⌘')
-            .replace(/ctrl/g, '⌃')
-            .replace(/shift/g, '⇧')
-            .replace(/alt/g, '⌥')
-            .replace(/\+/g, '')
-            .toUpperCase();
-    };
 
     const handleClick = (fav, e) => {
         if (e.metaKey || e.ctrlKey) {
