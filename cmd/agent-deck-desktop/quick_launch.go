@@ -19,6 +19,7 @@ type QuickLaunchFavorite struct {
 
 // QuickLaunchConfig represents the quick-launch.toml file
 type QuickLaunchConfig struct {
+	ShowBar   *bool                 `toml:"show_bar,omitempty"` // nil = default true
 	Favorites []QuickLaunchFavorite `toml:"favorites"`
 }
 
@@ -150,6 +151,48 @@ func (qlm *QuickLaunchManager) UpdateShortcut(path, shortcut string) error {
 	for i := range config.Favorites {
 		if config.Favorites[i].Path == path {
 			config.Favorites[i].Shortcut = shortcut
+			return qlm.saveConfig(config)
+		}
+	}
+
+	return nil // Not found, no error
+}
+
+// GetBarVisibility returns whether the quick launch bar should be shown.
+// Defaults to true if not set.
+func (qlm *QuickLaunchManager) GetBarVisibility() (bool, error) {
+	config, err := qlm.loadConfig()
+	if err != nil {
+		return true, err
+	}
+
+	if config.ShowBar == nil {
+		return true, nil // Default to visible
+	}
+	return *config.ShowBar, nil
+}
+
+// SetBarVisibility sets whether the quick launch bar should be shown.
+func (qlm *QuickLaunchManager) SetBarVisibility(show bool) error {
+	config, err := qlm.loadConfig()
+	if err != nil {
+		return err
+	}
+
+	config.ShowBar = &show
+	return qlm.saveConfig(config)
+}
+
+// UpdateFavoriteName updates the display name for a favorite.
+func (qlm *QuickLaunchManager) UpdateFavoriteName(path, name string) error {
+	config, err := qlm.loadConfig()
+	if err != nil {
+		return err
+	}
+
+	for i := range config.Favorites {
+		if config.Favorites[i].Path == path {
+			config.Favorites[i].Name = name
 			return qlm.saveConfig(config)
 		}
 	}

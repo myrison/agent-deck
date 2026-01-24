@@ -6,7 +6,7 @@ import SessionSelector from './SessionSelector';
 import CommandPalette from './CommandPalette';
 import ToolPicker from './ToolPicker';
 import QuickLaunchBar from './QuickLaunchBar';
-import { ListSessions, DiscoverProjects, CreateSession, RecordProjectUsage, GetQuickLaunchFavorites } from '../wailsjs/go/main/App';
+import { ListSessions, DiscoverProjects, CreateSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 
 const logger = createLogger('App');
@@ -24,8 +24,10 @@ function App() {
     const [showToolPicker, setShowToolPicker] = useState(false);
     const [toolPickerProject, setToolPickerProject] = useState(null);
     const [showQuickLaunch, setShowQuickLaunch] = useState(true); // Show by default if favorites exist
+    const [palettePinMode, setPalettePinMode] = useState(false); // When true, selecting pins instead of launching
     const [quickLaunchKey, setQuickLaunchKey] = useState(0); // For forcing refresh
     const [shortcuts, setShortcuts] = useState({}); // shortcut -> {path, name, tool}
+    const [favorites, setFavorites] = useState([]); // All quick launch favorites
     const sessionSelectorRef = useRef(null);
 
     // Build shortcut key from event
@@ -41,12 +43,13 @@ function App() {
         return parts.join('+');
     }, []);
 
-    // Load shortcuts from favorites
+    // Load shortcuts and favorites
     const loadShortcuts = useCallback(async () => {
         try {
-            const favorites = await GetQuickLaunchFavorites();
+            const favs = await GetQuickLaunchFavorites();
+            setFavorites(favs || []);
             const shortcutMap = {};
-            for (const fav of favorites || []) {
+            for (const fav of favs || []) {
                 if (fav.shortcut) {
                     shortcutMap[fav.shortcut] = {
                         path: fav.path,
@@ -56,15 +59,27 @@ function App() {
                 }
             }
             setShortcuts(shortcutMap);
-            logger.info('Loaded shortcuts', { count: Object.keys(shortcutMap).length });
+            logger.info('Loaded shortcuts', { count: Object.keys(shortcutMap).length, favorites: favs?.length || 0 });
         } catch (err) {
             logger.error('Failed to load shortcuts:', err);
         }
     }, []);
 
-    // Load shortcuts on mount
+    // Load shortcuts and bar visibility on mount
     useEffect(() => {
         loadShortcuts();
+
+        // Load bar visibility preference
+        const loadBarVisibility = async () => {
+            try {
+                const visible = await GetQuickLaunchBarVisibility();
+                setShowQuickLaunch(visible);
+                logger.info('Loaded bar visibility', { visible });
+            } catch (err) {
+                logger.error('Failed to load bar visibility:', err);
+            }
+        };
+        loadBarVisibility();
     }, [loadShortcuts]);
 
     const handleCloseSearch = useCallback(() => {
@@ -116,7 +131,13 @@ function App() {
                 break;
             case 'toggle-quick-launch':
                 logger.info('Palette action: toggle quick launch bar');
-                setShowQuickLaunch(prev => !prev);
+                setShowQuickLaunch(prev => {
+                    const newValue = !prev;
+                    SetQuickLaunchBarVisibility(newValue).catch(err => {
+                        logger.error('Failed to save bar visibility:', err);
+                    });
+                    return newValue;
+                });
                 break;
             default:
                 logger.warn('Unknown palette action:', actionId);
@@ -149,6 +170,32 @@ function App() {
         logger.info('Showing tool picker', { projectPath, projectName });
         setToolPickerProject({ path: projectPath, name: projectName });
         setShowToolPicker(true);
+    }, []);
+
+    // Pin project to Quick Launch
+    const handlePinToQuickLaunch = useCallback(async (projectPath, projectName) => {
+        try {
+            logger.info('Pinning to Quick Launch', { projectPath, projectName });
+            await AddQuickLaunchFavorite(projectName, projectPath, 'claude');
+            // Refresh favorites and Quick Launch Bar
+            await loadShortcuts();
+            setQuickLaunchKey(prev => prev + 1);
+        } catch (err) {
+            logger.error('Failed to pin to Quick Launch:', err);
+        }
+    }, [loadShortcuts]);
+
+    // Open palette in pin mode (for adding favorites)
+    const handleOpenPaletteForPinning = useCallback(() => {
+        logger.info('Opening palette in pin mode');
+        setPalettePinMode(true);
+        setShowCommandPalette(true);
+    }, []);
+
+    // Close palette and reset pin mode
+    const handleClosePalette = useCallback(() => {
+        setShowCommandPalette(false);
+        setPalettePinMode(false);
     }, []);
 
     // Handle tool selection from picker
@@ -238,6 +285,7 @@ function App() {
                         onLaunch={handleLaunchProject}
                         onShowToolPicker={handleShowToolPicker}
                         onOpenPalette={() => setShowCommandPalette(true)}
+                        onOpenPaletteForPinning={handleOpenPaletteForPinning}
                         onShortcutsChanged={loadShortcuts}
                     />
                 )}
@@ -247,13 +295,16 @@ function App() {
                 />
                 {showCommandPalette && (
                     <CommandPalette
-                        onClose={() => setShowCommandPalette(false)}
+                        onClose={handleClosePalette}
                         onSelectSession={handleSelectSession}
                         onAction={handlePaletteAction}
                         onLaunchProject={handleLaunchProject}
                         onShowToolPicker={handleShowToolPicker}
+                        onPinToQuickLaunch={handlePinToQuickLaunch}
                         sessions={sessions}
                         projects={projects}
+                        favorites={favorites}
+                        pinMode={palettePinMode}
                     />
                 )}
                 {showToolPicker && toolPickerProject && (
@@ -277,6 +328,7 @@ function App() {
                     onLaunch={handleLaunchProject}
                     onShowToolPicker={handleShowToolPicker}
                     onOpenPalette={() => setShowCommandPalette(true)}
+                    onOpenPaletteForPinning={handleOpenPaletteForPinning}
                     onShortcutsChanged={loadShortcuts}
                 />
             )}
@@ -324,13 +376,16 @@ function App() {
             )}
             {showCommandPalette && (
                 <CommandPalette
-                    onClose={() => setShowCommandPalette(false)}
+                    onClose={handleClosePalette}
                     onSelectSession={handleSelectSession}
                     onAction={handlePaletteAction}
                     onLaunchProject={handleLaunchProject}
                     onShowToolPicker={handleShowToolPicker}
+                    onPinToQuickLaunch={handlePinToQuickLaunch}
                     sessions={sessions}
                     projects={projects}
+                    favorites={favorites}
+                    pinMode={palettePinMode}
                 />
             )}
             {showToolPicker && toolPickerProject && (

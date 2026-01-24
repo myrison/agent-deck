@@ -22,6 +22,10 @@ export function DiscoverProjects() {
   return window['go']['main']['App']['DiscoverProjects']();
 }
 
+export function GetQuickLaunchBarVisibility() {
+  return window['go']['main']['App']['GetQuickLaunchBarVisibility']();
+}
+
 export function GetQuickLaunchFavorites() {
   return window['go']['main']['App']['GetQuickLaunchFavorites']();
 }
@@ -66,12 +70,20 @@ export function SessionExists(arg1) {
   return window['go']['main']['App']['SessionExists'](arg1);
 }
 
+export function SetQuickLaunchBarVisibility(arg1) {
+  return window['go']['main']['App']['SetQuickLaunchBarVisibility'](arg1);
+}
+
 export function StartTerminal(arg1, arg2) {
   return window['go']['main']['App']['StartTerminal'](arg1, arg2);
 }
 
 export function StartTmuxPolling(arg1, arg2, arg3) {
   return window['go']['main']['App']['StartTmuxPolling'](arg1, arg2, arg3);
+}
+
+export function UpdateQuickLaunchFavoriteName(arg1, arg2) {
+  return window['go']['main']['App']['UpdateQuickLaunchFavoriteName'](arg1, arg2);
 }
 
 export function UpdateQuickLaunchShortcut(arg1, arg2) {

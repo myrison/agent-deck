@@ -12,6 +12,8 @@ export function CreateSession(arg1:string,arg2:string,arg3:string):Promise<main.
 
 export function DiscoverProjects():Promise<Array<main.ProjectInfo>>;
 
+export function GetQuickLaunchBarVisibility():Promise<boolean>;
+
 export function GetQuickLaunchFavorites():Promise<Array<main.QuickLaunchFavorite>>;
 
 export function GetScrollback(arg1:string):Promise<string>;
@@ -34,9 +36,13 @@ export function SendTmuxInput(arg1:string):Promise<void>;
 
 export function SessionExists(arg1:string):Promise<boolean>;
 
+export function SetQuickLaunchBarVisibility(arg1:boolean):Promise<void>;
+
 export function StartTerminal(arg1:number,arg2:number):Promise<void>;
 
 export function StartTmuxPolling(arg1:string,arg2:number,arg3:number):Promise<void>;
+
+export function UpdateQuickLaunchFavoriteName(arg1:string,arg2:string):Promise<void>;
 
 export function UpdateQuickLaunchShortcut(arg1:string,arg2:string):Promise<void>;
 

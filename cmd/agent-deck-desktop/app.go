@@ -140,3 +140,18 @@ func (a *App) RemoveQuickLaunchFavorite(path string) error {
 func (a *App) UpdateQuickLaunchShortcut(path, shortcut string) error {
 	return a.quickLaunch.UpdateShortcut(path, shortcut)
 }
+
+// GetQuickLaunchBarVisibility returns whether the quick launch bar should be shown.
+func (a *App) GetQuickLaunchBarVisibility() (bool, error) {
+	return a.quickLaunch.GetBarVisibility()
+}
+
+// SetQuickLaunchBarVisibility sets whether the quick launch bar should be shown.
+func (a *App) SetQuickLaunchBarVisibility(show bool) error {
+	return a.quickLaunch.SetBarVisibility(show)
+}
+
+// UpdateQuickLaunchFavoriteName updates the display name for a favorite.
+func (a *App) UpdateQuickLaunchFavoriteName(path, name string) error {
+	return a.quickLaunch.UpdateFavoriteName(path, name)
+}

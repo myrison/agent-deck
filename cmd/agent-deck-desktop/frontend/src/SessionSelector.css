@@ -1,7 +1,8 @@
 .session-selector {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    flex: 1;
+    min-height: 0; /* Enable proper scrolling in flex container */
     background: #1a1a2e;
     color: #eee;
     padding: 20px;

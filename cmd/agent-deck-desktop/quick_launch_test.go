@@ -212,6 +212,82 @@ func TestQuickLaunchUpdateShortcut(t *testing.T) {
 	}
 }
 
+func TestQuickLaunchUpdateName(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "quick-launch.toml")
+
+	qlm := &QuickLaunchManager{configPath: configPath}
+
+	// Add favorite
+	qlm.AddFavorite("Original Name", "/projects/test", "claude")
+
+	// Update name
+	err := qlm.UpdateFavoriteName("/projects/test", "New Name")
+	if err != nil {
+		t.Fatalf("UpdateFavoriteName failed: %v", err)
+	}
+
+	// Verify name was updated
+	favorites, _ := qlm.GetFavorites()
+	if favorites[0].Name != "New Name" {
+		t.Errorf("Expected name 'New Name', got '%s'", favorites[0].Name)
+	}
+
+	// Path should remain unchanged
+	if favorites[0].Path != "/projects/test" {
+		t.Errorf("Path changed unexpectedly: %s", favorites[0].Path)
+	}
+}
+
+func TestQuickLaunchBarVisibility(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "quick-launch.toml")
+
+	qlm := &QuickLaunchManager{configPath: configPath}
+
+	// Default should be true (visible)
+	visible, err := qlm.GetBarVisibility()
+	if err != nil {
+		t.Fatalf("GetBarVisibility failed: %v", err)
+	}
+	if !visible {
+		t.Error("Expected default visibility to be true")
+	}
+
+	// Set to false
+	err = qlm.SetBarVisibility(false)
+	if err != nil {
+		t.Fatalf("SetBarVisibility(false) failed: %v", err)
+	}
+
+	// Verify it persisted
+	visible, err = qlm.GetBarVisibility()
+	if err != nil {
+		t.Fatalf("GetBarVisibility failed: %v", err)
+	}
+	if visible {
+		t.Error("Expected visibility to be false after setting")
+	}
+
+	// Set back to true
+	err = qlm.SetBarVisibility(true)
+	if err != nil {
+		t.Fatalf("SetBarVisibility(true) failed: %v", err)
+	}
+
+	visible, _ = qlm.GetBarVisibility()
+	if !visible {
+		t.Error("Expected visibility to be true after setting")
+	}
+
+	// Verify it's in the config file
+	data, _ := os.ReadFile(configPath)
+	content := string(data)
+	if !strings.Contains(content, "show_bar = true") {
+		t.Error("Config file should contain 'show_bar = true'")
+	}
+}
+
 func TestQuickLaunchSpecialCharacters(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "quick-launch.toml")

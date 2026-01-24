@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import './QuickLaunchBar.css';
-import { GetQuickLaunchFavorites, RemoveQuickLaunchFavorite, UpdateQuickLaunchShortcut } from '../wailsjs/go/main/App';
+import { GetQuickLaunchFavorites, RemoveQuickLaunchFavorite, UpdateQuickLaunchShortcut, UpdateQuickLaunchFavoriteName } from '../wailsjs/go/main/App';
 import ShortcutEditor from './ShortcutEditor';
 import { createLogger } from './logger';
 import { formatShortcut } from './utils/shortcuts';
@@ -8,10 +8,13 @@ import { getToolIcon, getToolColor } from './utils/tools';
 
 const logger = createLogger('QuickLaunchBar');
 
-export default function QuickLaunchBar({ onLaunch, onShowToolPicker, onOpenPalette, onShortcutsChanged }) {
+export default function QuickLaunchBar({ onLaunch, onShowToolPicker, onOpenPalette, onOpenPaletteForPinning, onShortcutsChanged }) {
     const [favorites, setFavorites] = useState([]);
     const [contextMenu, setContextMenu] = useState(null);
     const [editingShortcut, setEditingShortcut] = useState(null); // { path, name, shortcut }
+    const [editingName, setEditingName] = useState(null); // { path, name }
+    const [tooltip, setTooltip] = useState(null); // { text, x, y }
+    const tooltipTimeoutRef = useRef(null);
 
     // Load favorites
     const loadFavorites = useCallback(async () => {
@@ -76,6 +79,30 @@ export default function QuickLaunchBar({ onLaunch, onShowToolPicker, onOpenPalet
         setContextMenu(null);
     };
 
+    const handleRename = () => {
+        if (!contextMenu?.favorite) return;
+        const fav = contextMenu.favorite;
+        logger.info('Opening rename dialog', { name: fav.name });
+        setEditingName({
+            path: fav.path,
+            name: fav.name,
+        });
+        setContextMenu(null);
+    };
+
+    const handleSaveName = async (newName) => {
+        if (!editingName || !newName.trim()) return;
+
+        try {
+            logger.info('Saving name', { path: editingName.path, name: newName });
+            await UpdateQuickLaunchFavoriteName(editingName.path, newName.trim());
+            loadFavorites();
+        } catch (err) {
+            logger.error('Failed to save name:', err);
+        }
+        setEditingName(null);
+    };
+
     const handleSaveShortcut = async (newShortcut) => {
         if (!editingShortcut) return;
 
@@ -89,6 +116,28 @@ export default function QuickLaunchBar({ onLaunch, onShowToolPicker, onOpenPalet
         }
         setEditingShortcut(null);
     };
+
+    // Tooltip handlers
+    const handleMouseEnter = useCallback((e, fav) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const text = `${fav.name}\n${fav.path}${fav.shortcut ? `\n${formatShortcut(fav.shortcut)}` : ''}`;
+
+        tooltipTimeoutRef.current = setTimeout(() => {
+            setTooltip({
+                text,
+                x: rect.left + rect.width / 2,
+                y: rect.bottom + 8,
+            });
+        }, 200);
+    }, []);
+
+    const handleMouseLeave = useCallback(() => {
+        if (tooltipTimeoutRef.current) {
+            clearTimeout(tooltipTimeoutRef.current);
+            tooltipTimeoutRef.current = null;
+        }
+        setTooltip(null);
+    }, []);
 
     // Build existing shortcuts map for conflict detection
     const existingShortcuts = favorites.reduce((acc, fav) => {
@@ -123,7 +172,8 @@ export default function QuickLaunchBar({ onLaunch, onShowToolPicker, onOpenPalet
                         className="quick-launch-item"
                         onClick={(e) => handleClick(fav, e)}
                         onContextMenu={(e) => handleContextMenu(e, fav)}
-                        title={`${fav.name} (${fav.path})\nClick: Launch with ${fav.tool}\nCmd+Click: Choose tool\nRight-click: Menu${fav.shortcut ? `\nShortcut: ${fav.shortcut}` : ''}`}
+                        onMouseEnter={(e) => handleMouseEnter(e, fav)}
+                        onMouseLeave={handleMouseLeave}
                     >
                         <span
                             className="quick-launch-icon"
@@ -141,8 +191,8 @@ export default function QuickLaunchBar({ onLaunch, onShowToolPicker, onOpenPalet
                 ))}
                 <button
                     className="quick-launch-add"
-                    onClick={onOpenPalette}
-                    title="Add favorite (Cmd+K)"
+                    onClick={onOpenPaletteForPinning}
+                    title="Add favorite"
                 >
                     +
                 </button>
@@ -161,6 +211,9 @@ export default function QuickLaunchBar({ onLaunch, onShowToolPicker, onOpenPalet
                     style={{ left: contextMenu.x, top: contextMenu.y }}
                     onClick={(e) => e.stopPropagation()}
                 >
+                    <button onClick={handleRename}>
+                        Rename
+                    </button>
                     <button onClick={handleEditShortcut}>
                         {contextMenu.favorite?.shortcut ? 'Edit Shortcut' : 'Set Shortcut'}
                     </button>
@@ -180,6 +233,78 @@ export default function QuickLaunchBar({ onLaunch, onShowToolPicker, onOpenPalet
                     onCancel={() => setEditingShortcut(null)}
                 />
             )}
+
+            {editingName && (
+                <RenameDialog
+                    currentName={editingName.name}
+                    onSave={handleSaveName}
+                    onCancel={() => setEditingName(null)}
+                />
+            )}
+
+            {tooltip && (
+                <div
+                    className="quick-launch-tooltip"
+                    style={{
+                        left: tooltip.x,
+                        top: tooltip.y,
+                    }}
+                >
+                    {tooltip.text}
+                </div>
+            )}
+        </div>
+    );
+}
+
+// Simple rename dialog component
+function RenameDialog({ currentName, onSave, onCancel }) {
+    const [name, setName] = useState(currentName);
+    const inputRef = useRef(null);
+
+    useEffect(() => {
+        // Focus and select all text on mount
+        if (inputRef.current) {
+            inputRef.current.focus();
+            inputRef.current.select();
+        }
+    }, []);
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            onSave(name);
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            onCancel();
+        }
+    };
+
+    return (
+        <div className="rename-dialog-overlay" onClick={onCancel}>
+            <div className="rename-dialog" onClick={(e) => e.stopPropagation()}>
+                <div className="rename-dialog-title">Rename</div>
+                <input
+                    ref={inputRef}
+                    type="text"
+                    className="rename-dialog-input"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                />
+                <div className="rename-dialog-buttons">
+                    <button className="rename-dialog-cancel" onClick={onCancel}>
+                        Cancel
+                    </button>
+                    <button
+                        className="rename-dialog-save"
+                        onClick={() => onSave(name)}
+                        disabled={!name.trim()}
+                    >
+                        Save
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }

@@ -3,6 +3,7 @@ import Fuse from 'fuse.js';
 import './CommandPalette.css';
 import { createLogger } from './logger';
 import { getToolIcon } from './utils/tools';
+import { formatShortcut } from './utils/shortcuts';
 
 const logger = createLogger('CommandPalette');
 
@@ -19,8 +20,11 @@ export default function CommandPalette({
     onAction,
     onLaunchProject, // (projectPath, projectName, tool) => void
     onShowToolPicker, // (projectPath, projectName) => void - for Cmd+Enter
+    onPinToQuickLaunch, // (projectPath, projectName) => void - for Cmd+P
     sessions = [],
     projects = [],
+    favorites = [], // Quick launch favorites for shortcut hints
+    pinMode = false, // When true, selecting pins instead of launching
 }) {
     const [query, setQuery] = useState('');
     const [selectedIndex, setSelectedIndex] = useState(0);
@@ -33,6 +37,15 @@ export default function CommandPalette({
         return () => logger.info('Command palette closed');
     }, [sessions.length, projects.length]);
 
+    // Build lookup for favorites by path
+    const favoritesLookup = useMemo(() => {
+        const lookup = {};
+        for (const fav of favorites) {
+            lookup[fav.path] = fav;
+        }
+        return lookup;
+    }, [favorites]);
+
     // Convert projects to palette items
     const projectItems = useMemo(() => {
         return projects
@@ -44,8 +57,10 @@ export default function CommandPalette({
                 projectPath: p.path,
                 score: p.score,
                 description: p.path,
+                isPinned: !!favoritesLookup[p.path],
+                shortcut: favoritesLookup[p.path]?.shortcut,
             }));
-    }, [projects]);
+    }, [projects, favoritesLookup]);
 
     // Fuse.js configuration for fuzzy search
     const fuse = useMemo(() => new Fuse([...sessions, ...projectItems, ...QUICK_ACTIONS], {
@@ -62,6 +77,21 @@ export default function CommandPalette({
 
     // Get filtered results
     const results = useMemo(() => {
+        if (pinMode) {
+            // Pin mode: only show projects (not already pinned)
+            const unpinnedProjects = projectItems.filter(p => !p.isPinned);
+            if (!query.trim()) {
+                logger.debug('Pin mode: showing unpinned projects', { count: unpinnedProjects.length });
+                return unpinnedProjects;
+            }
+            // Filter with fuse but only from unpinned projects
+            const pinFuse = new Fuse(unpinnedProjects, {
+                keys: [{ name: 'title', weight: 0.5 }, { name: 'projectPath', weight: 0.5 }],
+                threshold: 0.4,
+            });
+            return pinFuse.search(query).map(r => r.item);
+        }
+
         if (!query.trim()) {
             // No query: show sessions first, then projects, then actions
             const allItems = [...sessions, ...projectItems, ...QUICK_ACTIONS];
@@ -71,7 +101,7 @@ export default function CommandPalette({
         const searchResults = fuse.search(query).map(result => result.item);
         logger.debug('Search results', { query, count: searchResults.length });
         return searchResults;
-    }, [query, fuse, sessions, projectItems]);
+    }, [query, fuse, sessions, projectItems, pinMode]);
 
     // Reset selection when results change
     useEffect(() => {
@@ -126,6 +156,17 @@ export default function CommandPalette({
                     }
                 }
                 break;
+            case 'p':
+            case 'P':
+                // Cmd+P to pin project to Quick Launch
+                if ((e.metaKey || e.ctrlKey) && results[selectedIndex]?.type === 'project') {
+                    e.preventDefault();
+                    const item = results[selectedIndex];
+                    logger.info('Cmd+P on project, pinning to Quick Launch', { path: item.projectPath });
+                    onPinToQuickLaunch?.(item.projectPath, item.title);
+                    onClose();
+                }
+                break;
             case 'Escape':
                 e.preventDefault();
                 logger.info('Escape pressed, closing palette');
@@ -138,8 +179,18 @@ export default function CommandPalette({
         logger.info('Item selected', {
             title: item.title,
             type: item.type || 'session',
-            id: item.id
+            id: item.id,
+            pinMode
         });
+
+        // In pin mode, selecting a project pins it
+        if (pinMode && item.type === 'project') {
+            logger.info('Pin mode: pinning project', { path: item.projectPath });
+            onPinToQuickLaunch?.(item.projectPath, item.title);
+            onClose();
+            return;
+        }
+
         if (item.type === 'action') {
             logger.info('Executing action', { actionId: item.id });
             onAction?.(item.id);
@@ -171,7 +222,7 @@ export default function CommandPalette({
                     ref={inputRef}
                     type="text"
                     className="palette-input"
-                    placeholder="Search sessions or actions..."
+                    placeholder={pinMode ? "Search projects to pin..." : "Search sessions or actions..."}
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     onKeyDown={handleKeyDown}
@@ -197,12 +248,19 @@ export default function CommandPalette({
                                     </>
                                 ) : item.type === 'project' ? (
                                     <>
-                                        <span className="palette-project-icon">+</span>
+                                        <span className="palette-project-icon">{item.isPinned ? '★' : '+'}</span>
                                         <div className="palette-item-info">
                                             <div className="palette-item-title">{item.title}</div>
                                             <div className="palette-item-subtitle">{item.projectPath}</div>
                                         </div>
-                                        <span className="palette-project-hint">Enter: Claude</span>
+                                        {item.shortcut && (
+                                            <span className="palette-shortcut-hint">
+                                                {formatShortcut(item.shortcut)}
+                                            </span>
+                                        )}
+                                        <span className="palette-project-hint">
+                                            {pinMode ? 'Enter to pin' : (item.isPinned ? 'Pinned' : '⌘P Pin')}
+                                        </span>
                                     </>
                                 ) : (
                                     <>
@@ -218,6 +276,11 @@ export default function CommandPalette({
                                                 {item.projectPath || item.groupPath || 'ungrouped'}
                                             </div>
                                         </div>
+                                        {favoritesLookup[item.projectPath]?.shortcut && (
+                                            <span className="palette-shortcut-hint">
+                                                {formatShortcut(favoritesLookup[item.projectPath].shortcut)}
+                                            </span>
+                                        )}
                                         <span
                                             className="palette-status"
                                             style={{ color: getStatusColor(item.status) }}
@@ -232,8 +295,9 @@ export default function CommandPalette({
                 </div>
                 <div className="palette-footer">
                     <span className="palette-hint"><kbd>↑↓</kbd> Navigate</span>
-                    <span className="palette-hint"><kbd>Enter</kbd> Select</span>
-                    <span className="palette-hint"><kbd>⌘Enter</kbd> Tool picker</span>
+                    <span className="palette-hint"><kbd>Enter</kbd> {pinMode ? 'Pin to Quick Launch' : 'Select'}</span>
+                    {!pinMode && <span className="palette-hint"><kbd>⌘Enter</kbd> Tool picker</span>}
+                    {!pinMode && <span className="palette-hint"><kbd>⌘P</kbd> Pin</span>}
                     <span className="palette-hint"><kbd>Esc</kbd> Close</span>
                 </div>
             </div>

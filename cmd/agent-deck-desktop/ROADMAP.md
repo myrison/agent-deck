@@ -93,6 +93,11 @@
 - [ ] Tooltips on buttons
 - [ ] Keyboard shortcut hints in UI
 
+**Tool Icons:**
+- [ ] Change shell icon from `$` to `>` (right caret) - more common representation
+- [ ] Replace Claude `C` icon with Anthropic's official Claude logo
+- [ ] Consider official logos for Gemini and OpenCode as well
+
 ---
 
 ## v0.3.0 - Remote Sessions
