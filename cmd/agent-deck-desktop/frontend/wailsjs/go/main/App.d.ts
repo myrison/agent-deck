@@ -12,6 +12,8 @@ export function CreateSession(arg1:string,arg2:string,arg3:string,arg4:string):P
 
 export function DeleteLaunchConfig(arg1:string):Promise<void>;
 
+export function DeleteSavedLayout(arg1:string):Promise<void>;
+
 export function DiscoverProjects():Promise<Array<main.ProjectInfo>>;
 
 export function GenerateConfigKey(arg1:string,arg2:string):Promise<string>;
@@ -36,6 +38,11 @@ export function GetQuickLaunchBarVisibility():Promise<boolean>;
 
 export function GetQuickLaunchFavorites():Promise<Array<main.QuickLaunchFavorite>>;
 
+export function GetSSHHostStatus():Promise<Array<main.SSHHostStatus>>;
+
+export function GetSavedLayoutByID(arg1:string):Promise<main.SavedLayout>;
+
+export function GetSavedLayouts():Promise<Array<main.SavedLayout>>;
 export function GetScrollback(arg1:string):Promise<string>;
 
 export function GetSoftNewlineMode():Promise<string>;
@@ -62,6 +69,8 @@ export function ResizeTerminal(arg1:number,arg2:number):Promise<void>;
 
 export function SaveLaunchConfig(arg1:string,arg2:string,arg3:string,arg4:string,arg5:boolean,arg6:string,arg7:Array<string>,arg8:boolean):Promise<void>;
 
+export function SaveLayout(arg1:main.SavedLayout):Promise<main.SavedLayout>;
+
 export function SessionExists(arg1:string):Promise<boolean>;
 
 export function SetDesktopTheme(arg1:string):Promise<void>;
@@ -75,6 +84,8 @@ export function SetSoftNewlineMode(arg1:string):Promise<void>;
 export function StartTerminal(arg1:number,arg2:number):Promise<void>;
 
 export function StartTmuxSession(arg1:string,arg2:number,arg3:number):Promise<void>;
+
+export function StartRemoteTmuxSession(arg1:string,arg2:string,arg3:string,arg4:number,arg5:number):Promise<void>;
 
 export function UpdateQuickLaunchFavoriteName(arg1:string,arg2:string):Promise<void>;
 

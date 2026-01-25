@@ -22,6 +22,10 @@ export function DeleteLaunchConfig(arg1) {
   return window['go']['main']['App']['DeleteLaunchConfig'](arg1);
 }
 
+export function DeleteSavedLayout(arg1) {
+  return window['go']['main']['App']['DeleteSavedLayout'](arg1);
+}
+
 export function DiscoverProjects() {
   return window['go']['main']['App']['DiscoverProjects']();
 }
@@ -70,6 +74,17 @@ export function GetQuickLaunchFavorites() {
   return window['go']['main']['App']['GetQuickLaunchFavorites']();
 }
 
+export function GetSSHHostStatus() {
+  return window['go']['main']['App']['GetSSHHostStatus']();
+}
+
+export function GetSavedLayoutByID(arg1) {
+  return window['go']['main']['App']['GetSavedLayoutByID'](arg1);
+}
+
+export function GetSavedLayouts() {
+  return window['go']['main']['App']['GetSavedLayouts']();
+}
 export function GetScrollback(arg1) {
   return window['go']['main']['App']['GetScrollback'](arg1);
 }
@@ -122,6 +137,10 @@ export function SaveLaunchConfig(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
   return window['go']['main']['App']['SaveLaunchConfig'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
 
+export function SaveLayout(arg1) {
+  return window['go']['main']['App']['SaveLayout'](arg1);
+}
+
 export function SessionExists(arg1) {
   return window['go']['main']['App']['SessionExists'](arg1);
 }
@@ -148,6 +167,10 @@ export function StartTerminal(arg1, arg2) {
 
 export function StartTmuxSession(arg1, arg2, arg3) {
   return window['go']['main']['App']['StartTmuxSession'](arg1, arg2, arg3);
+}
+
+export function StartRemoteTmuxSession(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['StartRemoteTmuxSession'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function UpdateQuickLaunchFavoriteName(arg1, arg2) {
