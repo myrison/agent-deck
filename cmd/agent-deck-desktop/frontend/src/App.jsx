@@ -1595,7 +1595,7 @@ function App() {
                                 )}
                                 {gitBranch && (
                                     <span className={`git-branch${isWorktree ? ' is-worktree' : ''}`}>
-                                        <span className="git-branch-icon">{isWorktree ? 'W' : 'B'}</span>
+                                        <span className="git-branch-icon">{isWorktree ? '🌿' : '⎇'}</span>
                                         {gitBranch}
                                     </span>
                                 )}
