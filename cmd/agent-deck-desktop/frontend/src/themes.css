@@ -70,6 +70,8 @@
 
     /* Tool icon background contrast */
     --tool-icon-text: #1a1a2e;
+    /* Claude icon on waiting (yellow) background - Anthropic brand orange */
+    --claude-waiting-color: #da7756;
 
     /* Danger/delete hover state */
     --danger-hover-bg: #3a2020;
@@ -129,8 +131,10 @@
     --status-error: #cc3333;
     --status-idle: #888;
 
-    /* Tool icon background contrast */
-    --tool-icon-text: #ffffff;
+    /* Tool icon background contrast - dark text on colored status backgrounds */
+    --tool-icon-text: #1a1a2e;
+    /* Claude icon on waiting (amber) background - use dark for contrast in light mode */
+    --claude-waiting-color: #1a1a2e;
 
     /* Danger/delete hover state */
     --danger-hover-bg: #ffe0e0;

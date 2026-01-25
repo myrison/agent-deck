@@ -283,7 +283,7 @@ export default function SessionPreview({ session, onAttach, fontSize = DEFAULT_F
                         className="preview-tool-badge"
                         style={{ backgroundColor: getStatusColor(session.status) }}
                     >
-                        <ToolIcon tool={session.tool} size={16} />
+                        <ToolIcon tool={session.tool} size={16} status={session.status} />
                     </span>
                     <div className="preview-title-section">
                         <h3 className="preview-title">

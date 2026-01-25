@@ -188,6 +188,8 @@
     justify-content: center;
     border-radius: 4px;
     flex-shrink: 0;
+    color: var(--tool-icon-text);
+    font-weight: 600;
 }
 
 .session-list-info {
@@ -353,6 +355,8 @@
     justify-content: center;
     border-radius: 6px;
     flex-shrink: 0;
+    color: var(--tool-icon-text);
+    font-weight: 600;
 }
 
 .preview-title-section {

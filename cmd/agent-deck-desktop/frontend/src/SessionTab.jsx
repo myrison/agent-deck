@@ -174,7 +174,7 @@ export default function SessionTab({ tab, index, isActive, onSwitch, onClose, on
                     style={{ backgroundColor: session ? getStatusColor(session.status) : '#6c757d' }}
                 >
                     {session ? (
-                        <ToolIcon tool={session.tool} size={10} />
+                        <ToolIcon tool={session.tool} size={10} status={session.status} />
                     ) : (
                         <span style={{ fontSize: '10px' }}>+</span>
                     )}
