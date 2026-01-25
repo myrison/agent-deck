@@ -263,10 +263,11 @@ type Home struct {
 	lastBarTextMu        sync.Mutex        // Protects lastBarText for background worker access
 
 	// Remote session discovery
-	remoteDiscoveryTrigger  chan struct{}    // Triggers manual discovery (e.g., on 'r' refresh)
-	lastRemoteDiscovery     time.Time        // When discovery last ran
-	remoteDiscoveryRunning  atomic.Bool      // Prevents concurrent discoveries
-	remoteDiscoveryStarted  atomic.Bool      // True once worker goroutine has been started
+	remoteDiscoveryTrigger      chan struct{}    // Triggers manual discovery (e.g., on 'r' refresh)
+	lastRemoteDiscovery         time.Time        // When discovery last ran
+	remoteDiscoveryRunning      atomic.Bool      // Prevents concurrent discoveries
+	remoteDiscoveryStarted      atomic.Bool      // True once worker goroutine has been started
+	remoteDiscoveryNeedsRebuild atomic.Bool      // Signal main loop to rebuild flatItems after discovery
 
 	// Multi-instance support
 	// When AllowMultiple is enabled, only the primary instance (first to start) manages
@@ -1644,6 +1645,8 @@ func (h *Home) runRemoteDiscovery() {
 	// Invalidate status cache to force UI refresh
 	if needsSave {
 		h.cachedStatusCounts.valid.Store(false)
+		// Signal main loop to rebuild flatItems (can't call directly from background goroutine)
+		h.remoteDiscoveryNeedsRebuild.Store(true)
 	}
 }
 
@@ -2529,6 +2532,12 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Auto-dismiss errors after 5 seconds
 		if h.err != nil && !h.errTime.IsZero() && time.Since(h.errTime) > 5*time.Second {
 			h.clearError()
+		}
+
+		// Check if remote discovery needs UI refresh (set by background worker)
+		if h.remoteDiscoveryNeedsRebuild.CompareAndSwap(true, false) {
+			h.rebuildFlatItems()
+			h.search.SetItems(h.instances)
 		}
 
 		// Check for pending remote attach request (from Ctrl+b N shortcut on remote session)
