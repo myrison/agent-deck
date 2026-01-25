@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import { useTooltip } from './Tooltip';
 import './App.css';
 import Search from './Search';
 import SessionSelector from './SessionSelector';
@@ -93,6 +94,9 @@ function App() {
     const sessionSelectorRef = useRef(null);
     const terminalRefs = useRef({});
     const searchRefs = useRef({});
+
+    // Tooltip for back button
+    const { show: showBackTooltip, hide: hideBackTooltip, Tooltip: BackTooltip } = useTooltip();
 
     // Remote session creation flow state
     const [showHostPicker, setShowHostPicker] = useState(false);
@@ -1131,8 +1135,8 @@ function App() {
 
     // Handle keyboard shortcuts
     const handleKeyDown = useCallback((e) => {
-        // Don't handle shortcuts when help modal is open (it has its own handler)
-        if (showHelpModal) {
+        // Don't handle shortcuts when modals with their own handlers are open
+        if (showHelpModal || showSettings) {
             return;
         }
 
@@ -1593,9 +1597,15 @@ function App() {
                 />
             )}
             <div className="terminal-header">
-                <button className="back-button" onClick={handleBackToSelector} title="Back to sessions (⌘Esc)">
+                <button
+                    className="back-button"
+                    onClick={handleBackToSelector}
+                    onMouseEnter={(e) => showBackTooltip(e, 'Back to sessions (⌘Esc)')}
+                    onMouseLeave={hideBackTooltip}
+                >
                     ← Sessions
                 </button>
+                <BackTooltip />
                 {activeTab && (
                     <div className="session-title-header">
                         <span className="tab-pane-count">
