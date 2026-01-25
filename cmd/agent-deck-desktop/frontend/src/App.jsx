@@ -908,8 +908,9 @@ function App() {
 
     // Handle session selection from session picker
     const handleSessionPickerSelect = useCallback((sessionId) => {
-        // Find session in the current sessions list
-        const session = sessions.find(s => s.id === sessionId);
+        // Look up in picker's sessions first (source of truth), then global sessions as fallback
+        const session = sessionPickerProject?.sessions?.find(s => s.id === sessionId)
+            ?? sessions.find(s => s.id === sessionId);
         if (session) {
             logger.info('Session picker: attaching to session', { sessionId, title: session.title });
             handleOpenTab(session);
@@ -919,7 +920,7 @@ function App() {
             logger.warn('Session picker: session not found', { sessionId });
         }
         setSessionPickerProject(null);
-    }, [sessions, handleOpenTab]);
+    }, [sessions, sessionPickerProject, handleOpenTab]);
 
     // Handle creating a new session from session picker
     const handleSessionPickerCreateNew = useCallback(async (customLabel) => {

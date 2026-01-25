@@ -245,11 +245,13 @@ export default function CommandMenu({
             logger.info('Executing layout action', { actionId: item.id });
             onLayoutAction?.(item.id);
         } else if (item.type === 'project') {
-            if (item.sessionCount > 1) {
+            // Derive count from actual array to avoid sync issues with item.sessionCount
+            const sessionCount = item.sessions?.length ?? 0;
+            if (sessionCount > 1) {
                 // Multiple sessions exist - show session picker
-                logger.info('Project has multiple sessions, showing picker', { path: item.projectPath, count: item.sessionCount });
+                logger.info('Project has multiple sessions, showing picker', { path: item.projectPath, count: sessionCount });
                 onShowSessionPicker?.(item.projectPath, item.title, item.sessions);
-            } else if (item.sessionCount === 1 && item.sessions?.[0]) {
+            } else if (sessionCount === 1) {
                 // Single session exists - attach directly to it
                 logger.info('Project has single session, attaching', { path: item.projectPath, sessionId: item.sessions[0].id });
                 onSelectSession?.({ ...item.sessions[0], title: item.title, projectPath: item.projectPath });
@@ -350,9 +352,9 @@ export default function CommandMenu({
                                             <div className="menu-item-title">{item.title}</div>
                                             <div className="menu-item-subtitle">{item.projectPath}</div>
                                         </div>
-                                        {item.sessionCount > 1 && (
+                                        {(item.sessions?.length ?? 0) > 1 && (
                                             <span className="menu-session-count">
-                                                {item.sessionCount} sessions
+                                                {item.sessions.length} sessions
                                             </span>
                                         )}
                                         {item.shortcut && (
