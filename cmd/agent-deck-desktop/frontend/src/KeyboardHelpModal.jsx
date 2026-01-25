@@ -45,8 +45,12 @@ export default function KeyboardHelpModal({ onClose }) {
                         <div className="help-section">
                             <h3>Navigation</h3>
                             <div className="help-row">
-                                <kbd>{modKey},</kbd>
+                                <kbd>{modKey}Esc</kbd>
                                 <span>Back to sessions</span>
+                            </div>
+                            <div className="help-row">
+                                <kbd>{modKey},</kbd>
+                                <span>Settings</span>
                             </div>
                             <div className="help-row">
                                 <kbd>{modKey}F</kbd>

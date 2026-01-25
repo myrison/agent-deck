@@ -1272,8 +1272,8 @@ function App() {
             logger.info('Switching to next tab');
             handleSwitchTab(nextTab.id);
         }
-        // Cmd+, to go back to session selector (but not Cmd+Shift+, which opens settings)
-        if (appMod && !e.shiftKey && e.key === ',' && inTerminal) {
+        // Cmd+Escape to go back to session selector
+        if (appMod && e.key === 'Escape' && inTerminal) {
             e.preventDefault();
             handleBackToSelector();
         }
@@ -1298,8 +1298,8 @@ function App() {
                 sessionSelectorRef.current.toggleAllGroups();
             }
         }
-        // Cmd+Shift+, to open settings (works in both views)
-        if (appMod && e.shiftKey && e.key === ',') {
+        // Cmd+, to open settings (macOS standard, works in both views)
+        if (appMod && !e.shiftKey && e.key === ',') {
             e.preventDefault();
             handleOpenSettings();
         }
@@ -1592,7 +1592,7 @@ function App() {
                 />
             )}
             <div className="terminal-header">
-                <button className="back-button" onClick={handleBackToSelector} title="Back to sessions (Cmd+,)">
+                <button className="back-button" onClick={handleBackToSelector} title="Back to sessions (Cmd+Esc)">
                     ← Sessions
                 </button>
                 {activeTab && (
