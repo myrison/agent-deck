@@ -395,13 +395,17 @@ func (a *App) GetTerminalSettings() map[string]interface{} {
 	config, err := a.desktopSettings.GetTerminalConfig()
 	if err != nil {
 		return map[string]interface{}{
-			"softNewline": "both",
-			"fontSize":    14,
+			"softNewline":      "both",
+			"fontSize":         14,
+			"clickToCursor":    false,
+			"autoCopyOnSelect": false,
 		}
 	}
 	return map[string]interface{}{
-		"softNewline": config.SoftNewline,
-		"fontSize":    config.FontSize,
+		"softNewline":      config.SoftNewline,
+		"fontSize":         config.FontSize,
+		"clickToCursor":    config.ClickToCursor,
+		"autoCopyOnSelect": config.AutoCopyOnSelect,
 	}
 }
 
@@ -431,6 +435,36 @@ func (a *App) GetScrollSpeed() int {
 // SetScrollSpeed sets the terminal scroll speed percentage (clamped to 50-250).
 func (a *App) SetScrollSpeed(speed int) error {
 	return a.desktopSettings.SetScrollSpeed(speed)
+}
+
+// GetClickToCursorEnabled returns whether click-to-cursor is enabled.
+// This is an experimental feature for positioning cursor in nano/vim via clicks.
+func (a *App) GetClickToCursorEnabled() bool {
+	enabled, err := a.desktopSettings.GetClickToCursor()
+	if err != nil {
+		return false
+	}
+	return enabled
+}
+
+// SetClickToCursorEnabled enables or disables the click-to-cursor feature.
+func (a *App) SetClickToCursorEnabled(enabled bool) error {
+	return a.desktopSettings.SetClickToCursor(enabled)
+}
+
+// GetAutoCopyOnSelectEnabled returns whether auto-copy on select is enabled.
+// When enabled, selected text is automatically copied to clipboard.
+func (a *App) GetAutoCopyOnSelectEnabled() bool {
+	enabled, err := a.desktopSettings.GetAutoCopyOnSelect()
+	if err != nil {
+		return false
+	}
+	return enabled
+}
+
+// SetAutoCopyOnSelectEnabled enables or disables auto-copy on select.
+func (a *App) SetAutoCopyOnSelectEnabled(enabled bool) error {
+	return a.desktopSettings.SetAutoCopyOnSelect(enabled)
 }
 
 // ==================== SSH Remote Session Methods ====================

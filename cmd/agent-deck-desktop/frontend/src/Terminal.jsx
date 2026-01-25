@@ -222,16 +222,38 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
 
         // Use ref to allow settings to be updated without recreating handler
         const softNewlineModeRef = { current: 'both' }; // Default to both
+        const autoCopyOnSelectRef = { current: false }; // Auto-copy selected text to clipboard
 
-        // Load settings asynchronously and update the ref
+        // Load settings asynchronously and update the refs
         GetTerminalSettings()
             .then(settings => {
                 softNewlineModeRef.current = settings?.softNewline || 'both';
-                logger.info('Loaded soft newline mode:', softNewlineModeRef.current);
+                autoCopyOnSelectRef.current = settings?.autoCopyOnSelect || false;
+                logger.info('Loaded terminal settings:', {
+                    softNewline: softNewlineModeRef.current,
+                    autoCopyOnSelect: autoCopyOnSelectRef.current,
+                });
             })
             .catch(err => {
                 logger.warn('Failed to load terminal settings, using defaults:', err);
             });
+
+        // ============================================================
+        // AUTO-COPY ON SELECT
+        // ============================================================
+        // When enabled, automatically copy selected text to clipboard
+        // Similar to Kitty terminal behavior.
+        // ============================================================
+        const selectionDisposable = term.onSelectionChange(() => {
+            if (!autoCopyOnSelectRef.current) return;
+
+            const selection = term.getSelection();
+            if (selection && selection.length > 0) {
+                navigator.clipboard.writeText(selection).catch(err => {
+                    logger.warn('Failed to auto-copy selection:', err);
+                });
+            }
+        });
 
         // Create Mac key bindings handler
         const handleMacKeyBinding = createMacKeyBindingHandler(WriteTerminal, sessionId);
@@ -698,6 +720,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             resizeObserver.disconnect();
             scrollDisposable.dispose();
             dataDisposable.dispose();
+            selectionDisposable.dispose();
             if (customKeyHandler) customKeyHandler.dispose();
             // Clean up mouse mode parser handlers
             if (enableHandler) enableHandler.dispose();

@@ -38,6 +38,14 @@ export function GenerateConfigKey(arg1, arg2) {
   return window['go']['main']['App']['GenerateConfigKey'](arg1, arg2);
 }
 
+export function GetAutoCopyOnSelectEnabled() {
+  return window['go']['main']['App']['GetAutoCopyOnSelectEnabled']();
+}
+
+export function GetClickToCursorEnabled() {
+  return window['go']['main']['App']['GetClickToCursorEnabled']();
+}
+
 export function GetDefaultLaunchConfig(arg1) {
   return window['go']['main']['App']['GetDefaultLaunchConfig'](arg1);
 }
@@ -184,6 +192,14 @@ export function SessionExists(arg1) {
 
 export function SetAllGroupsExpanded(arg1, arg2) {
   return window['go']['main']['App']['SetAllGroupsExpanded'](arg1, arg2);
+}
+
+export function SetAutoCopyOnSelectEnabled(arg1) {
+  return window['go']['main']['App']['SetAutoCopyOnSelectEnabled'](arg1);
+}
+
+export function SetClickToCursorEnabled(arg1) {
+  return window['go']['main']['App']['SetClickToCursorEnabled'](arg1);
 }
 
 export function SetDesktopTheme(arg1) {

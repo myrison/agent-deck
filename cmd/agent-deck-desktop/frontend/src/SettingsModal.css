@@ -505,3 +505,35 @@
     background: rgba(76, 201, 240, 0.1);
     color: var(--text-primary);
 }
+
+/* Checkbox Settings */
+.settings-checkbox-item {
+    margin-bottom: 12px;
+}
+
+.settings-checkbox-item:last-child {
+    margin-bottom: 0;
+}
+
+.settings-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: var(--font-lg);
+    color: var(--text-primary);
+    cursor: pointer;
+    user-select: none;
+}
+
+.settings-checkbox-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent-primary);
+    cursor: pointer;
+}
+
+.settings-checkbox-item .settings-input-description {
+    margin-left: 28px;
+    margin-top: 4px;
+    margin-bottom: 0;
+}
