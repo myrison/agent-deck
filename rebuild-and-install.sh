@@ -6,6 +6,15 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="$HOME/.local/bin"
 BINARY_PATH="./build/agent-deck"
 
+# Kill running agent-deck instances before rebuilding
+echo "Stopping running agent-deck instances..."
+pkill -x "agent-deck" 2>/dev/null && echo "  Killed running instance" || echo "  No running instance found"
+sleep 0.5
+
+# Clean up stale lock files
+find "$HOME/.agent-deck/profiles" -name ".lock" -type f -delete 2>/dev/null && echo "  Removed stale lock files" || true
+
+echo ""
 echo "Building agent-deck from source..."
 cd "$REPO_DIR"
 make build

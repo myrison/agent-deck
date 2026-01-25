@@ -1,4 +1,4 @@
-.PHONY: build run install clean dev release test fmt lint
+.PHONY: build run install install-user kill-running clean dev release test fmt lint
 
 BINARY_NAME=agent-deck
 BUILD_DIR=./build
@@ -13,14 +13,21 @@ build:
 run:
 	go run ./cmd/agent-deck
 
+# Kill running agent-deck instances and clean up lock files
+kill-running:
+	@echo "Stopping running agent-deck instances..."
+	@-pkill -x "agent-deck" 2>/dev/null || true
+	@sleep 0.5
+	@-find $(HOME)/.agent-deck/profiles -name ".lock" -type f -delete 2>/dev/null || true
+
 # Install to /usr/local/bin (requires sudo)
-install: build
+install: build kill-running
 	sudo cp $(BUILD_DIR)/$(BINARY_NAME) /usr/local/bin/$(BINARY_NAME)
 	@echo "✅ Installed to /usr/local/bin/$(BINARY_NAME)"
 	@echo "Run 'agent-deck' to start"
 
 # Install to user's local bin (no sudo required)
-install-user: build
+install-user: build kill-running
 	mkdir -p $(HOME)/.local/bin
 	cp $(BUILD_DIR)/$(BINARY_NAME) $(HOME)/.local/bin/$(BINARY_NAME)
 	@echo "✅ Installed to $(HOME)/.local/bin/$(BINARY_NAME)"
