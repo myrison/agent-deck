@@ -204,10 +204,7 @@ export default function KeyboardHelpModal({ onClose }) {
                                 <span>Cycle filter</span>
                             </div>
                             <div className="help-row">
-                                <span className="help-keys">
-                                    <kbd>?</kbd>
-                                    <kbd>{modKey}/</kbd>
-                                </span>
+                                <kbd>{modKey}/</kbd>
                                 <span>This help</span>
                             </div>
                             <div className="help-row">

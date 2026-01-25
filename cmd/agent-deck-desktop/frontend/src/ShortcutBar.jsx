@@ -28,7 +28,7 @@ export default function ShortcutBar({
                     <span>Filter</span>
                 </button>
                 <button className="shortcut-item" onClick={onOpenHelp}>
-                    <kbd>?</kbd>
+                    <kbd>{modKey}/</kbd>
                     <span>Help</span>
                 </button>
             </div>

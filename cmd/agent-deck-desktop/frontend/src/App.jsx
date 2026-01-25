@@ -1206,14 +1206,6 @@ function App() {
             return;
         }
 
-        // ? key to open help (only in selector view - Claude uses ? natively in terminal)
-        // Skip when typing in input fields
-        if (!isTypingInInput && view === 'selector' && !e.metaKey && !e.ctrlKey && e.key === '?') {
-            e.preventDefault();
-            e.stopPropagation();
-            handleOpenHelp();
-            return;
-        }
         // Helper to check if app shortcut should fire (respects terminal passthrough on macOS)
         const inTerminal = view === 'terminal';
         const appMod = shouldInterceptShortcut(e, inTerminal);
