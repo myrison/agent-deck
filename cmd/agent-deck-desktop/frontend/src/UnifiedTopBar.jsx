@@ -7,6 +7,7 @@ import SessionTab from './SessionTab';
 import { createLogger } from './logger';
 import { formatShortcut } from './utils/shortcuts';
 import { getToolColor } from './utils/tools';
+import { shouldRenderTabContextMenu, hasTabCustomLabel } from './utils/tabContextMenu';
 import ToolIcon from './ToolIcon';
 import { useTooltip } from './Tooltip';
 
@@ -319,16 +320,16 @@ export default function UnifiedTopBar({
             )}
 
             {/* Tab Context Menu */}
-            {tabContextMenu && (
+            {shouldRenderTabContextMenu(tabContextMenu) && (
                 <div
                     className="session-tab-context-menu"
                     style={{ left: tabContextMenu.x, top: tabContextMenu.y }}
                     onClick={(e) => e.stopPropagation()}
                 >
                     <button onClick={handleTabAddLabel}>
-                        {tabContextMenu.tab.session.customLabel ? 'Edit Custom Label' : 'Add Custom Label'}
+                        {hasTabCustomLabel(tabContextMenu.tab) ? 'Edit Custom Label' : 'Add Custom Label'}
                     </button>
-                    {tabContextMenu.tab.session.customLabel && (
+                    {hasTabCustomLabel(tabContextMenu.tab) && (
                         <button onClick={handleTabRemoveLabel}>
                             Remove Custom Label
                         </button>
