@@ -214,6 +214,11 @@ func (pd *ProjectDiscovery) DiscoverProjects(sessions []SessionInfo) ([]ProjectI
 
 	// Add all projects from existing sessions (highest priority)
 	for path, pathSessions := range sessionsByPath {
+		// Sort sessions by ID for deterministic ordering
+		sort.Slice(pathSessions, func(i, j int) bool {
+			return pathSessions[i].ID < pathSessions[j].ID
+		})
+
 		// Build SessionSummary slice from all sessions at this path
 		summaries := make([]SessionSummary, len(pathSessions))
 		for i, s := range pathSessions {
@@ -228,7 +233,7 @@ func (pd *ProjectDiscovery) DiscoverProjects(sessions []SessionInfo) ([]ProjectI
 			}
 		}
 
-		// Use first session for backward-compatible Tool/SessionID fields
+		// Use first session (by ID) for backward-compatible Tool/SessionID fields
 		firstSession := pathSessions[0]
 		projectMap[path] = &ProjectInfo{
 			Path:         path,
