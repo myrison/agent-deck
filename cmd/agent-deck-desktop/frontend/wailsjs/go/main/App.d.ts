@@ -20,6 +20,8 @@ export function GetDefaultLaunchConfig(arg1:string):Promise<main.LaunchConfigInf
 
 export function GetDesktopTheme():Promise<string>;
 
+export function GetExpandedGroups():Promise<Record<string, boolean>>;
+
 export function GetFontSize():Promise<number>;
 
 export function GetGitBranch(arg1:string):Promise<string>;
@@ -38,6 +40,8 @@ export function GetQuickLaunchFavorites():Promise<Array<main.QuickLaunchFavorite
 
 export function GetScrollback(arg1:string):Promise<string>;
 
+export function GetSSHHostStatus():Promise<Array<main.SSHHostStatus>>;
+
 export function GetSoftNewlineMode():Promise<string>;
 
 export function GetTerminalSettings():Promise<Record<string, any>>;
@@ -48,6 +52,10 @@ export function IsGitWorktree(arg1:string):Promise<boolean>;
 
 export function ListSessions():Promise<Array<main.SessionInfo>>;
 
+export function ListSessionsWithGroups():Promise<main.SessionsWithGroups>;
+
+export function ListSSHHosts():Promise<Array<string>>;
+
 export function LogFrontendDiagnostic(arg1:string):Promise<void>;
 
 export function MarkSessionAccessed(arg1:string):Promise<void>;
@@ -57,6 +65,8 @@ export function RecordProjectUsage(arg1:string):Promise<void>;
 export function RefreshScrollback():Promise<string>;
 
 export function RemoveQuickLaunchFavorite(arg1:string):Promise<void>;
+
+export function ResetGroupSettings():Promise<void>;
 
 export function ResizeTerminal(arg1:number,arg2:number):Promise<void>;
 
@@ -72,9 +82,15 @@ export function SetQuickLaunchBarVisibility(arg1:boolean):Promise<void>;
 
 export function SetSoftNewlineMode(arg1:string):Promise<void>;
 
-export function StartTerminal(arg1:number,arg2:number):Promise<void>;
+export function StartRemoteTmuxSession(arg1:string,arg2:string,arg3:string,arg4:number,arg5:number):Promise<void>;
 
-export function StartTmuxSession(arg1:string,arg2:number,arg3:number):Promise<void>;
+export function StartTerminal(arg1:string,arg2:number,arg3:number):Promise<void>;
+
+export function StartTmuxSession(arg1:string,arg2:string,arg3:number,arg4:number):Promise<void>;
+
+export function TestSSHConnection(arg1:string):Promise<void>;
+
+export function ToggleGroupExpanded(arg1:string,arg2:boolean):Promise<void>;
 
 export function UpdateQuickLaunchFavoriteName(arg1:string,arg2:string):Promise<void>;
 

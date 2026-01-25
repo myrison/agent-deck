@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ListSessions, GetProjectRoots, UpdateSessionCustomLabel } from '../wailsjs/go/main/App';
+import { ListSessionsWithGroups, GetProjectRoots, UpdateSessionCustomLabel, GetExpandedGroups, ToggleGroupExpanded } from '../wailsjs/go/main/App';
 import './SessionSelector.css';
 import { createLogger } from './logger';
 import ToolIcon from './ToolIcon';
 import { useTooltip } from './Tooltip';
 import ShortcutBar from './ShortcutBar';
 import RenameDialog from './RenameDialog';
+import GroupHeader from './GroupHeader';
 
 const logger = createLogger('SessionSelector');
 
@@ -64,22 +65,34 @@ function getRelativeProjectPath(fullPath, projectRoots) {
 
 export default function SessionSelector({ onSelect, onNewTerminal, statusFilter = 'all', onCycleFilter, onOpenPalette, onOpenHelp }) {
     const [sessions, setSessions] = useState([]);
+    const [groups, setGroups] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [projectRoots, setProjectRoots] = useState([]);
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [contextMenu, setContextMenu] = useState(null); // { x, y, session }
     const [labelingSession, setLabelingSession] = useState(null); // session being labeled
+    const [expandedGroups, setExpandedGroups] = useState({}); // path -> bool (desktop overrides)
     const { show: showTooltip, hide: hideTooltip, Tooltip } = useTooltip();
 
     useEffect(() => {
         loadSessions();
+        loadExpandedGroups();
         // Load project roots for relative path display
         GetProjectRoots().then(roots => {
             setProjectRoots(roots || []);
         }).catch(err => {
             logger.warn('Failed to load project roots:', err);
         });
+    }, []);
+
+    const loadExpandedGroups = useCallback(async () => {
+        try {
+            const overrides = await GetExpandedGroups();
+            setExpandedGroups(overrides || {});
+        } catch (err) {
+            logger.warn('Failed to load expanded groups:', err);
+        }
     }, []);
 
     // Tooltip content builder for sessions - returns JSX for rich formatting
@@ -139,16 +152,18 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
 
     const loadSessions = useCallback(async () => {
         try {
-            logger.info('Loading sessions...');
+            logger.info('Loading sessions with groups...');
             setLoading(true);
-            const result = await ListSessions();
-            logger.info('Loaded sessions:', result?.length || 0);
-            setSessions(result || []);
+            const result = await ListSessionsWithGroups();
+            logger.info('Loaded sessions:', result?.sessions?.length || 0, 'groups:', result?.groups?.length || 0);
+            setSessions(result?.sessions || []);
+            setGroups(result?.groups || []);
             setError(null);
         } catch (err) {
             logger.error('Failed to load sessions:', err);
             setError(err.message || 'Failed to load sessions');
             setSessions([]);
+            setGroups([]);
         } finally {
             setLoading(false);
         }
@@ -223,36 +238,170 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
         }
     };
 
+    // Check if a group is expanded (desktop override takes precedence over TUI default)
+    const isGroupExpanded = useCallback((groupPath) => {
+        if (expandedGroups.hasOwnProperty(groupPath)) {
+            return expandedGroups[groupPath];
+        }
+        // Fall back to TUI default from the group data
+        const group = groups.find(g => g.path === groupPath);
+        return group?.expanded ?? true;
+    }, [expandedGroups, groups]);
+
+    // Toggle group expanded state
+    const handleGroupToggle = useCallback(async (groupPath, expanded) => {
+        try {
+            await ToggleGroupExpanded(groupPath, expanded);
+            setExpandedGroups(prev => ({
+                ...prev,
+                [groupPath]: expanded
+            }));
+        } catch (err) {
+            logger.error('Failed to toggle group:', err);
+        }
+    }, []);
+
+    // Check if a group path is visible (all ancestors are expanded)
+    const isGroupVisible = useCallback((groupPath) => {
+        if (!groupPath || groupPath === '') return true;
+
+        // Check if any parent is collapsed
+        const parts = groupPath.split('/');
+        for (let i = 1; i < parts.length; i++) {
+            const parentPath = parts.slice(0, i).join('/');
+            if (!isGroupExpanded(parentPath)) {
+                return false;
+            }
+        }
+        return true;
+    }, [isGroupExpanded]);
+
     // Filter sessions based on current status filter
     const filteredSessions = useMemo(() => {
-        if (statusFilter === 'all') return sessions;
+        let filtered = sessions;
         if (statusFilter === 'active') {
-            return sessions.filter(s => s.status === 'running' || s.status === 'waiting');
+            filtered = sessions.filter(s => s.status === 'running' || s.status === 'waiting');
+        } else if (statusFilter === 'idle') {
+            filtered = sessions.filter(s => s.status === 'idle');
         }
-        if (statusFilter === 'idle') {
-            return sessions.filter(s => s.status === 'idle');
-        }
-        return sessions;
+        return filtered;
     }, [sessions, statusFilter]);
 
-    // Reset selected index when filtered sessions change
+    // Build hierarchical render list with groups and sessions
+    const renderList = useMemo(() => {
+        const items = [];
+
+        // Create a map of sessions by group path
+        const sessionsByGroup = {};
+        for (const session of filteredSessions) {
+            const groupPath = session.groupPath || 'my-sessions';
+            if (!sessionsByGroup[groupPath]) {
+                sessionsByGroup[groupPath] = [];
+            }
+            sessionsByGroup[groupPath].push(session);
+        }
+
+        // Sort groups: put my-sessions first, then sort by path
+        const sortedGroups = [...groups].sort((a, b) => {
+            if (a.path === 'my-sessions') return -1;
+            if (b.path === 'my-sessions') return 1;
+            return a.path.localeCompare(b.path);
+        });
+
+        // Process each group
+        for (const group of sortedGroups) {
+            // Skip if this group's parent is collapsed
+            if (!isGroupVisible(group.path)) {
+                continue;
+            }
+
+            // Count filtered sessions in this group and its subgroups
+            let visibleSessionCount = 0;
+            for (const [path, sessionList] of Object.entries(sessionsByGroup)) {
+                if (path === group.path || path.startsWith(group.path + '/')) {
+                    visibleSessionCount += sessionList.length;
+                }
+            }
+
+            // Only show groups that have sessions (after filtering) or have subgroups with sessions
+            const hasDirectSessions = sessionsByGroup[group.path]?.length > 0;
+            const hasSubgroups = sortedGroups.some(g => g.path.startsWith(group.path + '/'));
+
+            if (visibleSessionCount === 0 && !hasSubgroups) {
+                continue;
+            }
+
+            // Add group header
+            items.push({
+                type: 'group',
+                group: {
+                    ...group,
+                    // Update counts based on filtered sessions
+                    sessionCount: sessionsByGroup[group.path]?.length || 0,
+                    totalCount: visibleSessionCount
+                }
+            });
+
+            // If group is expanded, add its direct sessions
+            if (isGroupExpanded(group.path) && hasDirectSessions) {
+                for (const session of sessionsByGroup[group.path]) {
+                    items.push({
+                        type: 'session',
+                        session,
+                        level: group.level + 1
+                    });
+                }
+            }
+        }
+
+        // Handle ungrouped sessions (sessions with empty groupPath and no my-sessions group)
+        const ungroupedSessions = sessionsByGroup[''] || [];
+        if (ungroupedSessions.length > 0 && !groups.some(g => g.path === 'my-sessions')) {
+            // Add implicit "My Sessions" group
+            items.unshift({
+                type: 'group',
+                group: {
+                    name: 'My Sessions',
+                    path: 'my-sessions',
+                    sessionCount: ungroupedSessions.length,
+                    totalCount: ungroupedSessions.length,
+                    level: 0,
+                    hasChildren: false,
+                    expanded: true
+                }
+            });
+            if (isGroupExpanded('my-sessions')) {
+                for (const session of ungroupedSessions) {
+                    items.splice(1, 0, {
+                        type: 'session',
+                        session,
+                        level: 1
+                    });
+                }
+            }
+        }
+
+        return items;
+    }, [filteredSessions, groups, isGroupExpanded, isGroupVisible]);
+
+    // Reset selected index when render list changes
     useEffect(() => {
         setSelectedIndex(0);
-    }, [filteredSessions.length, statusFilter]);
+    }, [renderList.length, statusFilter]);
 
-    // Keyboard navigation for session list
+    // Keyboard navigation for session list (works with grouped view)
     useEffect(() => {
         const handleKeyDown = (e) => {
             // Don't handle keyboard nav when dialog is open
             if (labelingSession || contextMenu) return;
-            if (filteredSessions.length === 0) return;
+            if (renderList.length === 0) return;
 
             switch (e.key) {
                 case 'ArrowDown':
                 case 'j':
                     e.preventDefault();
                     setSelectedIndex(prev =>
-                        prev < filteredSessions.length - 1 ? prev + 1 : prev
+                        prev < renderList.length - 1 ? prev + 1 : prev
                     );
                     break;
                 case 'ArrowUp':
@@ -262,9 +411,32 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
                     break;
                 case 'Enter':
                     e.preventDefault();
-                    const session = filteredSessions[selectedIndex];
-                    if (session) {
-                        onSelect(session);
+                    const item = renderList[selectedIndex];
+                    if (item) {
+                        if (item.type === 'group') {
+                            // Toggle group expansion
+                            handleGroupToggle(item.group.path, !isGroupExpanded(item.group.path));
+                        } else if (item.type === 'session') {
+                            onSelect(item.session);
+                        }
+                    }
+                    break;
+                case 'ArrowLeft':
+                case 'h':
+                    e.preventDefault();
+                    // Collapse current group or navigate to parent
+                    const currentItem = renderList[selectedIndex];
+                    if (currentItem?.type === 'group' && isGroupExpanded(currentItem.group.path)) {
+                        handleGroupToggle(currentItem.group.path, false);
+                    }
+                    break;
+                case 'ArrowRight':
+                case 'l':
+                    e.preventDefault();
+                    // Expand current group
+                    const rightItem = renderList[selectedIndex];
+                    if (rightItem?.type === 'group' && !isGroupExpanded(rightItem.group.path)) {
+                        handleGroupToggle(rightItem.group.path, true);
                     }
                     break;
                 default:
@@ -274,7 +446,7 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
 
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [filteredSessions, selectedIndex, onSelect, labelingSession, contextMenu]);
+    }, [renderList, selectedIndex, onSelect, labelingSession, contextMenu, handleGroupToggle, isGroupExpanded]);
 
     // Get display label for current filter mode
     const getFilterLabel = () => {
@@ -361,8 +533,8 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
                 <div className="session-error">{error}</div>
             )}
 
-            <div className="session-list">
-                {filteredSessions.length === 0 ? (
+            <div className="session-list session-list-grouped">
+                {renderList.length === 0 ? (
                     <div className="no-sessions">
                         {sessions.length === 0 ? (
                             <>
@@ -379,73 +551,89 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
                         )}
                     </div>
                 ) : (
-                    filteredSessions.map((session, index) => (
-                        <button
-                            key={session.id}
-                            className={`session-item${index === selectedIndex ? ' selected' : ''}${session.isRemote ? ' remote' : ''}`}
-                            onClick={() => onSelect(session)}
-                            onContextMenu={(e) => handleContextMenu(e, session)}
-                            onMouseEnter={(e) => {
-                                setSelectedIndex(index);
-                                showTooltip(e, getTooltipContent(session));
-                            }}
-                            onMouseLeave={hideTooltip}
-                        >
-                            <span
-                                className="session-tool"
-                                style={{ backgroundColor: getStatusColor(session.status) }}
+                    renderList.map((item, index) => {
+                        if (item.type === 'group') {
+                            return (
+                                <GroupHeader
+                                    key={`group-${item.group.path}`}
+                                    group={item.group}
+                                    isExpanded={isGroupExpanded(item.group.path)}
+                                    isSelected={index === selectedIndex}
+                                    onToggle={handleGroupToggle}
+                                    onClick={() => setSelectedIndex(index)}
+                                />
+                            );
+                        }
+
+                        const session = item.session;
+                        const levelClass = `level-${Math.min(item.level, 3)}`;
+
+                        return (
+                            <button
+                                key={session.id}
+                                className={`session-item in-group ${levelClass}${index === selectedIndex ? ' selected' : ''}${session.isRemote ? ' remote' : ''}`}
+                                onClick={() => onSelect(session)}
+                                onContextMenu={(e) => handleContextMenu(e, session)}
+                                onMouseEnter={(e) => {
+                                    setSelectedIndex(index);
+                                    showTooltip(e, getTooltipContent(session));
+                                }}
+                                onMouseLeave={hideTooltip}
                             >
-                                <ToolIcon tool={session.tool} size={16} />
-                            </span>
-                            <div className="session-info">
-                                <div className="session-title">
-                                    {session.dangerousMode && (
-                                        <span className="session-danger-icon" title="Dangerous mode enabled">⚠</span>
-                                    )}
-                                    {session.isRemote && (
-                                        <span className="session-remote-badge" title={`Remote session on ${session.remoteHost}`}>
-                                            {session.remoteHost}
-                                        </span>
-                                    )}
-                                    {session.title}
-                                    {session.customLabel && (
-                                        <span className="session-custom-label">{session.customLabel}</span>
-                                    )}
-                                </div>
-                                <div className="session-meta">
-                                    <span className="session-group">{session.groupPath || 'ungrouped'}</span>
-                                    {session.launchConfigName && (
-                                        <>
-                                            <span className="meta-separator">•</span>
-                                            <span className="session-config">{session.launchConfigName}</span>
-                                        </>
-                                    )}
-                                    {session.gitBranch && (
-                                        <>
-                                            <span className="meta-separator">•</span>
-                                            <span className={`session-branch${session.isWorktree ? ' is-worktree' : ''}`}>
-                                                {session.gitDirty && <span className="git-dirty-indicator" title="Uncommitted changes">●</span>}
-                                                <span className="branch-icon">{session.isWorktree ? '🌿' : '⎇'}</span>
-                                                {session.gitBranch}
+                                <span
+                                    className="session-tool"
+                                    style={{ backgroundColor: getStatusColor(session.status) }}
+                                >
+                                    <ToolIcon tool={session.tool} size={16} />
+                                </span>
+                                <div className="session-info">
+                                    <div className="session-title">
+                                        {session.dangerousMode && (
+                                            <span className="session-danger-icon" title="Dangerous mode enabled">⚠</span>
+                                        )}
+                                        {session.isRemote && (
+                                            <span className="session-remote-badge" title={`Remote session on ${session.remoteHost}`}>
+                                                {session.remoteHost}
                                             </span>
-                                            {(session.gitAhead > 0 || session.gitBehind > 0) && (
-                                                <span className="git-sync-status">
-                                                    {session.gitAhead > 0 && <span className="git-ahead" title={`${session.gitAhead} commit${session.gitAhead > 1 ? 's' : ''} ahead`}>↑{session.gitAhead}</span>}
-                                                    {session.gitBehind > 0 && <span className="git-behind" title={`${session.gitBehind} commit${session.gitBehind > 1 ? 's' : ''} behind`}>↓{session.gitBehind}</span>}
+                                        )}
+                                        {session.title}
+                                        {session.customLabel && (
+                                            <span className="session-custom-label">{session.customLabel}</span>
+                                        )}
+                                    </div>
+                                    <div className="session-meta">
+                                        {session.launchConfigName && (
+                                            <>
+                                                <span className="session-config">{session.launchConfigName}</span>
+                                                <span className="meta-separator">•</span>
+                                            </>
+                                        )}
+                                        {session.gitBranch && (
+                                            <>
+                                                <span className={`session-branch${session.isWorktree ? ' is-worktree' : ''}`}>
+                                                    {session.gitDirty && <span className="git-dirty-indicator" title="Uncommitted changes">●</span>}
+                                                    <span className="branch-icon">{session.isWorktree ? '🌿' : '⎇'}</span>
+                                                    {session.gitBranch}
                                                 </span>
-                                            )}
-                                        </>
-                                    )}
+                                                {(session.gitAhead > 0 || session.gitBehind > 0) && (
+                                                    <span className="git-sync-status">
+                                                        {session.gitAhead > 0 && <span className="git-ahead" title={`${session.gitAhead} commit${session.gitAhead > 1 ? 's' : ''} ahead`}>↑{session.gitAhead}</span>}
+                                                        {session.gitBehind > 0 && <span className="git-behind" title={`${session.gitBehind} commit${session.gitBehind > 1 ? 's' : ''} behind`}>↓{session.gitBehind}</span>}
+                                                    </span>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                            <span
-                                className="session-status"
-                                style={{ color: getStatusColor(session.status) }}
-                            >
-                                {session.status}
-                            </span>
-                        </button>
-                    ))
+                                <span
+                                    className="session-status"
+                                    style={{ color: getStatusColor(session.status) }}
+                                >
+                                    {session.status}
+                                </span>
+                            </button>
+                        );
+                    })
                 )}
             </div>
 

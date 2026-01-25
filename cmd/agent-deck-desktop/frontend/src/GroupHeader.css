@@ -1,0 +1,74 @@
+/* GroupHeader Component Styles */
+
+.group-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--bg-tertiary, #252530);
+    border: 1px solid var(--border-secondary);
+    border-radius: 6px;
+    cursor: pointer;
+    text-align: left;
+    color: var(--text-primary);
+    font-size: var(--font-lg);
+    font-weight: 500;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.group-header:hover:not(:disabled) {
+    background: var(--bg-selected);
+    border-color: var(--border-primary);
+}
+
+.group-header.selected {
+    background: var(--bg-selected);
+    border-color: var(--accent-primary);
+}
+
+.group-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    font-size: 10px;
+    color: var(--text-muted);
+    transition: color 0.15s, transform 0.15s;
+    flex-shrink: 0;
+    cursor: pointer;
+    user-select: none;
+}
+
+.group-header:hover .group-toggle,
+.group-header.selected .group-toggle {
+    color: var(--text-primary);
+}
+
+.group-toggle:hover {
+    color: var(--accent-primary);
+}
+
+.group-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.group-count {
+    color: var(--text-muted);
+    font-size: var(--font-base);
+    font-weight: 400;
+    flex-shrink: 0;
+}
+
+/* Empty group styling */
+.group-header.empty {
+    opacity: 0.6;
+}
+
+.group-header.empty .group-count {
+    color: var(--text-dimmed);
+}

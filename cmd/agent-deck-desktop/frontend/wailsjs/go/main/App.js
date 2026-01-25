@@ -38,6 +38,10 @@ export function GetDesktopTheme() {
   return window['go']['main']['App']['GetDesktopTheme']();
 }
 
+export function GetExpandedGroups() {
+  return window['go']['main']['App']['GetExpandedGroups']();
+}
+
 export function GetFontSize() {
   return window['go']['main']['App']['GetFontSize']();
 }
@@ -74,6 +78,10 @@ export function GetScrollback(arg1) {
   return window['go']['main']['App']['GetScrollback'](arg1);
 }
 
+export function GetSSHHostStatus() {
+  return window['go']['main']['App']['GetSSHHostStatus']();
+}
+
 export function GetSoftNewlineMode() {
   return window['go']['main']['App']['GetSoftNewlineMode']();
 }
@@ -94,6 +102,14 @@ export function ListSessions() {
   return window['go']['main']['App']['ListSessions']();
 }
 
+export function ListSessionsWithGroups() {
+  return window['go']['main']['App']['ListSessionsWithGroups']();
+}
+
+export function ListSSHHosts() {
+  return window['go']['main']['App']['ListSSHHosts']();
+}
+
 export function LogFrontendDiagnostic(arg1) {
   return window['go']['main']['App']['LogFrontendDiagnostic'](arg1);
 }
@@ -112,6 +128,10 @@ export function RefreshScrollback() {
 
 export function RemoveQuickLaunchFavorite(arg1) {
   return window['go']['main']['App']['RemoveQuickLaunchFavorite'](arg1);
+}
+
+export function ResetGroupSettings() {
+  return window['go']['main']['App']['ResetGroupSettings']();
 }
 
 export function ResizeTerminal(arg1, arg2) {
@@ -146,8 +166,20 @@ export function StartTerminal(arg1, arg2) {
   return window['go']['main']['App']['StartTerminal'](arg1, arg2);
 }
 
-export function StartTmuxSession(arg1, arg2, arg3) {
-  return window['go']['main']['App']['StartTmuxSession'](arg1, arg2, arg3);
+export function StartRemoteTmuxSession(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['StartRemoteTmuxSession'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function StartTmuxSession(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['StartTmuxSession'](arg1, arg2, arg3, arg4);
+}
+
+export function TestSSHConnection(arg1) {
+  return window['go']['main']['App']['TestSSHConnection'](arg1);
+}
+
+export function ToggleGroupExpanded(arg1, arg2) {
+  return window['go']['main']['App']['ToggleGroupExpanded'](arg1, arg2);
 }
 
 export function UpdateQuickLaunchFavoriteName(arg1, arg2) {

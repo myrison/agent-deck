@@ -92,6 +92,28 @@ func (a *App) ListSessions() ([]SessionInfo, error) {
 	return a.tmux.ListSessions()
 }
 
+// ListSessionsWithGroups returns sessions along with group information for hierarchical display.
+func (a *App) ListSessionsWithGroups() (SessionsWithGroups, error) {
+	return a.tmux.ListSessionsWithGroups()
+}
+
+// GetExpandedGroups returns the map of group paths to their expanded state.
+// Desktop-specific overrides take precedence over TUI defaults.
+func (a *App) GetExpandedGroups() (map[string]bool, error) {
+	return a.desktopSettings.GetExpandedGroups()
+}
+
+// ToggleGroupExpanded toggles the expanded state for a group.
+func (a *App) ToggleGroupExpanded(groupPath string, expanded bool) error {
+	return a.desktopSettings.SetGroupExpanded(groupPath, expanded)
+}
+
+// ResetGroupSettings clears all desktop-specific group expand/collapse overrides.
+// Groups will revert to using their TUI default expand states.
+func (a *App) ResetGroupSettings() error {
+	return a.desktopSettings.ResetGroupSettings()
+}
+
 // AttachSession attaches to an existing tmux session (direct mode, no history preload).
 // DEPRECATED: Use StartTmuxSession instead for the hybrid approach with scrollback support.
 func (a *App) AttachSession(sessionID, tmuxSession string, cols, rows int) error {
