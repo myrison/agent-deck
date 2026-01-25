@@ -21,5 +21,8 @@ trap cleanup EXIT
 # Use dev config
 cp wails.dev.json wails.json
 
+# Clean build directory to force rebuild with new name
+rm -rf build/bin
+
 # Run wails dev
 wails dev "$@"
