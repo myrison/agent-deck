@@ -26,9 +26,15 @@ func main() {
 		logLevel = logger.DEBUG
 	}
 
+	// Set app title based on mode
+	appTitle := "RevDen"
+	if isDev {
+		appTitle = "RevDen (Dev)"
+	}
+
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:  "RevDen",
+		Title:  appTitle,
 		Width:  1024,
 		Height: 768,
 		AssetServer: &assetserver.Options{

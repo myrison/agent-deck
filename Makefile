@@ -1,4 +1,4 @@
-.PHONY: build run install install-user kill-running clean dev release test fmt lint
+.PHONY: build run install install-user kill-running clean dev release test fmt lint desktop-dev desktop-build desktop-install
 
 BINARY_NAME=agent-deck
 BUILD_DIR=./build
@@ -73,3 +73,21 @@ release: clean
 	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 ./cmd/agent-deck
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 ./cmd/agent-deck
 	@echo "✅ Built releases in $(BUILD_DIR)/"
+
+# Desktop app targets
+DESKTOP_DIR=./cmd/agent-deck-desktop
+
+# Run desktop app in dev mode (uses "RevDen Dev" name)
+desktop-dev:
+	@$(DESKTOP_DIR)/dev.sh
+
+# Build desktop app for production
+desktop-build:
+	@cd $(DESKTOP_DIR) && wails build -ldflags "-X main.Version=$(VERSION)"
+
+# Install desktop app to /Applications
+desktop-install: desktop-build
+	@echo "Installing RevDen.app to /Applications..."
+	@rm -rf /Applications/RevDen.app
+	@cp -r $(DESKTOP_DIR)/build/bin/RevDen.app /Applications/
+	@echo "✅ Installed to /Applications/RevDen.app"
