@@ -18,6 +18,10 @@ export function CreateSession(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['CreateSession'](arg1, arg2, arg3, arg4);
 }
 
+export function CreateRemoteSession(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['CreateRemoteSession'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function DeleteLaunchConfig(arg1) {
   return window['go']['main']['App']['DeleteLaunchConfig'](arg1);
 }
@@ -85,6 +89,7 @@ export function GetSavedLayoutByID(arg1) {
 export function GetSavedLayouts() {
   return window['go']['main']['App']['GetSavedLayouts']();
 }
+
 export function GetScrollback(arg1) {
   return window['go']['main']['App']['GetScrollback'](arg1);
 }
@@ -107,6 +112,10 @@ export function IsGitWorktree(arg1) {
 
 export function ListSessions() {
   return window['go']['main']['App']['ListSessions']();
+}
+
+export function ListSSHHosts() {
+  return window['go']['main']['App']['ListSSHHosts']();
 }
 
 export function LogFrontendDiagnostic(arg1) {
@@ -171,6 +180,10 @@ export function StartTmuxSession(arg1, arg2, arg3) {
 
 export function StartRemoteTmuxSession(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['StartRemoteTmuxSession'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function TestSSHConnection(arg1) {
+  return window['go']['main']['App']['TestSSHConnection'](arg1);
 }
 
 export function UpdateQuickLaunchFavoriteName(arg1, arg2) {

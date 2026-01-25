@@ -14,7 +14,8 @@ import PaneLayout from './PaneLayout';
 import FocusModeOverlay from './FocusModeOverlay';
 import MoveModeOverlay from './MoveModeOverlay';
 import SaveLayoutModal from './SaveLayoutModal';
-import { ListSessions, DiscoverProjects, CreateSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetSavedLayouts, SaveLayout, DeleteSavedLayout } from '../wailsjs/go/main/App';
+import HostPicker from './HostPicker';
+import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE } from './constants/terminal';
 import { shouldInterceptShortcut, hasAppModifier } from './utils/platform';
@@ -91,6 +92,11 @@ function App() {
     const sessionSelectorRef = useRef(null);
     const terminalRefs = useRef({});
     const searchRefs = useRef({});
+
+    // Remote session creation flow state
+    const [showHostPicker, setShowHostPicker] = useState(false);
+    const [selectedRemoteHost, setSelectedRemoteHost] = useState(null);
+    const [showRemotePathInput, setShowRemotePathInput] = useState(false);
 
     // Cycle through status filter modes: all -> active -> idle -> all
     const handleCycleStatusFilter = useCallback(() => {
@@ -236,6 +242,10 @@ function App() {
                     });
                     return newValue;
                 });
+                break;
+            case 'create-remote-session':
+                logger.info('Palette action: create remote session');
+                setShowHostPicker(true);
                 break;
             default:
                 logger.warn('Unknown palette action:', actionId);
@@ -863,11 +873,18 @@ function App() {
             } catch (err) {
                 logger.warn('Failed to get default config:', err);
             }
-            handleLaunchProject(toolPickerProject.path, toolPickerProject.name, tool, configKey);
+
+            // Check if this is a remote session
+            if (toolPickerProject.isRemote && toolPickerProject.remoteHost) {
+                handleLaunchRemoteProject(toolPickerProject.remoteHost, toolPickerProject.path, toolPickerProject.name, tool, configKey);
+            } else {
+                handleLaunchProject(toolPickerProject.path, toolPickerProject.name, tool, configKey);
+            }
         }
         setShowToolPicker(false);
         setToolPickerProject(null);
-    }, [toolPickerProject, handleLaunchProject]);
+        setSelectedRemoteHost(null);
+    }, [toolPickerProject, handleLaunchProject, handleLaunchRemoteProject]);
 
     // Handle tool selection with config picker (Cmd+Enter)
     const handleToolSelectedWithConfig = useCallback((tool) => {
@@ -880,12 +897,18 @@ function App() {
     // Handle config selection from picker
     const handleConfigSelected = useCallback((configKey) => {
         if (toolPickerProject && configPickerTool) {
-            handleLaunchProject(toolPickerProject.path, toolPickerProject.name, configPickerTool, configKey);
+            // Check if this is a remote session
+            if (toolPickerProject.isRemote && toolPickerProject.remoteHost) {
+                handleLaunchRemoteProject(toolPickerProject.remoteHost, toolPickerProject.path, toolPickerProject.name, configPickerTool, configKey);
+            } else {
+                handleLaunchProject(toolPickerProject.path, toolPickerProject.name, configPickerTool, configKey);
+            }
         }
         setShowConfigPicker(false);
         setConfigPickerTool(null);
         setToolPickerProject(null);
-    }, [toolPickerProject, configPickerTool, handleLaunchProject]);
+        setSelectedRemoteHost(null);
+    }, [toolPickerProject, configPickerTool, handleLaunchProject, handleLaunchRemoteProject]);
 
     // Cancel config picker
     const handleCancelConfigPicker = useCallback(() => {
@@ -899,7 +922,67 @@ function App() {
     const handleCancelToolPicker = useCallback(() => {
         setShowToolPicker(false);
         setToolPickerProject(null);
+        // Clear remote session state if in remote flow
+        setSelectedRemoteHost(null);
     }, []);
+
+    // ==================== Remote Session Creation ====================
+
+    // Handle host selection from HostPicker
+    const handleHostSelected = useCallback((hostId) => {
+        logger.info('Remote host selected', { hostId });
+        setSelectedRemoteHost(hostId);
+        setShowHostPicker(false);
+        setShowRemotePathInput(true);
+    }, []);
+
+    // Cancel host picker
+    const handleCancelHostPicker = useCallback(() => {
+        setShowHostPicker(false);
+        setSelectedRemoteHost(null);
+    }, []);
+
+    // Handle remote path input
+    const handleRemotePathSubmit = useCallback((path) => {
+        if (!path.trim()) return;
+        logger.info('Remote path entered', { path, host: selectedRemoteHost });
+        setShowRemotePathInput(false);
+        // Extract project name from path (last component)
+        const projectName = path.split('/').pop() || path;
+        setToolPickerProject({ path: path.trim(), name: projectName, isRemote: true, remoteHost: selectedRemoteHost });
+        setShowToolPicker(true);
+    }, [selectedRemoteHost]);
+
+    // Cancel remote path input
+    const handleCancelRemotePathInput = useCallback(() => {
+        setShowRemotePathInput(false);
+        setSelectedRemoteHost(null);
+    }, []);
+
+    // Launch a remote session (modified version of handleLaunchProject)
+    const handleLaunchRemoteProject = useCallback(async (hostId, projectPath, projectName, tool, configKey = '') => {
+        try {
+            logger.info('Launching remote project', { hostId, projectPath, projectName, tool, configKey });
+
+            // Create session on remote host
+            const session = await CreateRemoteSession(hostId, projectPath, projectName, tool, configKey);
+            logger.info('Remote session created', { sessionId: session.id, tmuxSession: session.tmuxSession, remoteHost: session.remoteHost });
+
+            // Clear remote session state
+            setSelectedRemoteHost(null);
+
+            // Open as tab and switch to terminal view
+            handleOpenTab(session);
+            setSelectedSession(session);
+            setView('terminal');
+            // Remote sessions don't have local git info
+            setGitBranch('');
+            setIsWorktree(false);
+        } catch (err) {
+            logger.error('Failed to launch remote project:', err);
+            // Could show an error toast here
+        }
+    }, [handleOpenTab]);
 
     // Open settings modal
     const handleOpenSettings = useCallback(() => {
@@ -1378,6 +1461,21 @@ function App() {
                         onCancel={handleCancelConfigPicker}
                     />
                 )}
+                {showHostPicker && (
+                    <HostPicker
+                        onSelect={handleHostSelected}
+                        onCancel={handleCancelHostPicker}
+                    />
+                )}
+                {showRemotePathInput && selectedRemoteHost && (
+                    <RenameDialog
+                        currentName=""
+                        title={`Project Path on ${selectedRemoteHost}`}
+                        placeholder="/home/user/projects/myproject"
+                        onSave={handleRemotePathSubmit}
+                        onCancel={handleCancelRemotePathInput}
+                    />
+                )}
                 {showSettings && (
                     <SettingsModal
                         onClose={() => setShowSettings(false)}
@@ -1589,6 +1687,21 @@ function App() {
                     projectName={toolPickerProject.name}
                     onSelect={handleConfigSelected}
                     onCancel={handleCancelConfigPicker}
+                />
+            )}
+            {showHostPicker && (
+                <HostPicker
+                    onSelect={handleHostSelected}
+                    onCancel={handleCancelHostPicker}
+                />
+            )}
+            {showRemotePathInput && selectedRemoteHost && (
+                <RenameDialog
+                    currentName=""
+                    title={`Project Path on ${selectedRemoteHost}`}
+                    placeholder="/home/user/projects/myproject"
+                    onSave={handleRemotePathSubmit}
+                    onCancel={handleCancelRemotePathInput}
                 />
             )}
             {showSettings && (
