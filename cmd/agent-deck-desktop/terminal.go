@@ -559,6 +559,14 @@ func (t *Terminal) attemptReconnection(hostID, tmuxSession string) {
 		t.connState = connStateFailed
 		t.reconnecting = false
 		t.mu.Unlock()
+
+		// Emit connection-failed event so frontend can update UI
+		if t.ctx != nil {
+			runtime.EventsEmit(t.ctx, "terminal:connection-failed", map[string]interface{}{
+				"sessionId": t.sessionID,
+				"hostId":    hostID,
+			})
+		}
 		return
 	}
 
