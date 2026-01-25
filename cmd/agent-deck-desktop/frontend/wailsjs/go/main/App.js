@@ -154,6 +154,10 @@ export function RefreshScrollback(arg1) {
   return window['go']['main']['App']['RefreshScrollback'](arg1);
 }
 
+export function RefreshTerminalAfterResize(arg1) {
+  return window['go']['main']['App']['RefreshTerminalAfterResize'](arg1);
+}
+
 export function RemoveQuickLaunchFavorite(arg1) {
   return window['go']['main']['App']['RemoveQuickLaunchFavorite'](arg1);
 }

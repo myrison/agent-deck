@@ -7,7 +7,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 // import { WebglAddon } from '@xterm/addon-webgl'; // Disabled - breaks scroll detection
 import '@xterm/xterm/css/xterm.css';
 import './Terminal.css';
-import { StartTerminal, WriteTerminal, ResizeTerminal, CloseTerminal, StartTmuxSession, StartRemoteTmuxSession, LogFrontendDiagnostic, GetTerminalSettings } from '../wailsjs/go/main/App';
+import { StartTerminal, WriteTerminal, ResizeTerminal, CloseTerminal, StartTmuxSession, StartRemoteTmuxSession, LogFrontendDiagnostic, GetTerminalSettings, RefreshTerminalAfterResize } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE } from './constants/terminal';
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
@@ -570,7 +570,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
 
         // Debounced scrollback refresh - fixes xterm.js reflow issues with box-drawing chars
         // Only triggers after resize settles (no resize events for 400ms)
-        // In polling mode, this clears xterm so polling can rebuild display cleanly
+        // Clears xterm and requests fresh history from backend to restore all content
         let scrollbackRefreshTimer = null;
         const refreshScrollbackAfterResize = async () => {
             if (!session?.tmuxSession || !xtermRef.current) {
@@ -579,11 +579,14 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             }
 
             try {
-                logger.info('[RESIZE-REFRESH] Clearing xterm for clean polling rebuild...');
-                // In polling mode, just clear xterm - polling will rebuild the display
-                // The backend Resize() already reset the history tracker
+                logger.info('[RESIZE-REFRESH] Clearing xterm and requesting fresh content...');
+                // Clear xterm to prepare for fresh content
                 xtermRef.current.clear();
-                logger.info('[RESIZE-REFRESH] Done - polling will rebuild display');
+
+                // Request backend to re-emit full history via terminal:history event
+                // This ensures scrollback is properly restored after resize
+                await RefreshTerminalAfterResize(sessionId);
+                logger.info('[RESIZE-REFRESH] Done - history refresh requested');
             } catch (err) {
                 logger.error('[RESIZE-REFRESH] Failed:', err);
             }

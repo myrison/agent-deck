@@ -1074,6 +1074,63 @@ func (t *Terminal) Resize(cols, rows int) error {
 	return nil
 }
 
+// RefreshAfterResize re-emits full history to the frontend after a resize.
+// This is called by the frontend after xterm.clear() to restore content.
+// It captures the current tmux content and emits it via terminal:history event,
+// which triggers the same handler used during initial connection.
+func (t *Terminal) RefreshAfterResize() error {
+	t.mu.Lock()
+	session := t.tmuxSession
+	remoteHost := t.remoteHostID
+	sshBridge := t.sshBridge
+	ctx := t.ctx
+	sessionID := t.sessionID
+	t.mu.Unlock()
+
+	if session == "" {
+		t.debugLog("[REFRESH] No tmux session attached")
+		return nil
+	}
+
+	// Wait briefly for tmux to finish reflowing after resize
+	time.Sleep(50 * time.Millisecond)
+
+	var historyOutput string
+	var err error
+
+	if remoteHost != "" && sshBridge != nil {
+		// Remote session - use SSH to capture
+		tmuxPath := sshBridge.GetTmuxPath(remoteHost)
+		historyCmd := fmt.Sprintf("%s capture-pane -t %q -p -e -S - -E -", tmuxPath, session)
+		historyOutput, err = sshBridge.RunCommand(remoteHost, historyCmd)
+		if err != nil {
+			t.debugLog("[REFRESH] Remote capture-pane error: %v", err)
+			return err
+		}
+	} else {
+		// Local session - use local tmux
+		cmd := exec.Command(tmuxBinaryPath, "capture-pane", "-t", session, "-p", "-e", "-S", "-", "-E", "-")
+		output, cmdErr := cmd.Output()
+		if cmdErr != nil {
+			t.debugLog("[REFRESH] capture-pane error: %v", cmdErr)
+			return cmdErr
+		}
+		historyOutput = string(output)
+	}
+
+	// Sanitize and emit history via terminal:history event
+	if len(historyOutput) > 0 {
+		history := sanitizeHistoryForXterm(historyOutput)
+		history = normalizeCRLF(history)
+		t.debugLog("[REFRESH] Emitting %d bytes of history after resize", len(history))
+		if ctx != nil {
+			runtime.EventsEmit(ctx, "terminal:history", TerminalEvent{SessionID: sessionID, Data: history})
+		}
+	}
+
+	return nil
+}
+
 // GetScrollback fetches fresh scrollback content from tmux.
 // Called by frontend after resize to bypass xterm.js reflow issues.
 // Returns sanitized content ready for xterm.write().

@@ -78,6 +78,8 @@ export function RecordProjectUsage(arg1:string):Promise<void>;
 
 export function RefreshScrollback(arg1:string):Promise<string>;
 
+export function RefreshTerminalAfterResize(arg1:string):Promise<void>;
+
 export function RemoveQuickLaunchFavorite(arg1:string):Promise<void>;
 
 export function ResetGroupSettings():Promise<void>;

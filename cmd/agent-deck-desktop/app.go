@@ -172,6 +172,17 @@ func (a *App) RefreshScrollback(sessionID string) (string, error) {
 	return t.GetScrollback()
 }
 
+// RefreshTerminalAfterResize re-emits full history to the frontend after a resize.
+// This should be called by the frontend after clearing xterm to restore all content
+// including scrollback history. It emits the content via terminal:history event.
+func (a *App) RefreshTerminalAfterResize(sessionID string) error {
+	t := a.terminals.Get(sessionID)
+	if t == nil {
+		return nil
+	}
+	return t.RefreshAfterResize()
+}
+
 // SessionExists checks if a tmux session exists.
 func (a *App) SessionExists(tmuxSession string) bool {
 	return a.tmux.SessionExists(tmuxSession)
