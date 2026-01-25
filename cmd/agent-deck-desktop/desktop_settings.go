@@ -2,12 +2,18 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 )
+
+// GroupSettings stores desktop-specific group expand/collapse state
+type GroupSettings struct {
+	ExpandedGroups map[string]bool `json:"expandedGroups"`
+}
 
 // DesktopConfig represents the [desktop] section of config.toml
 type DesktopConfig struct {
@@ -254,4 +260,79 @@ func (dsm *DesktopSettingsManager) SetFontSize(size int) error {
 
 	config.Terminal.FontSize = size
 	return dsm.saveDesktopSettings(config)
+}
+
+// getGroupSettingsPath returns the path to the group settings JSON file
+func (dsm *DesktopSettingsManager) getGroupSettingsPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".agent-deck", "desktop-group-settings.json")
+}
+
+// loadGroupSettings loads the group settings from the JSON file
+func (dsm *DesktopSettingsManager) loadGroupSettings() (*GroupSettings, error) {
+	settingsPath := dsm.getGroupSettingsPath()
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &GroupSettings{ExpandedGroups: make(map[string]bool)}, nil
+		}
+		return nil, err
+	}
+
+	var settings GroupSettings
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return &GroupSettings{ExpandedGroups: make(map[string]bool)}, nil
+	}
+
+	if settings.ExpandedGroups == nil {
+		settings.ExpandedGroups = make(map[string]bool)
+	}
+
+	return &settings, nil
+}
+
+// saveGroupSettings saves the group settings to the JSON file
+func (dsm *DesktopSettingsManager) saveGroupSettings(settings *GroupSettings) error {
+	settingsPath := dsm.getGroupSettingsPath()
+
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0700); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(settingsPath, data, 0600)
+}
+
+// GetExpandedGroups returns the map of group paths to their expanded state.
+// Returns only paths that have been explicitly set in the desktop app.
+// Groups not in this map should use their TUI default state.
+func (dsm *DesktopSettingsManager) GetExpandedGroups() (map[string]bool, error) {
+	settings, err := dsm.loadGroupSettings()
+	if err != nil {
+		return make(map[string]bool), err
+	}
+	return settings.ExpandedGroups, nil
+}
+
+// SetGroupExpanded sets the expanded state for a specific group path.
+func (dsm *DesktopSettingsManager) SetGroupExpanded(path string, expanded bool) error {
+	settings, err := dsm.loadGroupSettings()
+	if err != nil {
+		settings = &GroupSettings{ExpandedGroups: make(map[string]bool)}
+	}
+
+	settings.ExpandedGroups[path] = expanded
+	return dsm.saveGroupSettings(settings)
+}
+
+// ResetGroupSettings clears all desktop-specific group expand/collapse overrides.
+// After reset, groups will use their TUI default expand states.
+func (dsm *DesktopSettingsManager) ResetGroupSettings() error {
+	settings := &GroupSettings{ExpandedGroups: make(map[string]bool)}
+	return dsm.saveGroupSettings(settings)
 }

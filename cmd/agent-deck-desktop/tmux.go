@@ -47,6 +47,33 @@ type SessionInfo struct {
 // sessionsJSON mirrors the storage format from internal/session/storage.go
 type sessionsJSON struct {
 	Instances []instanceJSON `json:"instances"`
+	Groups    []groupJSON    `json:"groups,omitempty"`
+}
+
+// groupJSON mirrors the GroupData structure from internal/session/storage.go
+type groupJSON struct {
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Expanded    bool   `json:"expanded"`
+	Order       int    `json:"order"`
+	DefaultPath string `json:"default_path,omitempty"`
+}
+
+// GroupInfo represents group information for the frontend
+type GroupInfo struct {
+	Name         string `json:"name"`
+	Path         string `json:"path"`
+	SessionCount int    `json:"sessionCount"` // Direct sessions in this group
+	TotalCount   int    `json:"totalCount"`   // Sessions including subgroups
+	Level        int    `json:"level"`        // Nesting level (0 for root)
+	HasChildren  bool   `json:"hasChildren"`  // Has subgroups
+	Expanded     bool   `json:"expanded"`     // TUI expand state (default)
+}
+
+// SessionsWithGroups combines sessions and groups for hierarchical display
+type SessionsWithGroups struct {
+	Sessions []SessionInfo `json:"sessions"`
+	Groups   []GroupInfo   `json:"groups"`
 }
 
 type instanceJSON struct {
@@ -213,18 +240,18 @@ func (tm *TmuxManager) PersistSession(s SessionInfo) error {
 	return nil
 }
 
-// ListSessions returns all Agent Deck sessions from sessions.json.
-func (tm *TmuxManager) ListSessions() ([]SessionInfo, error) {
+// loadSessionsData reads and parses sessions.json, returning the raw data.
+// This is used by both ListSessions and ListSessionsWithGroups.
+func (tm *TmuxManager) loadSessionsData() (*sessionsJSON, error) {
 	sessionsPath, err := tm.getSessionsPath()
 	if err != nil {
 		return nil, err
 	}
 
-	// Read and parse sessions.json
 	data, err := os.ReadFile(sessionsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return []SessionInfo{}, nil
+			return &sessionsJSON{}, nil
 		}
 		return nil, err
 	}
@@ -234,12 +261,16 @@ func (tm *TmuxManager) ListSessions() ([]SessionInfo, error) {
 		return nil, err
 	}
 
-	// Get list of running tmux sessions
+	return &sessions, nil
+}
+
+// convertInstancesToSessionInfos converts raw instance data to SessionInfo slice.
+// Filters out local sessions without running tmux sessions and sorts by LastAccessedAt.
+func (tm *TmuxManager) convertInstancesToSessionInfos(instances []instanceJSON) []SessionInfo {
 	runningTmux := tm.getRunningTmuxSessions()
 
-	// Convert to SessionInfo
-	result := make([]SessionInfo, 0, len(sessions.Instances))
-	for _, inst := range sessions.Instances {
+	result := make([]SessionInfo, 0, len(instances))
+	for _, inst := range instances {
 		// Check if tmux session actually exists (for local sessions)
 		_, exists := runningTmux[inst.TmuxSession]
 		isRemote := inst.RemoteHost != ""
@@ -290,7 +321,115 @@ func (tm *TmuxManager) ListSessions() ([]SessionInfo, error) {
 		return result[i].LastAccessedAt.After(result[j].LastAccessedAt)
 	})
 
-	return result, nil
+	return result
+}
+
+// ListSessions returns all Agent Deck sessions from sessions.json.
+func (tm *TmuxManager) ListSessions() ([]SessionInfo, error) {
+	sessionsData, err := tm.loadSessionsData()
+	if err != nil {
+		return nil, err
+	}
+
+	return tm.convertInstancesToSessionInfos(sessionsData.Instances), nil
+}
+
+// ListSessionsWithGroups returns sessions along with group information for hierarchical display.
+func (tm *TmuxManager) ListSessionsWithGroups() (SessionsWithGroups, error) {
+	sessionsData, err := tm.loadSessionsData()
+	if err != nil {
+		return SessionsWithGroups{}, err
+	}
+
+	// Convert instances to SessionInfo using shared helper
+	sessions := tm.convertInstancesToSessionInfos(sessionsData.Instances)
+
+	// Build group info from stored groups
+	groups := make([]GroupInfo, 0, len(sessionsData.Groups))
+	groupSessionCounts := make(map[string]int) // path -> direct session count
+
+	// Count direct sessions per group
+	for _, sess := range sessions {
+		groupPath := sess.GroupPath
+		if groupPath == "" {
+			groupPath = "my-sessions" // Default group
+		}
+		groupSessionCounts[groupPath]++
+	}
+
+	// Process each group
+	for _, g := range sessionsData.Groups {
+		// Calculate level from path (count slashes)
+		level := strings.Count(g.Path, "/")
+
+		// Check if this group has subgroups
+		hasChildren := false
+		for _, otherG := range sessionsData.Groups {
+			if strings.HasPrefix(otherG.Path, g.Path+"/") {
+				hasChildren = true
+				break
+			}
+		}
+
+		// Calculate total count (including subgroups)
+		totalCount := 0
+		for path, count := range groupSessionCounts {
+			if path == g.Path || strings.HasPrefix(path, g.Path+"/") {
+				totalCount += count
+			}
+		}
+
+		groups = append(groups, GroupInfo{
+			Name:         g.Name,
+			Path:         g.Path,
+			SessionCount: groupSessionCounts[g.Path],
+			TotalCount:   totalCount,
+			Level:        level,
+			HasChildren:  hasChildren,
+			Expanded:     g.Expanded,
+		})
+	}
+
+	// Sort groups by order
+	sort.Slice(groups, func(i, j int) bool {
+		// First by order, then by path for deterministic ordering
+		if groups[i].Level != groups[j].Level {
+			// Parents before children
+			pathI := groups[i].Path
+			pathJ := groups[j].Path
+			if strings.HasPrefix(pathJ, pathI+"/") {
+				return true
+			}
+			if strings.HasPrefix(pathI, pathJ+"/") {
+				return false
+			}
+		}
+		return groups[i].Path < groups[j].Path
+	})
+
+	// If there are sessions without groups and no "my-sessions" group exists, add it
+	if count, exists := groupSessionCounts["my-sessions"]; exists && count > 0 {
+		hasMySessionsGroup := false
+		for _, g := range groups {
+			if g.Path == "my-sessions" {
+				hasMySessionsGroup = true
+				break
+			}
+		}
+		if !hasMySessionsGroup {
+			groups = append([]GroupInfo{{
+				Name:         "My Sessions",
+				Path:         "my-sessions",
+				SessionCount: count,
+				TotalCount:   count,
+				Level:        0,
+				HasChildren:  false,
+				Expanded:     true,
+			}}, groups...)
+		}
+	}
+
+	return SessionsWithGroups{Sessions: sessions, Groups: groups}, nil
 }
 
 // GitInfo contains git repository information for a session.

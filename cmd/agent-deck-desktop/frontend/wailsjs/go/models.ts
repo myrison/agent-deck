@@ -1,5 +1,29 @@
 export namespace main {
 	
+	export class GroupInfo {
+	    name: string;
+	    path: string;
+	    sessionCount: number;
+	    totalCount: number;
+	    level: number;
+	    hasChildren: boolean;
+	    expanded: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new GroupInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.sessionCount = source["sessionCount"];
+	        this.totalCount = source["totalCount"];
+	        this.level = source["level"];
+	        this.hasChildren = source["hasChildren"];
+	        this.expanded = source["expanded"];
+	    }
+	}
 	export class LaunchConfigInfo {
 	    key: string;
 	    name: string;
@@ -230,21 +254,37 @@ export namespace main {
 		    return a;
 		}
 	}
-	export class SSHHostStatus {
-	    hostId: string;
-	    connected: boolean;
-	    lastError?: string;
+	export class SessionsWithGroups {
+	    sessions: SessionInfo[];
+	    groups: GroupInfo[];
 
 	    static createFrom(source: any = {}) {
-	        return new SSHHostStatus(source);
+	        return new SessionsWithGroups(source);
 	    }
 
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.hostId = source["hostId"];
-	        this.connected = source["connected"];
-	        this.lastError = source["lastError"];
+	        this.sessions = this.convertValues(source["sessions"], SessionInfo);
+	        this.groups = this.convertValues(source["groups"], GroupInfo);
 	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

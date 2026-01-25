@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import './SettingsModal.css';
 import LaunchConfigEditor from './LaunchConfigEditor';
-import { GetLaunchConfigs, DeleteLaunchConfig, GetSoftNewlineMode, SetSoftNewlineMode, SetFontSize } from '../wailsjs/go/main/App';
+import { GetLaunchConfigs, DeleteLaunchConfig, GetSoftNewlineMode, SetSoftNewlineMode, SetFontSize, ResetGroupSettings } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { TOOLS } from './utils/tools';
 import ToolIcon from './ToolIcon';
@@ -67,6 +67,18 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
         } catch (err) {
             logger.error('Failed to reset font size:', err);
             alert('Failed to save setting: ' + err.message);
+        }
+    };
+
+    const handleResetGroupSettings = async () => {
+        if (!confirm('Reset all group expand/collapse settings to TUI defaults?')) return;
+        try {
+            await ResetGroupSettings();
+            logger.info('Reset group settings to TUI defaults');
+            alert('Group settings reset. Refresh the session list to see changes.');
+        } catch (err) {
+            logger.error('Failed to reset group settings:', err);
+            alert('Failed to reset settings: ' + err.message);
         }
     };
 
@@ -276,6 +288,27 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
                                 title={`Reset to default (${DEFAULT_FONT_SIZE}px)`}
                             >
                                 Reset
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Group Settings */}
+                    <div className="settings-theme-section">
+                        <div className="settings-theme-header">
+                            <span className="settings-theme-icon">📁</span>
+                            <h3>Session Groups</h3>
+                        </div>
+                        <div className="settings-input-description">
+                            Group expand/collapse state is saved separately from the TUI.
+                            Reset to use the expand/collapse state from Agent Deck TUI.
+                        </div>
+                        <div className="settings-group-controls">
+                            <button
+                                className="settings-reset-groups-btn"
+                                onClick={handleResetGroupSettings}
+                                title="Reset group expand/collapse settings to TUI defaults"
+                            >
+                                Reset to TUI Defaults
                             </button>
                         </div>
                     </div>

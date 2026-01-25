@@ -301,3 +301,43 @@
 .session-context-menu button:hover {
     background: var(--bg-selected);
 }
+
+/* Group-related styles */
+.session-list-grouped {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* Session item indentation when inside a group */
+.session-item.in-group {
+    margin-left: 20px;
+    width: calc(100% - 20px);
+}
+
+/* Nested group sessions get additional indentation */
+.session-item.level-1 {
+    margin-left: 20px;
+    width: calc(100% - 20px);
+}
+
+.session-item.level-2 {
+    margin-left: 36px;
+    width: calc(100% - 36px);
+}
+
+.session-item.level-3 {
+    margin-left: 52px;
+    width: calc(100% - 52px);
+}
+
+/* Group separator line */
+.group-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.group-section + .group-section {
+    margin-top: 8px;
+}

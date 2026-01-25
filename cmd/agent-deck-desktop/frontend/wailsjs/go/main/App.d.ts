@@ -4,9 +4,9 @@ import {main} from '../models';
 
 export function AddQuickLaunchFavorite(arg1:string,arg2:string,arg3:string):Promise<void>;
 
-export function AttachSession(arg1:string,arg2:number,arg3:number):Promise<void>;
+export function AttachSession(arg1:string,arg2:string,arg3:number,arg4:number):Promise<void>;
 
-export function CloseTerminal():Promise<void>;
+export function CloseTerminal(arg1:string):Promise<void>;
 
 export function CreateSession(arg1:string,arg2:string,arg3:string,arg4:string):Promise<main.SessionInfo>;
 
@@ -23,6 +23,8 @@ export function GenerateConfigKey(arg1:string,arg2:string):Promise<string>;
 export function GetDefaultLaunchConfig(arg1:string):Promise<main.LaunchConfigInfo>;
 
 export function GetDesktopTheme():Promise<string>;
+
+export function GetExpandedGroups():Promise<Record<string, boolean>>;
 
 export function GetFontSize():Promise<number>;
 
@@ -56,9 +58,11 @@ export function GetVersion():Promise<string>;
 
 export function IsGitWorktree(arg1:string):Promise<boolean>;
 
+export function ListSSHHosts():Promise<Array<string>>;
+
 export function ListSessions():Promise<Array<main.SessionInfo>>;
 
-export function ListSSHHosts():Promise<Array<string>>;
+export function ListSessionsWithGroups():Promise<main.SessionsWithGroups>;
 
 export function LogFrontendDiagnostic(arg1:string):Promise<void>;
 
@@ -66,11 +70,13 @@ export function MarkSessionAccessed(arg1:string):Promise<void>;
 
 export function RecordProjectUsage(arg1:string):Promise<void>;
 
-export function RefreshScrollback():Promise<string>;
+export function RefreshScrollback(arg1:string):Promise<string>;
 
 export function RemoveQuickLaunchFavorite(arg1:string):Promise<void>;
 
-export function ResizeTerminal(arg1:number,arg2:number):Promise<void>;
+export function ResetGroupSettings():Promise<void>;
+
+export function ResizeTerminal(arg1:string,arg2:number,arg3:number):Promise<void>;
 
 export function SaveLaunchConfig(arg1:string,arg2:string,arg3:string,arg4:string,arg5:boolean,arg6:string,arg7:Array<string>,arg8:boolean):Promise<void>;
 
@@ -86,13 +92,15 @@ export function SetQuickLaunchBarVisibility(arg1:boolean):Promise<void>;
 
 export function SetSoftNewlineMode(arg1:string):Promise<void>;
 
-export function StartTerminal(arg1:number,arg2:number):Promise<void>;
-
-export function StartTmuxSession(arg1:string,arg2:number,arg3:number):Promise<void>;
-
 export function StartRemoteTmuxSession(arg1:string,arg2:string,arg3:string,arg4:number,arg5:number):Promise<void>;
 
+export function StartTerminal(arg1:string,arg2:number,arg3:number):Promise<void>;
+
+export function StartTmuxSession(arg1:string,arg2:string,arg3:number,arg4:number):Promise<void>;
+
 export function TestSSHConnection(arg1:string):Promise<void>;
+
+export function ToggleGroupExpanded(arg1:string,arg2:boolean):Promise<void>;
 
 export function UpdateQuickLaunchFavoriteName(arg1:string,arg2:string):Promise<void>;
 
@@ -102,4 +110,4 @@ export function UpdateSessionCustomLabel(arg1:string,arg2:string):Promise<void>;
 
 export function ValidateMCPConfigPath(arg1:string):Promise<Array<string>>;
 
-export function WriteTerminal(arg1:string):Promise<void>;
+export function WriteTerminal(arg1:string,arg2:string):Promise<void>;
