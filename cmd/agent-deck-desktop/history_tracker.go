@@ -58,40 +58,44 @@ func (ht *HistoryTracker) GetTmuxInfo() (historySize int, inAltScreen bool, err 
 // FetchHistoryGap retrieves lines from tmux history that we haven't seen yet.
 // This ensures no lines are lost when output scrolls faster than our poll rate.
 // Returns CRLF-terminated content ready for xterm.js, or empty string if no gap.
+//
+// Important: tmux's history_size counts lines that have scrolled OFF the visible
+// viewport into the scrollback buffer. These lines need to be captured and sent
+// to xterm.js for proper scrollback accumulation, since DiffViewport uses cursor
+// positioning which doesn't add to xterm's scrollback buffer.
 func (ht *HistoryTracker) FetchHistoryGap(currentHistorySize int) (string, error) {
 	if currentHistorySize <= ht.lastHistoryIndex {
 		return "", nil // No new history
 	}
 
-	// Calculate the gap: lines from lastHistoryIndex to current history top
+	// Calculate the gap: new lines that scrolled into tmux history since last fetch
 	// tmux capture-pane uses negative offsets: -S -100 means "start 100 lines back"
 	//
-	// Example: lastHistoryIndex=50, currentHistorySize=100, viewportRows=24
-	// Gap = lines 50-75 (lines 76-99 are still visible in viewport)
-	// startOffset = -(100 - 50) = -50 (50 lines back from current)
-	// endOffset = -24 (stop at viewport top)
+	// Example: lastHistoryIndex=50, currentHistorySize=60
+	// Gap = 10 new lines that scrolled off viewport into history
+	// We need to fetch lines -60 through -(lastHistoryIndex+1) = -51
 
 	gapSize := currentHistorySize - ht.lastHistoryIndex
 	if gapSize <= 0 {
 		return "", nil
 	}
 
-	// Fetch only the gap lines (not including current viewport)
-	// -S = start offset (negative = lines above current view)
-	// -E = end offset (negative = lines above current view)
-	startOffset := -gapSize
-	endOffset := -1 // -1 = one line above current viewport
+	// Fetch gap lines from tmux history
+	// -S = start offset (furthest back in history)
+	// -E = end offset (closest to viewport)
+	// Negative offsets: -1 is the line just above viewport, -2 is two lines up, etc.
+	startOffset := -currentHistorySize            // Start at oldest unfetched line
+	endOffset := -(ht.lastHistoryIndex + 1)       // End just after last fetched line
 
-	// If the gap is within current viewport, no history fetch needed
-	if -startOffset <= ht.viewportRows {
-		// All "new" lines are still in viewport, viewport diff will handle them
-		return "", nil
+	// Clamp to valid range (don't go beyond what's in history)
+	if ht.lastHistoryIndex == 0 {
+		// First fetch - get all history lines above viewport
+		endOffset = -1
 	}
 
-	// Adjust end offset to stop at viewport boundary
-	endOffset = -(ht.viewportRows + 1)
+	// Sanity check: start must be before (more negative than) end
 	if startOffset >= endOffset {
-		return "", nil // Gap is entirely within viewport
+		return "", nil
 	}
 
 	cmd := exec.Command("tmux", "capture-pane", "-t", ht.tmuxSession,
@@ -104,10 +108,7 @@ func (ht *HistoryTracker) FetchHistoryGap(currentHistorySize int) (string, error
 	}
 
 	// Update our index to mark these lines as read
-	ht.lastHistoryIndex = currentHistorySize - ht.viewportRows
-	if ht.lastHistoryIndex < 0 {
-		ht.lastHistoryIndex = 0
-	}
+	ht.lastHistoryIndex = currentHistorySize
 
 	// Convert LF to CRLF for xterm.js
 	content := string(out)
