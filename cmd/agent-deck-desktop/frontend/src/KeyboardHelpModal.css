@@ -16,11 +16,15 @@
 .help-container {
     width: 100%;
     max-width: 640px;
+    max-height: 80vh;
     background: var(--bg-secondary);
     border: 1px solid var(--border-primary);
     border-radius: 10px;
     box-shadow: 0 16px 48px var(--modal-shadow);
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
 }
 
 /* Header */
@@ -30,6 +34,7 @@
     align-items: center;
     padding: 16px 20px;
     border-bottom: 1px solid var(--border-secondary);
+    flex-shrink: 0;
 }
 
 .help-header h2 {
@@ -67,6 +72,8 @@
     grid-template-columns: 1fr 1fr;
     gap: 24px;
     padding: 20px;
+    overflow-y: auto;
+    flex: 1;
 }
 
 .help-column {
@@ -140,6 +147,7 @@
     text-align: center;
     font-size: var(--font-base);
     color: var(--text-dimmed);
+    flex-shrink: 0;
 }
 
 /* Responsive - Stack columns on narrow screens */
