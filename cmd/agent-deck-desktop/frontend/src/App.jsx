@@ -1158,10 +1158,6 @@ function App() {
         // Don't handle shortcuts when modals with input fields or their own handlers are open
         // This includes modals with text input (CommandPalette, RenameDialog, etc) and modal handlers (HelpModal, Settings)
         if (showHelpModal || showSettings || showCommandPalette || showLabelDialog || showRemotePathInput) {
-            // Debug: log when a modal blocks global shortcuts
-            if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Escape', 'Backspace'].includes(e.key)) {
-                logger.debug('Global shortcut blocked - modal active', { key: e.key, showCommandPalette, showSettings, showHelpModal, showLabelDialog, showRemotePathInput });
-            }
             return;
         }
 
