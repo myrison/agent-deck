@@ -926,14 +926,17 @@ function App() {
     const handleSessionPickerCreateNew = useCallback(async (customLabel) => {
         if (!sessionPickerProject) return;
         logger.info('Session picker: creating new session', { path: sessionPickerProject.path, customLabel });
-        await handleLaunchProject(
-            sessionPickerProject.path,
-            sessionPickerProject.name,
-            'claude',
-            '',
-            customLabel || ''  // empty = auto-generate label
-        );
-        setSessionPickerProject(null);
+        try {
+            await handleLaunchProject(
+                sessionPickerProject.path,
+                sessionPickerProject.name,
+                'claude',
+                '',
+                customLabel || ''  // empty = auto-generate label
+            );
+        } finally {
+            setSessionPickerProject(null);
+        }
     }, [sessionPickerProject, handleLaunchProject]);
 
     // Cancel session picker
@@ -1540,16 +1543,6 @@ function App() {
                         favorites={favorites}
                         pinMode={palettePinMode}
                         newTabMode={paletteNewTabMode}
-                    />
-                )}
-                {sessionPickerProject && (
-                    <SessionPicker
-                        projectPath={sessionPickerProject.path}
-                        projectName={sessionPickerProject.name}
-                        sessions={sessionPickerProject.sessions}
-                        onSelectSession={handleSessionPickerSelect}
-                        onCreateNew={handleSessionPickerCreateNew}
-                        onCancel={handleCancelSessionPicker}
                     />
                 )}
                 {showToolPicker && toolPickerProject && (
