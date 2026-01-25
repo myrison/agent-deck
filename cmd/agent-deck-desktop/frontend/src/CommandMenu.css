@@ -141,6 +141,33 @@
     background: rgba(102, 204, 136, 0.2);
 }
 
+/* Project icon when it has existing sessions */
+.menu-project-icon.has-sessions {
+    background: var(--accent-subtle, rgba(122, 162, 247, 0.15));
+    color: var(--accent-color, #7aa2f7);
+    font-size: var(--font-lg);
+}
+
+[data-theme="light"] .menu-project-icon.has-sessions {
+    background: rgba(0, 119, 204, 0.15);
+    color: #0077cc;
+}
+
+/* Session count badge */
+.menu-session-count {
+    font-size: var(--font-sm);
+    color: var(--accent-color, #7aa2f7);
+    padding: 2px 8px;
+    background: var(--accent-subtle, rgba(122, 162, 247, 0.15));
+    border-radius: 10px;
+    flex-shrink: 0;
+}
+
+[data-theme="light"] .menu-session-count {
+    background: rgba(0, 119, 204, 0.1);
+    color: #0077cc;
+}
+
 /* Project Hint */
 .menu-project-hint {
     font-size: var(--font-sm);

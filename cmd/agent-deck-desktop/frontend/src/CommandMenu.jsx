@@ -38,6 +38,7 @@ export default function CommandMenu({
     onAction,
     onLaunchProject, // (projectPath, projectName, tool, configKey?, customLabel?) => void
     onShowToolPicker, // (projectPath, projectName) => void - for Cmd+Enter
+    onShowSessionPicker, // (projectPath, projectName, sessions) => void - for projects with multiple sessions
     onPinToQuickLaunch, // (projectPath, projectName) => void - for Cmd+P
     onLayoutAction, // (actionId) => void - for layout actions
     sessions = [],
@@ -69,10 +70,9 @@ export default function CommandMenu({
         return lookup;
     }, [favorites]);
 
-    // Convert projects to menu items
+    // Convert projects to menu items (show ALL projects, including those with sessions)
     const projectItems = useMemo(() => {
         return projects
-            .filter(p => !p.hasSession) // Only show projects without existing sessions
             .map(p => ({
                 id: `project:${p.path}`,
                 type: 'project',
@@ -82,6 +82,8 @@ export default function CommandMenu({
                 description: p.path,
                 isPinned: !!favoritesLookup[p.path],
                 shortcut: favoritesLookup[p.path]?.shortcut,
+                sessionCount: p.sessionCount || 0,
+                sessions: p.sessions || [],
             }));
     }, [projects, favoritesLookup]);
 
@@ -243,9 +245,19 @@ export default function CommandMenu({
             logger.info('Executing layout action', { actionId: item.id });
             onLayoutAction?.(item.id);
         } else if (item.type === 'project') {
-            // Launch project with default tool (Claude)
-            logger.info('Launching project with default tool', { path: item.projectPath, tool: 'claude' });
-            onLaunchProject?.(item.projectPath, item.title, 'claude');
+            if (item.sessionCount > 1) {
+                // Multiple sessions exist - show session picker
+                logger.info('Project has multiple sessions, showing picker', { path: item.projectPath, count: item.sessionCount });
+                onShowSessionPicker?.(item.projectPath, item.title, item.sessions);
+            } else if (item.sessionCount === 1 && item.sessions?.[0]) {
+                // Single session exists - attach directly to it
+                logger.info('Project has single session, attaching', { path: item.projectPath, sessionId: item.sessions[0].id });
+                onSelectSession?.({ ...item.sessions[0], title: item.title, projectPath: item.projectPath });
+            } else {
+                // No sessions - launch new project with default tool (Claude)
+                logger.info('Launching project with default tool', { path: item.projectPath, tool: 'claude' });
+                onLaunchProject?.(item.projectPath, item.title, 'claude');
+            }
         } else {
             logger.info('Navigating to session', { sessionId: item.id, title: item.title });
             onSelectSession?.(item);
@@ -331,11 +343,18 @@ export default function CommandMenu({
                                     </>
                                 ) : item.type === 'project' ? (
                                     <>
-                                        <span className="menu-project-icon">{item.isPinned ? '★' : '+'}</span>
+                                        <span className={`menu-project-icon ${item.sessionCount > 0 ? 'has-sessions' : ''}`}>
+                                            {item.isPinned ? '★' : (item.sessionCount > 0 ? item.sessionCount : '+')}
+                                        </span>
                                         <div className="menu-item-info">
                                             <div className="menu-item-title">{item.title}</div>
                                             <div className="menu-item-subtitle">{item.projectPath}</div>
                                         </div>
+                                        {item.sessionCount > 1 && (
+                                            <span className="menu-session-count">
+                                                {item.sessionCount} sessions
+                                            </span>
+                                        )}
                                         {item.shortcut && (
                                             <span className="menu-shortcut-hint">
                                                 {formatShortcut(item.shortcut)}
