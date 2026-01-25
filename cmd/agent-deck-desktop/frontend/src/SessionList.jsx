@@ -364,6 +364,11 @@ const SessionList = forwardRef(function SessionList({
     // Keyboard navigation for session list
     useEffect(() => {
         const handleKeyDown = (e) => {
+            // Skip navigation when a modal overlay is active (palette, dialogs, etc)
+            if (e.target.closest('.palette-overlay') || e.target.closest('.modal-overlay')) {
+                return;
+            }
+
             if (renderList.length === 0) return;
 
             switch (e.key) {
@@ -539,7 +544,7 @@ const SessionList = forwardRef(function SessionList({
                                     className="session-list-tool"
                                     style={{ backgroundColor: getStatusColor(session.status) }}
                                 >
-                                    <ToolIcon tool={session.tool} size={14} />
+                                    <ToolIcon tool={session.tool} size={14} status={session.status} />
                                 </span>
                                 <div className="session-list-info">
                                     <div className="session-list-title">
