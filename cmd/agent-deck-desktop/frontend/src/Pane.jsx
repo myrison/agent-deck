@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Terminal from './Terminal';
 import PaneOverlay from './PaneOverlay';
 import StatusBar from './StatusBar';
+import { BranchIcon } from './ToolIcon';
 import { createLogger } from './logger';
-import { GetGitBranch, IsGitWorktree } from '../wailsjs/go/main/App';
+import { GetGitBranch, IsGitWorktree, GetSessionMetadata } from '../wailsjs/go/main/App';
 
 const logger = createLogger('Pane');
 
@@ -34,15 +35,17 @@ export default function Pane({
     const [gitBranch, setGitBranch] = useState('');
     const [isWorktree, setIsWorktree] = useState(false);
 
-    // Load git info when session changes
+    // Load git info when session changes - use real-time cwd from tmux
     useEffect(() => {
-        if (session?.projectPath) {
-            Promise.all([
-                GetGitBranch(session.projectPath),
-                IsGitWorktree(session.projectPath)
-            ]).then(([branch, worktree]) => {
-                setGitBranch(branch || '');
-                setIsWorktree(worktree);
+        if (session?.tmuxSession) {
+            GetSessionMetadata(session.tmuxSession).then(async (metadata) => {
+                setGitBranch(metadata.gitBranch || '');
+                if (metadata.cwd) {
+                    const worktree = await IsGitWorktree(metadata.cwd);
+                    setIsWorktree(worktree);
+                } else {
+                    setIsWorktree(false);
+                }
             }).catch(() => {
                 setGitBranch('');
                 setIsWorktree(false);
@@ -51,7 +54,7 @@ export default function Pane({
             setGitBranch('');
             setIsWorktree(false);
         }
-    }, [session?.projectPath]);
+    }, [session?.tmuxSession]);
 
     // Handle click on pane to focus
     const handlePaneClick = useCallback(() => {
@@ -135,7 +138,7 @@ export default function Pane({
                     </span>
                     {gitBranch && (
                         <span className={`git-branch${isWorktree ? ' is-worktree' : ''}`}>
-                            <span className="git-branch-icon">{isWorktree ? '🌿' : '⎇'}</span>
+                            <span className="git-branch-icon">{isWorktree ? '🌿' : <BranchIcon size={12} />}</span>
                             {gitBranch}
                         </span>
                     )}

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import './StatusBar.css';
-import ToolIcon from './ToolIcon';
+import ToolIcon, { BranchIcon } from './ToolIcon';
 import { useSessionMetadata } from './hooks/useSessionMetadata';
 
 /**
@@ -68,7 +68,7 @@ export default function StatusBar({ session }) {
                     className={`status-bar-item status-bar-branch${isWorktree ? ' is-worktree' : ''}`}
                     title={`Branch: ${gitBranch}${isWorktree ? ' (worktree)' : ''}`}
                 >
-                    <span className="status-bar-icon">{isWorktree ? '🌿' : '⎇'}</span>
+                    <span className="status-bar-icon">{isWorktree ? '🌿' : <BranchIcon size={12} />}</span>
                     <span className="status-bar-text">{gitBranch}</span>
                 </div>
             )}

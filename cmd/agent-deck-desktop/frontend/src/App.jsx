@@ -15,7 +15,8 @@ import FocusModeOverlay from './FocusModeOverlay';
 import MoveModeOverlay from './MoveModeOverlay';
 import SaveLayoutModal from './SaveLayoutModal';
 import HostPicker from './HostPicker';
-import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession } from '../wailsjs/go/main/App';
+import { BranchIcon } from './ToolIcon';
+import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE } from './constants/terminal';
 import { shouldInterceptShortcut, hasAppModifier } from './utils/platform';
@@ -346,15 +347,18 @@ function App() {
         const session = activePane?.session;
         setSelectedSession(session || null);
 
-        // Update git info for the session
-        if (session?.projectPath) {
+        // Update git info for the session using real-time cwd from tmux
+        if (session?.tmuxSession) {
             try {
-                const [branch, worktree] = await Promise.all([
-                    GetGitBranch(session.projectPath),
-                    IsGitWorktree(session.projectPath)
-                ]);
-                setGitBranch(branch || '');
-                setIsWorktree(worktree);
+                const metadata = await GetSessionMetadata(session.tmuxSession);
+                setGitBranch(metadata.gitBranch || '');
+                // Check worktree status for the actual cwd
+                if (metadata.cwd) {
+                    const worktree = await IsGitWorktree(metadata.cwd);
+                    setIsWorktree(worktree);
+                } else {
+                    setIsWorktree(false);
+                }
             } catch (err) {
                 setGitBranch('');
                 setIsWorktree(false);
@@ -384,14 +388,16 @@ function App() {
             // Update selectedSession to match the focused pane
             if (pane.session) {
                 setSelectedSession(pane.session);
-                // Update git info
-                if (pane.session.projectPath) {
-                    Promise.all([
-                        GetGitBranch(pane.session.projectPath),
-                        IsGitWorktree(pane.session.projectPath)
-                    ]).then(([branch, worktree]) => {
-                        setGitBranch(branch || '');
-                        setIsWorktree(worktree);
+                // Update git info using real-time cwd from tmux
+                if (pane.session.tmuxSession) {
+                    GetSessionMetadata(pane.session.tmuxSession).then(async (metadata) => {
+                        setGitBranch(metadata.gitBranch || '');
+                        if (metadata.cwd) {
+                            const worktree = await IsGitWorktree(metadata.cwd);
+                            setIsWorktree(worktree);
+                        } else {
+                            setIsWorktree(false);
+                        }
                     }).catch(() => {
                         setGitBranch('');
                         setIsWorktree(false);
@@ -819,15 +825,17 @@ function App() {
             // Record usage for frecency
             await RecordProjectUsage(projectPath);
 
-            // Load git branch and worktree status
+            // Load git branch and worktree status using real-time cwd from tmux
             try {
-                const [branch, worktree] = await Promise.all([
-                    GetGitBranch(projectPath),
-                    IsGitWorktree(projectPath)
-                ]);
-                setGitBranch(branch || '');
-                setIsWorktree(worktree);
-                logger.info('Git info:', { branch: branch || '(not a git repo)', isWorktree: worktree });
+                const metadata = await GetSessionMetadata(session.tmuxSession);
+                setGitBranch(metadata.gitBranch || '');
+                if (metadata.cwd) {
+                    const worktree = await IsGitWorktree(metadata.cwd);
+                    setIsWorktree(worktree);
+                } else {
+                    setIsWorktree(false);
+                }
+                logger.info('Git info:', { branch: metadata.gitBranch || '(not a git repo)', cwd: metadata.cwd });
             } catch (err) {
                 setGitBranch('');
                 setIsWorktree(false);
@@ -1053,16 +1061,19 @@ function App() {
             logger.warn('Failed to mark session accessed:', err);
         }
 
-        // Load git branch and worktree status if session has a project path
-        if (session.projectPath) {
+        // Load git branch and worktree status using real-time cwd from tmux
+        if (session.tmuxSession) {
             try {
-                const [branch, worktree] = await Promise.all([
-                    GetGitBranch(session.projectPath),
-                    IsGitWorktree(session.projectPath)
-                ]);
-                setGitBranch(branch || '');
-                setIsWorktree(worktree);
-                logger.info('Git info:', { branch: branch || '(not a git repo)', isWorktree: worktree });
+                const metadata = await GetSessionMetadata(session.tmuxSession);
+                setGitBranch(metadata.gitBranch || '');
+                // Check worktree status for the actual cwd
+                if (metadata.cwd) {
+                    const worktree = await IsGitWorktree(metadata.cwd);
+                    setIsWorktree(worktree);
+                } else {
+                    setIsWorktree(false);
+                }
+                logger.info('Git info:', { branch: metadata.gitBranch || '(not a git repo)', cwd: metadata.cwd, isWorktree: metadata.cwd ? 'checking...' : false });
             } catch (err) {
                 logger.warn('Failed to get git info:', err);
                 setGitBranch('');
@@ -1611,7 +1622,7 @@ function App() {
                                 )}
                                 {gitBranch && (
                                     <span className={`git-branch${isWorktree ? ' is-worktree' : ''}`}>
-                                        <span className="git-branch-icon">{isWorktree ? '🌿' : '⎇'}</span>
+                                        <span className="git-branch-icon">{isWorktree ? '🌿' : <BranchIcon size={12} />}</span>
                                         {gitBranch}
                                     </span>
                                 )}

@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import './SessionTab.css';
-import ToolIcon from './ToolIcon';
+import ToolIcon, { BranchIcon } from './ToolIcon';
 import { useTooltip } from './Tooltip';
 import { createLogger } from './logger';
 import { getPaneList, findPane, countPanes } from './layoutUtils';
@@ -123,7 +123,7 @@ export default function SessionTab({ tab, index, isActive, onSwitch, onClose, on
                 {/* Git branch */}
                 {session.gitBranch && (
                     <div className="tooltip-row tooltip-git">
-                        <span className="tooltip-icon">{session.isWorktree ? '🌿' : '⎇'}</span>
+                        <span className="tooltip-icon">{session.isWorktree ? '🌿' : <BranchIcon size={12} />}</span>
                         <span>
                             {session.gitBranch}
                             {session.isWorktree && ' (worktree)'}

@@ -2,13 +2,13 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { StartTmuxSession, StartRemoteTmuxSession, CloseTerminal, ResizeTerminal, WriteTerminal, GetGitBranch, IsGitWorktree } from '../wailsjs/go/main/App';
+import { StartTmuxSession, StartRemoteTmuxSession, CloseTerminal, ResizeTerminal, WriteTerminal, GetGitBranch, IsGitWorktree, GetSessionMetadata } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE } from './constants/terminal';
 import { EventsOn } from '../wailsjs/runtime/runtime';
 import { useTheme } from './context/ThemeContext';
 import { getTerminalTheme } from './themes/terminal';
-import ToolIcon from './ToolIcon';
+import ToolIcon, { BranchIcon } from './ToolIcon';
 
 const logger = createLogger('SessionPreview');
 
@@ -54,15 +54,17 @@ export default function SessionPreview({ session, onAttach, fontSize = DEFAULT_F
         return date.toLocaleDateString();
     }, []);
 
-    // Load git info when session changes
+    // Load git info when session changes - use real-time cwd from tmux
     useEffect(() => {
-        if (session?.projectPath) {
-            Promise.all([
-                GetGitBranch(session.projectPath),
-                IsGitWorktree(session.projectPath)
-            ]).then(([branch, worktree]) => {
-                setGitBranch(branch || '');
-                setIsWorktree(worktree);
+        if (session?.tmuxSession) {
+            GetSessionMetadata(session.tmuxSession).then(async (metadata) => {
+                setGitBranch(metadata.gitBranch || '');
+                if (metadata.cwd) {
+                    const worktree = await IsGitWorktree(metadata.cwd);
+                    setIsWorktree(worktree);
+                } else {
+                    setIsWorktree(false);
+                }
             }).catch(() => {
                 setGitBranch('');
                 setIsWorktree(false);
@@ -71,7 +73,7 @@ export default function SessionPreview({ session, onAttach, fontSize = DEFAULT_F
             setGitBranch('');
             setIsWorktree(false);
         }
-    }, [session?.projectPath]);
+    }, [session?.tmuxSession]);
 
     // Update terminal theme when app theme changes
     useEffect(() => {
@@ -304,7 +306,7 @@ export default function SessionPreview({ session, onAttach, fontSize = DEFAULT_F
                             )}
                             {(gitBranch || session.gitBranch) && (
                                 <span className={`preview-branch${isWorktree || session.isWorktree ? ' worktree' : ''}`}>
-                                    {isWorktree || session.isWorktree ? '🌿' : '⎇'} {gitBranch || session.gitBranch}
+                                    {isWorktree || session.isWorktree ? '🌿' : <BranchIcon size={12} />} {gitBranch || session.gitBranch}
                                 </span>
                             )}
                             {relativeTime && (
