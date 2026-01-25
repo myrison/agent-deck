@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ListSessionsWithGroups, GetProjectRoots, UpdateSessionCustomLabel, GetExpandedGroups, ToggleGroupExpanded, GetSSHHostStatus } from '../wailsjs/go/main/App';
+import { useState, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
+import { ListSessionsWithGroups, GetProjectRoots, UpdateSessionCustomLabel, GetExpandedGroups, ToggleGroupExpanded, SetAllGroupsExpanded, GetSSHHostStatus } from '../wailsjs/go/main/App';
 import './SessionSelector.css';
 import { createLogger } from './logger';
 import ToolIcon from './ToolIcon';
@@ -7,6 +7,7 @@ import { useTooltip } from './Tooltip';
 import ShortcutBar from './ShortcutBar';
 import RenameDialog from './RenameDialog';
 import GroupHeader from './GroupHeader';
+import GroupControls from './GroupControls';
 
 const logger = createLogger('SessionSelector');
 
@@ -63,7 +64,7 @@ function getRelativeProjectPath(fullPath, projectRoots) {
     return fullPath;
 }
 
-export default function SessionSelector({ onSelect, onNewTerminal, statusFilter = 'all', onCycleFilter, onOpenPalette, onOpenHelp }) {
+const SessionSelector = forwardRef(function SessionSelector({ onSelect, onNewTerminal, statusFilter = 'all', onCycleFilter, onOpenPalette, onOpenHelp }, ref) {
     const [sessions, setSessions] = useState([]);
     const [groups, setGroups] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -290,6 +291,63 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
             logger.error('Failed to toggle group:', err);
         }
     }, []);
+
+    // Collapse all groups
+    const handleCollapseAll = useCallback(async () => {
+        try {
+            const groupPaths = groups.map(g => g.path);
+            await SetAllGroupsExpanded(groupPaths, false);
+            const newExpandedGroups = {};
+            for (const path of groupPaths) {
+                newExpandedGroups[path] = false;
+            }
+            setExpandedGroups(newExpandedGroups);
+            logger.info('Collapsed all groups', { count: groupPaths.length });
+        } catch (err) {
+            logger.error('Failed to collapse all groups:', err);
+        }
+    }, [groups]);
+
+    // Expand all groups
+    const handleExpandAll = useCallback(async () => {
+        try {
+            const groupPaths = groups.map(g => g.path);
+            await SetAllGroupsExpanded(groupPaths, true);
+            const newExpandedGroups = {};
+            for (const path of groupPaths) {
+                newExpandedGroups[path] = true;
+            }
+            setExpandedGroups(newExpandedGroups);
+            logger.info('Expanded all groups', { count: groupPaths.length });
+        } catch (err) {
+            logger.error('Failed to expand all groups:', err);
+        }
+    }, [groups]);
+
+    // Toggle all groups: collapse if any expanded, expand if all collapsed
+    const handleToggleAllGroups = useCallback(async () => {
+        let anyExpanded = false;
+        for (const group of groups) {
+            const isExpanded = expandedGroups.hasOwnProperty(group.path)
+                ? expandedGroups[group.path]
+                : (group.expanded ?? true);
+            if (isExpanded) {
+                anyExpanded = true;
+                break;
+            }
+        }
+
+        if (anyExpanded) {
+            await handleCollapseAll();
+        } else {
+            await handleExpandAll();
+        }
+    }, [groups, expandedGroups, handleCollapseAll, handleExpandAll]);
+
+    // Expose toggle function to parent via ref
+    useImperativeHandle(ref, () => ({
+        toggleAllGroups: handleToggleAllGroups,
+    }), [handleToggleAllGroups]);
 
     // Check if a group path is visible (all ancestors are expanded)
     const isGroupVisible = useCallback((groupPath) => {
@@ -547,6 +605,14 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
             <div className="session-header">
                 <h2>Agent Deck Sessions</h2>
                 <div className="header-controls">
+                    {groups.length > 0 && (
+                        <GroupControls
+                            groups={groups}
+                            expandedGroups={expandedGroups}
+                            onCollapseAll={handleCollapseAll}
+                            onExpandAll={handleExpandAll}
+                        />
+                    )}
                     <button
                         className="filter-btn"
                         onClick={onCycleFilter}
@@ -717,4 +783,6 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
             )}
         </div>
     );
-}
+});
+
+export default SessionSelector;
