@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -462,6 +463,23 @@ func (t *Terminal) pollRemoteTmuxOnce(hostID, tmuxSession string) {
 
 	tmuxPath := sshBridge.GetTmuxPath(hostID)
 
+	// Get tmux info including cursor position (for click-to-cursor feature)
+	infoCmd := fmt.Sprintf("%s display-message -t %q -p '#{history_size},#{alternate_on},#{cursor_x},#{cursor_y}'",
+		tmuxPath, tmuxSession)
+	infoOutput, infoErr := sshBridge.RunCommand(hostID, infoCmd)
+	if infoErr == nil && t.ctx != nil {
+		parts := strings.Split(strings.TrimSpace(infoOutput), ",")
+		if len(parts) >= 4 {
+			cursorX, _ := strconv.Atoi(parts[2])
+			cursorY, _ := strconv.Atoi(parts[3])
+			runtime.EventsEmit(t.ctx, "terminal:cursor", map[string]interface{}{
+				"sessionId": t.sessionID,
+				"cursorX":   cursorX,
+				"cursorY":   cursorY,
+			})
+		}
+	}
+
 	// Capture current viewport from remote
 	captureCmd := fmt.Sprintf("%s capture-pane -t %q -p -e", tmuxPath, tmuxSession)
 	output, err := sshBridge.RunCommand(hostID, captureCmd)
@@ -761,8 +779,8 @@ func (t *Terminal) pollTmuxOnce() {
 		return
 	}
 
-	// Step 1: Get tmux info - history size and alt-screen status
-	historySize, inAltScreen, err := tracker.GetTmuxInfo()
+	// Step 1: Get tmux info - history size, alt-screen status, and cursor position
+	historySize, inAltScreen, cursorX, cursorY, err := tracker.GetTmuxInfo()
 	if err != nil {
 		t.debugLog("[POLL] GetTmuxInfo error: %v", err)
 		// Session might have ended
@@ -771,6 +789,15 @@ func (t *Terminal) pollTmuxOnce() {
 		}
 		t.stopTmuxPolling()
 		return
+	}
+
+	// Emit cursor position for click-to-cursor feature
+	if t.ctx != nil {
+		runtime.EventsEmit(t.ctx, "terminal:cursor", map[string]interface{}{
+			"sessionId": t.sessionID,
+			"cursorX":   cursorX,
+			"cursorY":   cursorY,
+		})
 	}
 
 	// Step 2: Track alt-screen state changes (vim, less, htop)
