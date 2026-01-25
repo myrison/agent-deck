@@ -242,59 +242,6 @@ function App() {
         }
     }, [view, loadSessionsAndProjects]);
 
-    // Handle layout actions from command palette
-    const handleLayoutAction = useCallback((actionId) => {
-        logger.info('Layout action from palette', { actionId });
-        switch (actionId) {
-            case 'split-right':
-                handleSplitPane('vertical');
-                break;
-            case 'split-down':
-                handleSplitPane('horizontal');
-                break;
-            case 'close-pane':
-                handleClosePane();
-                break;
-            case 'balance-panes':
-                handleBalancePanes();
-                break;
-            case 'toggle-zoom':
-                handleToggleZoom();
-                break;
-            case 'move-to-pane':
-                handleEnterMoveMode();
-                break;
-            case 'layout-single':
-                handleApplyPreset('single');
-                break;
-            case 'layout-2-col':
-                handleApplyPreset('2-col');
-                break;
-            case 'layout-2-row':
-                handleApplyPreset('2-row');
-                break;
-            case 'layout-2x2':
-                handleApplyPreset('2x2');
-                break;
-            case 'save-layout':
-                handleOpenSaveLayoutModal();
-                break;
-            default:
-                // Check for saved layout IDs (format: 'saved-layout:id')
-                if (actionId.startsWith('saved-layout:')) {
-                    const layoutId = actionId.replace('saved-layout:', '');
-                    const savedLayout = savedLayouts.find(l => l.id === layoutId);
-                    if (savedLayout) {
-                        handleApplySavedLayout(savedLayout);
-                    } else {
-                        logger.warn('Saved layout not found:', layoutId);
-                    }
-                } else {
-                    logger.warn('Unknown layout action:', actionId);
-                }
-        }
-    }, [handleSplitPane, handleClosePane, handleBalancePanes, handleToggleZoom, handleEnterMoveMode, handleApplyPreset, handleOpenSaveLayoutModal, savedLayouts, handleApplySavedLayout]);
-
     // Get the current active tab
     const activeTab = openTabs.find(t => t.id === activeTabId);
 
@@ -719,6 +666,60 @@ function App() {
         const firstPane = findPane(layout, firstPaneId);
         setSelectedSession(firstPane?.session || null);
     }, [activeTab, activeTabId]);
+
+    // Handle layout actions from command palette
+    // NOTE: Defined after all the handlers it depends on to avoid forward reference issues
+    const handleLayoutAction = useCallback((actionId) => {
+        logger.info('Layout action from palette', { actionId });
+        switch (actionId) {
+            case 'split-right':
+                handleSplitPane('vertical');
+                break;
+            case 'split-down':
+                handleSplitPane('horizontal');
+                break;
+            case 'close-pane':
+                handleClosePane();
+                break;
+            case 'balance-panes':
+                handleBalancePanes();
+                break;
+            case 'toggle-zoom':
+                handleToggleZoom();
+                break;
+            case 'move-to-pane':
+                handleEnterMoveMode();
+                break;
+            case 'layout-single':
+                handleApplyPreset('single');
+                break;
+            case 'layout-2-col':
+                handleApplyPreset('2-col');
+                break;
+            case 'layout-2-row':
+                handleApplyPreset('2-row');
+                break;
+            case 'layout-2x2':
+                handleApplyPreset('2x2');
+                break;
+            case 'save-layout':
+                handleOpenSaveLayoutModal();
+                break;
+            default:
+                // Check for saved layout IDs (format: 'saved-layout:id')
+                if (actionId.startsWith('saved-layout:')) {
+                    const layoutId = actionId.replace('saved-layout:', '');
+                    const savedLayout = savedLayouts.find(l => l.id === layoutId);
+                    if (savedLayout) {
+                        handleApplySavedLayout(savedLayout);
+                    } else {
+                        logger.warn('Saved layout not found:', layoutId);
+                    }
+                } else {
+                    logger.warn('Unknown layout action:', actionId);
+                }
+        }
+    }, [handleSplitPane, handleClosePane, handleBalancePanes, handleToggleZoom, handleEnterMoveMode, handleApplyPreset, handleOpenSaveLayoutModal, savedLayouts, handleApplySavedLayout]);
 
     // Delete a saved layout
     const handleDeleteSavedLayout = useCallback(async (layoutId) => {
