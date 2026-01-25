@@ -336,3 +336,18 @@ func (dsm *DesktopSettingsManager) ResetGroupSettings() error {
 	settings := &GroupSettings{ExpandedGroups: make(map[string]bool)}
 	return dsm.saveGroupSettings(settings)
 }
+
+// SetAllGroupsExpanded sets the expanded state for all provided group paths.
+// This is more efficient than calling SetGroupExpanded multiple times.
+func (dsm *DesktopSettingsManager) SetAllGroupsExpanded(groupPaths []string, expanded bool) error {
+	settings, err := dsm.loadGroupSettings()
+	if err != nil {
+		settings = &GroupSettings{ExpandedGroups: make(map[string]bool)}
+	}
+
+	for _, path := range groupPaths {
+		settings.ExpandedGroups[path] = expanded
+	}
+
+	return dsm.saveGroupSettings(settings)
+}

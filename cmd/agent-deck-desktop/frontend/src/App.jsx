@@ -1262,6 +1262,14 @@ function App() {
             e.preventDefault();
             handleCycleStatusFilter();
         }
+        // Cmd+Shift+H to toggle collapse/expand all groups (only in selector view)
+        if (appMod && e.shiftKey && e.key === 'H' && view === 'selector') {
+            e.preventDefault();
+            logger.info('Cmd+Shift+H pressed - toggling all groups');
+            if (sessionSelectorRef.current?.toggleAllGroups) {
+                sessionSelectorRef.current.toggleAllGroups();
+            }
+        }
         // Cmd+Shift+, to open settings (works in both views)
         if (appMod && e.shiftKey && e.key === ',') {
             e.preventDefault();
@@ -1421,6 +1429,7 @@ function App() {
                     />
                 )}
                 <SessionSelector
+                    ref={sessionSelectorRef}
                     onSelect={handleSelectSession}
                     onNewTerminal={handleNewTerminal}
                     statusFilter={statusFilter}

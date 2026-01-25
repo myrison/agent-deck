@@ -48,6 +48,8 @@ export function GetSavedLayoutByID(arg1:string):Promise<main.SavedLayout>;
 
 export function GetSavedLayouts():Promise<Array<main.SavedLayout>>;
 
+export function GetSessionMetadata(arg1:string):Promise<main.SessionMetadata>;
+
 export function GetScrollback(arg1:string):Promise<string>;
 
 export function GetSoftNewlineMode():Promise<string>;
@@ -75,6 +77,8 @@ export function RefreshScrollback(arg1:string):Promise<string>;
 export function RemoveQuickLaunchFavorite(arg1:string):Promise<void>;
 
 export function ResetGroupSettings():Promise<void>;
+
+export function SetAllGroupsExpanded(arg1:Array<string>,arg2:boolean):Promise<void>;
 
 export function ResizeTerminal(arg1:string,arg2:number,arg3:number):Promise<void>;
 
