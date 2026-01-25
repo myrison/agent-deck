@@ -1631,15 +1631,12 @@ func (h *Home) runRemoteDiscovery() {
 	}
 
 	// Save to storage if anything changed
-	if needsSave && h.storage != nil {
-		h.instancesMu.RLock()
-		instances := make([]*session.Instance, len(h.instances))
-		copy(instances, h.instances)
-		h.instancesMu.RUnlock()
-
-		if err := h.storage.SaveWithGroups(instances, h.groupTree); err != nil {
-			log.Printf("[REMOTE-DISCOVERY] Failed to save: %v", err)
-		}
+	// IMPORTANT: Use saveInstances() instead of direct SaveWithGroups() to:
+	// 1. Check isReloading flag (prevents overwriting external changes during reload)
+	// 2. Call NotifySave() (prevents storage watcher from triggering on our own save)
+	// 3. Apply other defensive checks (empty instance protection, profile mismatch)
+	if needsSave {
+		h.saveInstances()
 	}
 
 	// Invalidate status cache to force UI refresh
