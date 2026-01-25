@@ -8,12 +8,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/asheshgoplani/agent-deck/internal/session"
 )
+
+// shellUnsafePattern matches characters that could cause shell injection.
+// Used to validate arguments before building remote shell commands.
+var shellUnsafePattern = regexp.MustCompile(`[;&|$` + "`" + `\\(){}[\]<>!*?#~]`)
 
 // SessionInfo represents an Agent Deck session for the frontend.
 type SessionInfo struct {
@@ -395,6 +400,104 @@ func (tm *TmuxManager) SessionExists(tmuxSession string) bool {
 	return cmd.Run() == nil
 }
 
+// toolCommandResult holds the result of building a tool command from a launch config.
+type toolCommandResult struct {
+	toolCmd          string
+	cmdArgs          []string
+	launchConfigName string
+	loadedMCPs       []string
+	dangerousMode    bool
+}
+
+// buildToolCommand constructs the tool command and arguments from a tool name and optional config key.
+// If forRemote is true, MCP config paths with ~ are NOT expanded (let remote shell handle it).
+// Returns the command parts needed to launch the AI tool.
+func buildToolCommand(tool, configKey string, forRemote bool) toolCommandResult {
+	result := toolCommandResult{}
+
+	// Get base tool command
+	switch tool {
+	case "claude":
+		result.toolCmd = "claude"
+	case "gemini":
+		result.toolCmd = "gemini"
+	case "opencode":
+		result.toolCmd = "opencode"
+	default:
+		result.toolCmd = tool // Allow custom tools
+	}
+
+	// Apply launch config if provided
+	if configKey != "" {
+		cfg := session.GetLaunchConfigByKey(configKey)
+		if cfg != nil {
+			result.launchConfigName = cfg.Name
+			result.dangerousMode = cfg.DangerousMode
+
+			// Add dangerous mode flag
+			if cfg.DangerousMode {
+				switch tool {
+				case "claude":
+					result.cmdArgs = append(result.cmdArgs, "--dangerously-skip-permissions")
+				case "gemini":
+					result.cmdArgs = append(result.cmdArgs, "--yolo")
+				}
+			}
+
+			// Add MCP config path if specified
+			if cfg.MCPConfigPath != "" {
+				var mcpPath string
+				if forRemote {
+					// For remote sessions, don't expand ~ locally - the remote shell will handle it.
+					// This ensures the path refers to the remote user's home directory.
+					mcpPath = cfg.MCPConfigPath
+				} else {
+					// For local sessions, expand ~ to the local home directory.
+					expandedPath, err := cfg.ExpandMCPConfigPath()
+					if err == nil && expandedPath != "" {
+						mcpPath = expandedPath
+					}
+				}
+				if mcpPath != "" {
+					switch tool {
+					case "claude":
+						result.cmdArgs = append(result.cmdArgs, "--mcp-config", mcpPath)
+					}
+					// Parse MCP names for display (uses local expansion for parsing)
+					if mcpNames, err := cfg.ParseMCPNames(); err == nil {
+						result.loadedMCPs = mcpNames
+					}
+				}
+			}
+
+			// Add extra args
+			result.cmdArgs = append(result.cmdArgs, cfg.ExtraArgs...)
+		}
+	}
+
+	return result
+}
+
+// sanitizeShellArg checks if an argument is safe for shell command construction.
+// Returns an error if the argument contains shell metacharacters.
+func sanitizeShellArg(arg string) error {
+	if shellUnsafePattern.MatchString(arg) {
+		return fmt.Errorf("argument contains unsafe shell characters: %q", arg)
+	}
+	return nil
+}
+
+// sanitizeShellArgs validates all arguments are safe for shell command construction.
+// Returns an error if any argument contains shell metacharacters.
+func sanitizeShellArgs(args []string) error {
+	for _, arg := range args {
+		if err := sanitizeShellArg(arg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // CreateSession creates a new tmux session and launches an AI tool.
 // If configKey is non-empty, the launch config settings will be applied.
 // The session is persisted to sessions.json so it survives app restarts.
@@ -412,68 +515,16 @@ func (tm *TmuxManager) CreateSession(projectPath, title, tool, configKey string)
 	}
 
 	// Build tool command with optional launch config settings
-	var toolCmd string
-	var cmdArgs []string
-	var dangerousMode bool
-	var loadedMCPs []string
-	var launchConfigName string
-
-	// Get base tool command
-	switch tool {
-	case "claude":
-		toolCmd = "claude"
-	case "gemini":
-		toolCmd = "gemini"
-	case "opencode":
-		toolCmd = "opencode"
-	default:
-		toolCmd = tool // Allow custom tools
-	}
-
-	// Apply launch config if provided
-	if configKey != "" {
-		cfg := session.GetLaunchConfigByKey(configKey)
-		if cfg != nil {
-			launchConfigName = cfg.Name
-			dangerousMode = cfg.DangerousMode
-
-			// Add dangerous mode flag
-			if cfg.DangerousMode {
-				switch tool {
-				case "claude":
-					cmdArgs = append(cmdArgs, "--dangerously-skip-permissions")
-				case "gemini":
-					cmdArgs = append(cmdArgs, "--yolo")
-				}
-			}
-
-			// Add MCP config path if specified
-			if cfg.MCPConfigPath != "" {
-				expandedPath, err := cfg.ExpandMCPConfigPath()
-				if err == nil && expandedPath != "" {
-					switch tool {
-					case "claude":
-						cmdArgs = append(cmdArgs, "--mcp-config", expandedPath)
-					}
-					// Parse MCP names for display
-					if mcpNames, err := cfg.ParseMCPNames(); err == nil {
-						loadedMCPs = mcpNames
-					}
-				}
-			}
-
-			// Add extra args
-			cmdArgs = append(cmdArgs, cfg.ExtraArgs...)
-		}
-	}
+	tcr := buildToolCommand(tool, configKey, false /* forRemote */)
 
 	// Build the full command string
-	fullCmd := toolCmd
-	if len(cmdArgs) > 0 {
-		fullCmd = toolCmd + " " + strings.Join(cmdArgs, " ")
+	fullCmd := tcr.toolCmd
+	if len(tcr.cmdArgs) > 0 {
+		fullCmd = tcr.toolCmd + " " + strings.Join(tcr.cmdArgs, " ")
 	}
 
 	// Send the tool command to the session
+	// Note: exec.Command handles argument escaping properly for local execution
 	sendCmd := exec.Command("tmux", "send-keys", "-t", sessionName, fullCmd, "Enter")
 	if err := sendCmd.Run(); err != nil {
 		// Don't fail if we can't send the command, the session is still usable
@@ -496,9 +547,9 @@ func (tm *TmuxManager) CreateSession(projectPath, title, tool, configKey string)
 		Tool:             tool,
 		Status:           "running",
 		TmuxSession:      sessionName,
-		LaunchConfigName: launchConfigName,
-		LoadedMCPs:       loadedMCPs,
-		DangerousMode:    dangerousMode,
+		LaunchConfigName: tcr.launchConfigName,
+		LoadedMCPs:       tcr.loadedMCPs,
+		DangerousMode:    tcr.dangerousMode,
 		LastAccessedAt:   time.Now(),
 	}
 
@@ -537,74 +588,33 @@ func (tm *TmuxManager) CreateRemoteSession(hostID, projectPath, title, tool, con
 	}
 
 	// Build tool command with optional launch config settings
-	var toolCmd string
-	var cmdArgs []string
-	var dangerousMode bool
-	var loadedMCPs []string
-	var launchConfigName string
+	// forRemote=true: don't expand ~ locally, let remote shell handle it
+	tcr := buildToolCommand(tool, configKey, true /* forRemote */)
 
-	// Get base tool command
-	switch tool {
-	case "claude":
-		toolCmd = "claude"
-	case "gemini":
-		toolCmd = "gemini"
-	case "opencode":
-		toolCmd = "opencode"
-	default:
-		toolCmd = tool // Allow custom tools
-	}
-
-	// Apply launch config if provided
-	if configKey != "" {
-		cfg := session.GetLaunchConfigByKey(configKey)
-		if cfg != nil {
-			launchConfigName = cfg.Name
-			dangerousMode = cfg.DangerousMode
-
-			// Add dangerous mode flag
-			if cfg.DangerousMode {
-				switch tool {
-				case "claude":
-					cmdArgs = append(cmdArgs, "--dangerously-skip-permissions")
-				case "gemini":
-					cmdArgs = append(cmdArgs, "--yolo")
-				}
-			}
-
-			// Add MCP config path if specified
-			// Note: MCP config paths for remote sessions should reference paths on the remote host
-			if cfg.MCPConfigPath != "" {
-				expandedPath, err := cfg.ExpandMCPConfigPath()
-				if err == nil && expandedPath != "" {
-					switch tool {
-					case "claude":
-						cmdArgs = append(cmdArgs, "--mcp-config", expandedPath)
-					}
-					// Parse MCP names for display
-					if mcpNames, err := cfg.ParseMCPNames(); err == nil {
-						loadedMCPs = mcpNames
-					}
-				}
-			}
-
-			// Add extra args
-			cmdArgs = append(cmdArgs, cfg.ExtraArgs...)
-		}
+	// Validate arguments are safe for shell command construction.
+	// This prevents command injection via malicious ExtraArgs.
+	if err := sanitizeShellArgs(tcr.cmdArgs); err != nil {
+		// Clean up the remote tmux session we created
+		killCmd := fmt.Sprintf("%s kill-session -t %s", tmuxPath, sessionName)
+		_, _ = sshBridge.RunCommand(hostID, killCmd) // Best-effort cleanup
+		return SessionInfo{}, fmt.Errorf("unsafe characters in launch config arguments: %w", err)
 	}
 
 	// Build the full command string
-	fullCmd := toolCmd
-	if len(cmdArgs) > 0 {
-		fullCmd = toolCmd + " " + strings.Join(cmdArgs, " ")
+	fullCmd := tcr.toolCmd
+	if len(tcr.cmdArgs) > 0 {
+		fullCmd = tcr.toolCmd + " " + strings.Join(tcr.cmdArgs, " ")
 	}
 
 	// Send the tool command to the remote session
 	// Escape single quotes in command for shell safety
 	escapedCmd := strings.ReplaceAll(fullCmd, "'", "'\\''")
 	sendCmd := fmt.Sprintf("%s send-keys -t %s '%s' Enter", tmuxPath, sessionName, escapedCmd)
+
+	// Track whether the tool command was sent successfully
+	toolCommandSent := true
 	if _, err := sshBridge.RunCommand(hostID, sendCmd); err != nil {
-		// Don't fail if we can't send the command, the session is still usable
+		toolCommandSent = false
 		fmt.Printf("Warning: failed to send tool command to remote session: %v\n", err)
 	}
 
@@ -615,6 +625,12 @@ func (tm *TmuxManager) CreateRemoteSession(hostID, projectPath, title, tool, con
 		customLabel = fmt.Sprintf("#%d", count+1)
 	}
 
+	// Determine status based on whether tool command was sent
+	status := "running"
+	if !toolCommandSent {
+		status = "idle" // Tool didn't start, session is just an empty shell
+	}
+
 	// Build session info with remote fields set
 	sessionInfo := SessionInfo{
 		ID:               sessionID,
@@ -622,13 +638,13 @@ func (tm *TmuxManager) CreateRemoteSession(hostID, projectPath, title, tool, con
 		CustomLabel:      customLabel,
 		ProjectPath:      projectPath,
 		Tool:             tool,
-		Status:           "running",
+		Status:           status,
 		TmuxSession:      sessionName,
 		IsRemote:         true,
 		RemoteHost:       hostID,
-		LaunchConfigName: launchConfigName,
-		LoadedMCPs:       loadedMCPs,
-		DangerousMode:    dangerousMode,
+		LaunchConfigName: tcr.launchConfigName,
+		LoadedMCPs:       tcr.loadedMCPs,
+		DangerousMode:    tcr.dangerousMode,
 		LastAccessedAt:   time.Now(),
 	}
 
