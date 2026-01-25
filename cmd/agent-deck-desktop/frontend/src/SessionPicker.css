@@ -1,0 +1,299 @@
+/* Session Picker Overlay */
+.session-picker-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--modal-overlay);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1100; /* Above command menu */
+}
+
+/* Session Picker Container */
+.session-picker-container {
+    width: 100%;
+    max-width: 450px;
+    max-height: 70vh;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 10px;
+    box-shadow: 0 16px 48px var(--modal-shadow);
+    overflow: hidden;
+    outline: none;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Header */
+.session-picker-header {
+    padding: 20px;
+    border-bottom: 1px solid var(--border-secondary);
+}
+
+.session-picker-header h3 {
+    margin: 0;
+    font-size: var(--font-2xl);
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.session-picker-path {
+    margin: 8px 0 0 0;
+    font-size: var(--font-base);
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Section */
+.session-picker-section {
+    padding: 8px;
+}
+
+.session-picker-section-title {
+    font-size: var(--font-sm);
+    color: var(--text-dimmed);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 4px 12px 8px;
+}
+
+/* Options */
+.session-picker-options {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+
+.session-picker-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 12px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    text-align: left;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.session-picker-option:hover,
+.session-picker-option.selected {
+    background: var(--bg-selected);
+}
+
+/* Tool Icon (small) */
+.session-picker-tool-icon {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    flex-shrink: 0;
+}
+
+/* Status Indicator */
+.session-picker-status {
+    font-size: 10px;
+    width: 12px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.session-picker-status.running {
+    color: #4caf50;
+}
+
+.session-picker-status.waiting {
+    color: var(--text-muted);
+}
+
+.session-picker-status.error {
+    color: #f44336;
+}
+
+.session-picker-status.unknown {
+    color: var(--text-dimmed);
+}
+
+/* Session Info */
+.session-picker-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.session-picker-label {
+    font-weight: 500;
+    font-size: var(--font-lg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.session-picker-meta {
+    font-size: var(--font-sm);
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.session-picker-meta kbd {
+    display: inline-block;
+    background: var(--kbd-bg);
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-family: inherit;
+    font-size: var(--font-xs);
+    color: var(--kbd-text);
+}
+
+/* Host Badge */
+.session-picker-host {
+    font-size: var(--font-sm);
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.session-picker-host.remote {
+    background: var(--accent-subtle, rgba(122, 162, 247, 0.15));
+    color: var(--accent-color, #7aa2f7);
+}
+
+.session-picker-host.local {
+    background: var(--bg-tertiary);
+    color: var(--text-dimmed);
+}
+
+/* Shortcut Badge */
+.session-picker-shortcut {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--kbd-bg);
+    border-radius: 4px;
+    font-size: var(--font-base);
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+/* New Session Option */
+.session-picker-new {
+    border-top: 1px solid var(--border-secondary);
+    margin-top: 4px;
+    padding-top: 12px;
+}
+
+.session-picker-new-icon {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    background: var(--accent-subtle, rgba(122, 162, 247, 0.15));
+    color: var(--accent-color, #7aa2f7);
+    font-size: 16px;
+    font-weight: bold;
+    flex-shrink: 0;
+}
+
+/* Label Input Mode */
+.session-picker-label-input {
+    padding: 20px;
+}
+
+.session-picker-label-input label {
+    display: block;
+    font-size: var(--font-base);
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.session-picker-label-input input {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: var(--font-lg);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    color: var(--text-primary);
+    outline: none;
+}
+
+.session-picker-label-input input:focus {
+    border-color: var(--accent-color, #7aa2f7);
+}
+
+.session-picker-label-input input::placeholder {
+    color: var(--text-dimmed);
+}
+
+.session-picker-label-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 12px;
+}
+
+.session-picker-label-actions button {
+    padding: 8px 16px;
+    font-size: var(--font-base);
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    transition: background 0.1s;
+}
+
+.session-picker-label-actions button:hover {
+    background: var(--bg-hover);
+}
+
+.session-picker-label-actions button.primary {
+    background: var(--accent-color, #7aa2f7);
+    color: white;
+}
+
+.session-picker-label-actions button.primary:hover {
+    background: var(--accent-hover, #5a82d7);
+}
+
+/* Footer Hints */
+.session-picker-footer {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+    border-top: 1px solid var(--border-secondary);
+    background: var(--bg-tertiary);
+}
+
+.session-picker-hint {
+    font-size: var(--font-md);
+    color: var(--text-dimmed);
+}
+
+.session-picker-hint kbd {
+    display: inline-block;
+    background: var(--kbd-bg);
+    border-radius: 3px;
+    padding: 2px 5px;
+    margin-right: 3px;
+    font-family: inherit;
+    font-size: var(--font-sm);
+    color: var(--kbd-text);
+}
