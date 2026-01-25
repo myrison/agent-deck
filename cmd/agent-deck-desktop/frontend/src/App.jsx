@@ -1272,8 +1272,9 @@ function App() {
             logger.info('Switching to next tab');
             handleSwitchTab(nextTab.id);
         }
-        // Cmd+Escape to go back to session selector
-        if (appMod && e.key === 'Escape' && inTerminal) {
+        // Cmd+Escape to go back to session selector (skip when any modal is open)
+        const anyModalOpen = showSettings || showSearch || showLabelDialog || showCommandPalette;
+        if (appMod && e.key === 'Escape' && inTerminal && !anyModalOpen) {
             e.preventDefault();
             handleBackToSelector();
         }
@@ -1429,7 +1430,7 @@ function App() {
             e.preventDefault();
             handleFontSizeReset();
         }
-    }, [view, showSearch, showHelpModal, handleBackToSelector, buildShortcutKey, shortcuts, savedLayoutShortcuts, handleLaunchProject, handleApplySavedLayout, handleCycleStatusFilter, handleOpenHelp, handleNewTerminal, handleOpenSettings, selectedSession, activeTabId, openTabs, handleCloseTab, handleSwitchTab, handleFontSizeChange, handleFontSizeReset, activeTab, handleSplitPane, handleClosePane, handleNavigatePane, handleCyclicNavigatePane, handleToggleZoom, handleExitZoom, handleBalancePanes, handleApplyPreset, moveMode, handleMoveToPane, handleExitMoveMode]);
+    }, [view, showSearch, showHelpModal, showSettings, showLabelDialog, showCommandPalette, handleBackToSelector, buildShortcutKey, shortcuts, savedLayoutShortcuts, handleLaunchProject, handleApplySavedLayout, handleCycleStatusFilter, handleOpenHelp, handleNewTerminal, handleOpenSettings, selectedSession, activeTabId, openTabs, handleCloseTab, handleSwitchTab, handleFontSizeChange, handleFontSizeReset, activeTab, handleSplitPane, handleClosePane, handleNavigatePane, handleCyclicNavigatePane, handleToggleZoom, handleExitZoom, handleBalancePanes, handleApplyPreset, moveMode, handleMoveToPane, handleExitMoveMode]);
 
     useEffect(() => {
         // Use capture phase to intercept keys before terminal swallows them
@@ -1592,7 +1593,7 @@ function App() {
                 />
             )}
             <div className="terminal-header">
-                <button className="back-button" onClick={handleBackToSelector} title="Back to sessions (Cmd+Esc)">
+                <button className="back-button" onClick={handleBackToSelector} title="Back to sessions (⌘Esc)">
                     ← Sessions
                 </button>
                 {activeTab && (
