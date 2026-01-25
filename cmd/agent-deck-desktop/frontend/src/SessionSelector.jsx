@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ListSessionsWithGroups, GetProjectRoots, UpdateSessionCustomLabel, GetExpandedGroups, ToggleGroupExpanded } from '../wailsjs/go/main/App';
+import { ListSessionsWithGroups, GetProjectRoots, UpdateSessionCustomLabel, GetExpandedGroups, ToggleGroupExpanded, GetSSHHostStatus } from '../wailsjs/go/main/App';
 import './SessionSelector.css';
 import { createLogger } from './logger';
 import ToolIcon from './ToolIcon';
@@ -73,6 +73,7 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
     const [contextMenu, setContextMenu] = useState(null); // { x, y, session }
     const [labelingSession, setLabelingSession] = useState(null); // session being labeled
     const [expandedGroups, setExpandedGroups] = useState({}); // path -> bool (desktop overrides)
+    const [sshHostStatus, setSshHostStatus] = useState({}); // hostId -> { connected, lastError }
     const { show: showTooltip, hide: hideTooltip, Tooltip } = useTooltip();
 
     useEffect(() => {
@@ -93,6 +94,35 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
         } catch (err) {
             logger.warn('Failed to load expanded groups:', err);
         }
+    }, []);
+
+    // Poll SSH host status for connection indicators
+    useEffect(() => {
+        const fetchHostStatus = async () => {
+            try {
+                const statuses = await GetSSHHostStatus();
+                if (Array.isArray(statuses)) {
+                    // Build map: hostId -> { connected, lastError }
+                    const statusMap = {};
+                    for (const s of statuses) {
+                        statusMap[s.hostId] = {
+                            connected: s.connected,
+                            lastError: s.lastError,
+                        };
+                    }
+                    setSshHostStatus(statusMap);
+                }
+            } catch (err) {
+                logger.warn('Failed to fetch SSH host status:', err);
+            }
+        };
+
+        // Initial fetch
+        fetchHostStatus();
+
+        // Poll every 30 seconds
+        const interval = setInterval(fetchHostStatus, 30000);
+        return () => clearInterval(interval);
     }, []);
 
     // Tooltip content builder for sessions - returns JSX for rich formatting
@@ -595,11 +625,19 @@ export default function SessionSelector({ onSelect, onNewTerminal, statusFilter 
                                         {session.dangerousMode && (
                                             <span className="session-danger-icon" title="Dangerous mode enabled">⚠</span>
                                         )}
-                                        {session.isRemote && (
-                                            <span className="session-remote-badge" title={`Remote session on ${session.remoteHost}`}>
-                                                {session.remoteHost}
-                                            </span>
-                                        )}
+                                        {session.isRemote && (() => {
+                                            const hostStatus = sshHostStatus[session.remoteHost];
+                                            const isDisconnected = hostStatus?.connected === false;
+                                            return (
+                                                <span
+                                                    className={`session-remote-badge${isDisconnected ? ' disconnected' : ''}`}
+                                                    title={`Remote session on ${session.remoteHost}${hostStatus?.lastError ? ` (${hostStatus.lastError})` : ''}`}
+                                                >
+                                                    <span className={`ssh-status-dot${isDisconnected ? ' disconnected' : ' connected'}`} />
+                                                    {session.remoteHost}
+                                                </span>
+                                            );
+                                        })()}
                                         {session.title}
                                         {session.customLabel && (
                                             <span className="session-custom-label">{session.customLabel}</span>
