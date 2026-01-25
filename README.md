@@ -380,6 +380,51 @@ agent-deck add --host dev-server ~/project -c claude
 
 **Why this matters:** Working across multiple machines? Remote sessions appear right alongside local ones. No SSH-ing into servers to check session status. No context switching. One unified view of all your work, wherever it's running.
 
+#### SSH Security Considerations
+
+When connecting to remote hosts, Agent Deck uses your existing SSH configuration and credentials:
+
+**Best practices:**
+- Use SSH key authentication instead of passwords
+- Keep private keys protected with appropriate permissions (`chmod 600`)
+- Use SSH agent forwarding sparingly and only when necessary
+- Consider using a jump host (bastion) for accessing internal networks
+- Review which hosts have `auto_discover = true` enabled
+
+**SSH ControlMaster:**
+Agent Deck uses SSH ControlMaster for connection reuse, which:
+- Reduces connection overhead for frequent operations
+- Keeps connections alive for faster command execution
+- Automatically cleans up stale sockets
+
+**Jump host example:**
+```toml
+# First, configure the bastion host
+[ssh_hosts.bastion]
+  host = "bastion.example.com"
+  user = "admin"
+  identity_file = "~/.ssh/bastion-key"
+
+# Then use it as a jump host for internal servers
+[ssh_hosts.internal-server]
+  host = "10.0.0.50"
+  user = "developer"
+  identity_file = "~/.ssh/internal-key"
+  jump_host = "bastion"              # References the bastion config above
+  auto_discover = true
+```
+
+### Desktop App
+
+**For macOS users:** Agent Deck Desktop provides a native GUI experience with additional features:
+
+- **List+Preview layout:** See session output before attaching
+- **Multi-pane terminals:** Work with multiple sessions side-by-side
+- **Status bar:** Live display of hostname, path, git branch, and tool
+- **Visual SSH indicators:** Green/red dots show connection status
+
+See the [Desktop App README](cmd/agent-deck-desktop/README.md) for installation and keyboard shortcuts.
+
 ## Installation
 
 **Works on:** macOS • Linux • Windows (WSL)
