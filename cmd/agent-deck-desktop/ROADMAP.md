@@ -10,8 +10,15 @@ TIL:
 ### Action for us: enable a button in the app for this and keyboard and launcher shortcut, probably CMD + N, and reserve CMD +T for new tab
 
 ## Priorities to implement
+
+- add ability to position cursor with mouse inside agent desk desktop
+   - i.e. could we allow editors like nano that don't support cursor positioning to have the cursor positioned via
+     mouse click?  This would be awesome
+- opening settings panel from within a session returns user to session list, probably b/c it's firing on Cmd , shortcut as well as cmd + shift + ,
+   - probably need to revisit the shortcut for return to sessions as that's a mac shortcut for settings in every app, isn't it?  Need something more idiomatic
+
 - add an easy ability to create numerous Claude sessions in the same directory and to easily view them in menu trees and the launcher.
-- add option to launcher when searching for a session that asks to open an existing session (or choose from several existing sessions in a single directory, or open a new one in an existing directory)
+   - add option to launcher when searching for a session that asks to open an existing session (or choose from several existing sessions in a single directory, or open a new one in an existing directory)
    - This will require thought and planning to avoid confusion
    - end goal... allow users to work on multiple things at once in the same directory, with separate agents, and add labels to each duplicated session to distinguish them.  If no label provided by user, auto-apply incremental label #1, #2, etc. (brainstorm with claude what feels right here before implementing, there may be a better way)
 
