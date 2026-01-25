@@ -161,4 +161,6 @@ const SessionSelector = forwardRef(function SessionSelector({ onSelect, onNewTer
             )}
         </div>
     );
-}
+});
+
+export default SessionSelector;

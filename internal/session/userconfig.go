@@ -1256,6 +1256,12 @@ check_interval_hours = 24
 # Show update notification in CLI commands, not just TUI (default: true)
 notify_in_cli = true
 
+# Multiple instance settings
+# By default, only one agent-deck TUI can run per profile (prevents conflicts)
+# Enable allow_multiple to run multiple instances simultaneously
+# [instances]
+# allow_multiple = true  # Allow multiple TUI instances for the same profile
+
 # ============================================================================
 # SSH Remote Hosts
 # ============================================================================
