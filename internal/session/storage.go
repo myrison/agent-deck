@@ -592,7 +592,10 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 
 		// Update status immediately to prevent flickering on startup
 		// Without this, UI renders saved status, then first tick changes it
-		if tmuxSess != nil {
+		// Skip remote sessions - UpdateStatus() triggers SSH executor creation which
+		// causes significant delay (~3s for many remote sessions). Remote sessions
+		// will get their status updated on first tick instead.
+		if tmuxSess != nil && instData.RemoteHost == "" {
 			_ = inst.UpdateStatus()
 		}
 
