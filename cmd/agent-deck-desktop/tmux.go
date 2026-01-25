@@ -18,7 +18,8 @@ import (
 
 // shellUnsafePattern matches characters that could cause shell injection.
 // Used to validate arguments before building remote shell commands.
-var shellUnsafePattern = regexp.MustCompile(`[;&|$` + "`" + `\\(){}[\]<>!*?#~]`)
+// Includes newline/carriage return to prevent command injection via tmux send-keys.
+var shellUnsafePattern = regexp.MustCompile(`[;&|$` + "`" + `\\(){}[\]<>!*?#~\n\r]`)
 
 // SessionInfo represents an Agent Deck session for the frontend.
 type SessionInfo struct {
@@ -591,8 +592,14 @@ func (tm *TmuxManager) CreateRemoteSession(hostID, projectPath, title, tool, con
 	// forRemote=true: don't expand ~ locally, let remote shell handle it
 	tcr := buildToolCommand(tool, configKey, true /* forRemote */)
 
-	// Validate arguments are safe for shell command construction.
-	// This prevents command injection via malicious ExtraArgs.
+	// Validate tool command and arguments are safe for shell command construction.
+	// This prevents command injection via malicious tool names or ExtraArgs.
+	if err := sanitizeShellArg(tcr.toolCmd); err != nil {
+		// Clean up the remote tmux session we created
+		killCmd := fmt.Sprintf("%s kill-session -t %s", tmuxPath, sessionName)
+		_, _ = sshBridge.RunCommand(hostID, killCmd) // Best-effort cleanup
+		return SessionInfo{}, fmt.Errorf("unsafe characters in tool command: %w", err)
+	}
 	if err := sanitizeShellArgs(tcr.cmdArgs); err != nil {
 		// Clean up the remote tmux session we created
 		killCmd := fmt.Sprintf("%s kill-session -t %s", tmuxPath, sessionName)
