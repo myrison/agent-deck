@@ -11,14 +11,27 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// SessionSummary provides summary info about a session for project discovery
+type SessionSummary struct {
+	ID                    string `json:"id"`
+	CustomLabel           string `json:"customLabel,omitempty"`
+	Status                string `json:"status"`
+	Tool                  string `json:"tool"`
+	IsRemote              bool   `json:"isRemote,omitempty"`
+	RemoteHost            string `json:"remoteHost,omitempty"`
+	RemoteHostDisplayName string `json:"remoteHostDisplayName,omitempty"`
+}
+
 // ProjectInfo represents a discovered project for the frontend
 type ProjectInfo struct {
-	Path       string  `json:"path"`
-	Name       string  `json:"name"`
-	Score      float64 `json:"score"`      // Frecency score
-	HasSession bool    `json:"hasSession"` // Has existing session?
-	Tool       string  `json:"tool"`       // Tool if session exists
-	SessionID  string  `json:"sessionId"`  // Session ID if exists
+	Path         string           `json:"path"`
+	Name         string           `json:"name"`
+	Score        float64          `json:"score"`                  // Frecency score
+	HasSession   bool             `json:"hasSession"`             // Has existing session?
+	Tool         string           `json:"tool"`                   // Tool if session exists (first session for backward compat)
+	SessionID    string           `json:"sessionId"`              // Session ID if exists (first session for backward compat)
+	SessionCount int              `json:"sessionCount"`           // Total number of sessions at this path
+	Sessions     []SessionSummary `json:"sessions,omitempty"`     // All sessions at this path
 }
 
 // ProjectDiscoverySettings defines settings for discovering projects
@@ -188,11 +201,11 @@ func (pd *ProjectDiscovery) calculateFrecencyScore(projectPath string) float64 {
 func (pd *ProjectDiscovery) DiscoverProjects(sessions []SessionInfo) ([]ProjectInfo, error) {
 	settings := pd.getSettings()
 
-	// Build a map of existing session paths
-	sessionPaths := make(map[string]SessionInfo)
+	// Build a map of path -> all sessions at that path
+	sessionsByPath := make(map[string][]SessionInfo)
 	for _, s := range sessions {
 		if s.ProjectPath != "" {
-			sessionPaths[s.ProjectPath] = s
+			sessionsByPath[s.ProjectPath] = append(sessionsByPath[s.ProjectPath], s)
 		}
 	}
 
@@ -200,14 +213,32 @@ func (pd *ProjectDiscovery) DiscoverProjects(sessions []SessionInfo) ([]ProjectI
 	projectMap := make(map[string]*ProjectInfo)
 
 	// Add all projects from existing sessions (highest priority)
-	for path, s := range sessionPaths {
+	for path, pathSessions := range sessionsByPath {
+		// Build SessionSummary slice from all sessions at this path
+		summaries := make([]SessionSummary, len(pathSessions))
+		for i, s := range pathSessions {
+			summaries[i] = SessionSummary{
+				ID:                    s.ID,
+				CustomLabel:           s.CustomLabel,
+				Status:                s.Status,
+				Tool:                  s.Tool,
+				IsRemote:              s.IsRemote,
+				RemoteHost:            s.RemoteHost,
+				RemoteHostDisplayName: s.RemoteHostDisplayName,
+			}
+		}
+
+		// Use first session for backward-compatible Tool/SessionID fields
+		firstSession := pathSessions[0]
 		projectMap[path] = &ProjectInfo{
-			Path:       path,
-			Name:       filepath.Base(path),
-			Score:      pd.calculateFrecencyScore(path) + 1000, // Boost existing sessions
-			HasSession: true,
-			Tool:       s.Tool,
-			SessionID:  s.ID,
+			Path:         path,
+			Name:         filepath.Base(path),
+			Score:        pd.calculateFrecencyScore(path) + 1000, // Boost existing sessions
+			HasSession:   true,
+			Tool:         firstSession.Tool,
+			SessionID:    firstSession.ID,
+			SessionCount: len(pathSessions),
+			Sessions:     summaries,
 		}
 	}
 
