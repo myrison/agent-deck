@@ -1,11 +1,16 @@
 #!/bin/bash
 # Development mode launcher for RevDen
-# Uses wails.dev.json for "RevDen Dev" branding
+# Uses wails.dev.json for "RevDen (Dev)" branding
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+
+# Restore from previous interrupted run if needed
+if [ -f wails.json.bak ]; then
+    mv wails.json.bak wails.json
+fi
 
 # Backup original config
 cp wails.json wails.json.bak
