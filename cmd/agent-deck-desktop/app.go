@@ -116,6 +116,12 @@ func (a *App) ResetGroupSettings() error {
 	return a.desktopSettings.ResetGroupSettings()
 }
 
+// SetAllGroupsExpanded sets the expanded state for all provided group paths at once.
+// This is more efficient than calling ToggleGroupExpanded multiple times.
+func (a *App) SetAllGroupsExpanded(groupPaths []string, expanded bool) error {
+	return a.desktopSettings.SetAllGroupsExpanded(groupPaths, expanded)
+}
+
 // AttachSession attaches to an existing tmux session (direct mode, no history preload).
 // DEPRECATED: Use StartTmuxSession instead for the hybrid approach with scrollback support.
 func (a *App) AttachSession(sessionID, tmuxSession string, cols, rows int) error {

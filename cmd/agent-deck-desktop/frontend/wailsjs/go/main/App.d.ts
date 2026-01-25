@@ -78,6 +78,8 @@ export function RemoveQuickLaunchFavorite(arg1:string):Promise<void>;
 
 export function ResetGroupSettings():Promise<void>;
 
+export function SetAllGroupsExpanded(arg1:Array<string>,arg2:boolean):Promise<void>;
+
 export function ResizeTerminal(arg1:string,arg2:number,arg3:number):Promise<void>;
 
 export function SaveLaunchConfig(arg1:string,arg2:string,arg3:string,arg4:string,arg5:boolean,arg6:string,arg7:Array<string>,arg8:boolean):Promise<void>;
