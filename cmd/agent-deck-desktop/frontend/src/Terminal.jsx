@@ -14,6 +14,14 @@ import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
 import { useTheme } from './context/ThemeContext';
 import { getTerminalTheme } from './themes/terminal';
 
+// Connection state constants for remote sessions
+const CONN_STATE = {
+    CONNECTED: 'connected',
+    DISCONNECTED: 'disconnected',
+    RECONNECTING: 'reconnecting',
+    FAILED: 'failed',
+};
+
 // Base terminal options (theme applied dynamically)
 const BASE_TERMINAL_OPTIONS = {
     fontFamily: '"MesloLGS NF", Menlo, Monaco, "Courier New", monospace',
@@ -55,6 +63,8 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
     const isAtBottomRef = useRef(true);
     const [showScrollIndicator, setShowScrollIndicator] = useState(false);
     const [isAltScreen, setIsAltScreen] = useState(false);
+    const [connectionState, setConnectionState] = useState(CONN_STATE.CONNECTED);
+    const [connectionInfo, setConnectionInfo] = useState(null);
     const { theme } = useTheme();
 
     // Update terminal theme when app theme changes
@@ -489,6 +499,54 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         };
         EventsOn('terminal:exit', handleTerminalExit);
 
+        // ============================================================
+        // CONNECTION STATUS HANDLERS (for remote sessions)
+        // ============================================================
+        // These events track SSH connection health and display overlays
+        // when the connection is lost, reconnecting, or failed.
+        // All events include sessionId for multi-pane filtering.
+        // ============================================================
+
+        const handleConnectionLost = (data) => {
+            if (data?.sessionId !== sessionId) return;  // Multi-pane filter
+            logger.warn('[CONNECTION] Lost:', data);
+            setConnectionState(CONN_STATE.DISCONNECTED);
+            setConnectionInfo({
+                hostId: data.hostId,
+                error: data.error,
+            });
+        };
+        EventsOn('terminal:connection-lost', handleConnectionLost);
+
+        const handleReconnecting = (data) => {
+            if (data?.sessionId !== sessionId) return;  // Multi-pane filter
+            logger.info('[CONNECTION] Reconnecting:', data);
+            setConnectionState(CONN_STATE.RECONNECTING);
+            setConnectionInfo({
+                attempt: data.attempt,
+                maxAttempts: data.maxAttempts,
+            });
+        };
+        EventsOn('terminal:reconnecting', handleReconnecting);
+
+        const handleConnectionRestored = (data) => {
+            if (data?.sessionId !== sessionId) return;  // Multi-pane filter
+            logger.info('[CONNECTION] Restored');
+            setConnectionState(CONN_STATE.CONNECTED);
+            setConnectionInfo(null);
+        };
+        EventsOn('terminal:connection-restored', handleConnectionRestored);
+
+        const handleConnectionFailed = (data) => {
+            if (data?.sessionId !== sessionId) return;  // Multi-pane filter
+            logger.error('[CONNECTION] Failed:', data);
+            setConnectionState(CONN_STATE.FAILED);
+            setConnectionInfo({
+                hostId: data.hostId,
+            });
+        };
+        EventsOn('terminal:connection-failed', handleConnectionFailed);
+
         // Track last sent dimensions to avoid duplicate calls
         let lastCols = term.cols;
         let lastRows = term.rows;
@@ -645,6 +703,46 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         }
     };
 
+    // Render connection status overlay for remote sessions
+    const renderConnectionStatus = () => {
+        // Only show for remote sessions with non-connected state
+        if (!session?.isRemote) return null;
+        if (connectionState === CONN_STATE.CONNECTED) return null;
+
+        let statusClass = '';
+        let statusIcon = '';
+        let statusText = '';
+
+        switch (connectionState) {
+            case CONN_STATE.DISCONNECTED:
+                statusClass = 'disconnected';
+                statusIcon = '⚠';
+                statusText = 'Connection Lost';
+                break;
+            case CONN_STATE.RECONNECTING:
+                statusClass = 'reconnecting';
+                statusIcon = '↻';
+                statusText = connectionInfo
+                    ? `Reconnecting (${connectionInfo.attempt}/${connectionInfo.maxAttempts})...`
+                    : 'Reconnecting...';
+                break;
+            case CONN_STATE.FAILED:
+                statusClass = 'failed';
+                statusIcon = '✕';
+                statusText = 'Connection Failed';
+                break;
+            default:
+                return null;
+        }
+
+        return (
+            <div className={`connection-status ${statusClass}`}>
+                <span className="connection-status-icon">{statusIcon}</span>
+                <span className="connection-status-text">{statusText}</span>
+            </div>
+        );
+    };
+
     return (
         <div style={{ position: 'relative', width: '100%', height: '100%' }} className={isAltScreen ? 'terminal-alt-screen' : ''}>
             <div
@@ -664,6 +762,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                     New output ↓
                 </button>
             )}
+            {renderConnectionStatus()}
         </div>
     );
 }
