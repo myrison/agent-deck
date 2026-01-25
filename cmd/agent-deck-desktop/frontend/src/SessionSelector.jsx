@@ -1,19 +1,21 @@
 import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
-import { UpdateSessionCustomLabel, MarkSessionAccessed } from '../wailsjs/go/main/App';
+import { UpdateSessionCustomLabel, MarkSessionAccessed, DeleteSession } from '../wailsjs/go/main/App';
 import './SessionSelector.css';
 import { createLogger } from './logger';
 import { useTooltip } from './Tooltip';
 import ShortcutBar from './ShortcutBar';
 import RenameDialog from './RenameDialog';
+import DeleteSessionDialog from './DeleteSessionDialog';
 import SessionList from './SessionList';
 import SessionPreview from './SessionPreview';
 
 const logger = createLogger('SessionSelector');
 
-const SessionSelector = forwardRef(function SessionSelector({ onSelect, onNewTerminal, statusFilter = 'all', onCycleFilter, onOpenPalette, onOpenHelp }, ref) {
+const SessionSelector = forwardRef(function SessionSelector({ onSelect, onNewTerminal, statusFilter = 'all', onCycleFilter, onOpenPalette, onOpenHelp, onSessionDeleted }, ref) {
     const [previewSession, setPreviewSession] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
     const [labelingSession, setLabelingSession] = useState(null);
+    const [deletingSession, setDeletingSession] = useState(null);
     const { Tooltip } = useTooltip();
     const containerRef = useRef(null);
     const sessionListRef = useRef(null);
@@ -90,6 +92,35 @@ const SessionSelector = forwardRef(function SessionSelector({ onSelect, onNewTer
         setLabelingSession(null);
     }, [labelingSession]);
 
+    // Delete session handlers
+    const handleDeleteSession = useCallback((session) => {
+        logger.info('Opening delete dialog', { sessionId: session.id, title: session.title });
+        setDeletingSession(session);
+    }, []);
+
+    const handleConfirmDelete = useCallback(async () => {
+        if (!deletingSession) return;
+        try {
+            logger.info('Deleting session', { sessionId: deletingSession.id });
+            await DeleteSession(deletingSession.id);
+            // Clear preview if we just deleted it
+            if (previewSession?.id === deletingSession.id) {
+                setPreviewSession(null);
+            }
+            // Notify parent so it can close any open tabs with this session
+            if (onSessionDeleted) {
+                onSessionDeleted(deletingSession.id);
+            }
+            // Refresh the session list
+            if (sessionListRef.current?.refresh) {
+                sessionListRef.current.refresh();
+            }
+        } catch (err) {
+            logger.error('Failed to delete session:', err);
+        }
+        setDeletingSession(null);
+    }, [deletingSession, previewSession, onSessionDeleted]);
+
     // Expose toggle all groups function to parent via ref
     useImperativeHandle(ref, () => ({
         toggleAllGroups: () => {
@@ -120,6 +151,7 @@ const SessionSelector = forwardRef(function SessionSelector({ onSelect, onNewTer
                 <SessionPreview
                     session={previewSession}
                     onAttach={handleSelectSession}
+                    onDelete={handleDeleteSession}
                 />
             </div>
 
@@ -157,6 +189,14 @@ const SessionSelector = forwardRef(function SessionSelector({ onSelect, onNewTer
                     placeholder="Enter label..."
                     onSave={handleSaveCustomLabel}
                     onCancel={() => setLabelingSession(null)}
+                />
+            )}
+
+            {deletingSession && (
+                <DeleteSessionDialog
+                    session={deletingSession}
+                    onConfirm={handleConfirmDelete}
+                    onCancel={() => setDeletingSession(null)}
                 />
             )}
         </div>

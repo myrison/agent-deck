@@ -16,6 +16,8 @@ export function DeleteLaunchConfig(arg1:string):Promise<void>;
 
 export function DeleteSavedLayout(arg1:string):Promise<void>;
 
+export function DeleteSession(arg1:string):Promise<void>;
+
 export function DiscoverProjects():Promise<Array<main.ProjectInfo>>;
 
 export function GenerateConfigKey(arg1:string,arg2:string):Promise<string>;

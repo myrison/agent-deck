@@ -1113,6 +1113,78 @@ function App() {
         setIsWorktree(false);
     }, []);
 
+    // Handle session deletion - close any tabs containing the deleted session
+    const handleSessionDeleted = useCallback((deletedSessionId) => {
+        logger.info('Session deleted, closing related tabs', { sessionId: deletedSessionId });
+
+        setOpenTabs(prev => {
+            // Find tabs that have the deleted session in any pane
+            const tabsToClose = [];
+            const tabsToUpdate = [];
+
+            for (const tab of prev) {
+                const panes = getPaneList(tab.layout);
+                const hasDeletedSession = panes.some(p => p.session?.id === deletedSessionId);
+
+                if (hasDeletedSession) {
+                    // Check if all panes have the deleted session (or are empty)
+                    const nonDeletedPanes = panes.filter(p => p.session && p.session.id !== deletedSessionId);
+                    if (nonDeletedPanes.length === 0) {
+                        // All panes had the deleted session - close the tab
+                        tabsToClose.push(tab.id);
+                    } else {
+                        // Some panes have other sessions - just clear the deleted session from panes
+                        tabsToUpdate.push(tab.id);
+                    }
+                }
+            }
+
+            if (tabsToClose.length === 0 && tabsToUpdate.length === 0) {
+                return prev;
+            }
+
+            // Filter out closed tabs and update remaining tabs
+            let newTabs = prev.filter(t => !tabsToClose.includes(t.id));
+
+            // Clear deleted session from remaining panes
+            newTabs = newTabs.map(tab => {
+                if (!tabsToUpdate.includes(tab.id)) return tab;
+
+                // Update panes to clear the deleted session
+                const updateLayout = (node) => {
+                    if (!node) return node;
+                    if (node.session?.id === deletedSessionId) {
+                        return { ...node, session: null };
+                    }
+                    if (node.children) {
+                        return { ...node, children: node.children.map(updateLayout) };
+                    }
+                    return node;
+                };
+
+                return { ...tab, layout: updateLayout(tab.layout) };
+            });
+
+            // Handle active tab being closed
+            if (tabsToClose.includes(activeTabId)) {
+                if (newTabs.length === 0) {
+                    setActiveTabId(null);
+                    setSelectedSession(null);
+                    setView('selector');
+                    setGitBranch('');
+                    setIsWorktree(false);
+                } else {
+                    const newActiveTab = newTabs[0];
+                    setActiveTabId(newActiveTab.id);
+                    const activePane = findPane(newActiveTab.layout, newActiveTab.activePaneId);
+                    setSelectedSession(activePane?.session || null);
+                }
+            }
+
+            return newTabs;
+        });
+    }, [activeTabId]);
+
     // Handle opening help modal
     const handleOpenHelp = useCallback(() => {
         logger.info('Opening help modal');
@@ -1481,6 +1553,7 @@ function App() {
                     onCycleFilter={handleCycleStatusFilter}
                     onOpenPalette={() => setShowCommandMenu(true)}
                     onOpenHelp={handleOpenHelp}
+                    onSessionDeleted={handleSessionDeleted}
                 />
                 {showCommandMenu && (
                     <CommandMenu

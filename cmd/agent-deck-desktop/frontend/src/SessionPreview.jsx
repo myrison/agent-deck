@@ -25,7 +25,7 @@ const BASE_TERMINAL_OPTIONS = {
     disableStdin: false, // Allow scrolling
 };
 
-export default function SessionPreview({ session, onAttach, fontSize = DEFAULT_FONT_SIZE }) {
+export default function SessionPreview({ session, onAttach, onDelete, fontSize = DEFAULT_FONT_SIZE }) {
     const terminalRef = useRef(null);
     const xtermRef = useRef(null);
     const fitAddonRef = useRef(null);
@@ -315,13 +315,24 @@ export default function SessionPreview({ session, onAttach, fontSize = DEFAULT_F
                         </div>
                     </div>
                 </div>
-                <button
-                    className="preview-attach-btn"
-                    onClick={() => onAttach && onAttach(session)}
-                    title="Attach to session (Enter)"
-                >
-                    Attach →
-                </button>
+                <div className="preview-header-actions">
+                    {onDelete && (
+                        <button
+                            className="preview-delete-btn"
+                            onClick={() => onDelete(session)}
+                            title="Delete session"
+                        >
+                            Delete
+                        </button>
+                    )}
+                    <button
+                        className="preview-attach-btn"
+                        onClick={() => onAttach && onAttach(session)}
+                        title="Attach to session (Enter)"
+                    >
+                        Attach →
+                    </button>
+                </div>
             </div>
 
             <div className="session-preview-info">

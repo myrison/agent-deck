@@ -260,6 +260,12 @@ func (a *App) UpdateSessionCustomLabel(sessionID, customLabel string) error {
 	return a.tmux.UpdateSessionCustomLabel(sessionID, customLabel)
 }
 
+// DeleteSession removes a session from sessions.json and kills its tmux session.
+// This syncs with the TUI via the shared sessions.json storage.
+func (a *App) DeleteSession(sessionID string) error {
+	return a.tmux.DeleteSession(sessionID, a.sshBridge)
+}
+
 // GetGitBranch returns the current git branch for a given directory.
 // Returns empty string if not a git repository or on error.
 func (a *App) GetGitBranch(projectPath string) string {

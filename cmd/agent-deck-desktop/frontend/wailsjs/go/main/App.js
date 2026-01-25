@@ -30,6 +30,10 @@ export function DeleteSavedLayout(arg1) {
   return window['go']['main']['App']['DeleteSavedLayout'](arg1);
 }
 
+export function DeleteSession(arg1) {
+  return window['go']['main']['App']['DeleteSession'](arg1);
+}
+
 export function DiscoverProjects() {
   return window['go']['main']['App']['DiscoverProjects']();
 }

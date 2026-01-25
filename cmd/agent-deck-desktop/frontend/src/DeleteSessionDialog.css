@@ -1,0 +1,97 @@
+/* Delete Session Confirmation Dialog */
+.delete-dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--modal-overlay);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1100;
+}
+
+.delete-dialog {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    padding: 16px;
+    min-width: 320px;
+    max-width: 400px;
+    box-shadow: 0 8px 32px var(--modal-shadow);
+}
+
+.delete-dialog-title {
+    font-size: var(--font-xl);
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+}
+
+.delete-dialog-message {
+    color: var(--text-secondary);
+    font-size: var(--font-lg);
+    line-height: 1.5;
+}
+
+.delete-dialog-message p {
+    margin: 0 0 8px 0;
+}
+
+.delete-dialog-message strong {
+    color: var(--text-primary);
+}
+
+.delete-dialog-warning {
+    color: var(--status-error);
+    font-size: var(--font-md);
+}
+
+.delete-dialog-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.delete-dialog-cancel,
+.delete-dialog-confirm {
+    padding: 6px 14px;
+    border-radius: 4px;
+    font-size: var(--font-lg);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.delete-dialog-cancel {
+    background: transparent;
+    border: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+}
+
+.delete-dialog-cancel:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.delete-dialog-cancel:focus {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+.delete-dialog-confirm {
+    background: var(--status-error);
+    border: none;
+    color: white;
+    font-weight: 500;
+}
+
+.delete-dialog-confirm:hover {
+    filter: brightness(1.1);
+}
+
+.delete-dialog-confirm:focus {
+    outline: 2px solid var(--status-error);
+    outline-offset: 2px;
+}

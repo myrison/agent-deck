@@ -442,6 +442,34 @@
     transform: scale(0.98);
 }
 
+.preview-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.preview-delete-btn {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-primary);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: var(--font-base);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+}
+
+.preview-delete-btn:hover {
+    background: rgba(255, 107, 107, 0.1);
+    color: var(--status-error);
+    border-color: var(--status-error);
+}
+
+.preview-delete-btn:active {
+    transform: scale(0.98);
+}
+
 .session-preview-info {
     padding: 10px 16px;
     border-bottom: 1px solid var(--border-secondary);
