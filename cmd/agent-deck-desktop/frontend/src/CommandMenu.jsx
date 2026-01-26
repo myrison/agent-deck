@@ -79,18 +79,26 @@ export default function CommandMenu({
     // Convert projects to menu items (show ALL projects, including those with sessions)
     const projectItems = useMemo(() => {
         return projects
-            .map(p => ({
-                id: `project:${p.path}`,
-                type: 'project',
-                title: p.name,
-                projectPath: p.path,
-                score: p.score,
-                description: p.path,
-                isPinned: !!favoritesLookup[p.path],
-                shortcut: favoritesLookup[p.path]?.shortcut,
-                sessionCount: p.sessionCount || 0,
-                sessions: p.sessions || [],
-            }));
+            .map(p => {
+                // Derive remote status from sessions - if any session is remote, project is remote
+                const firstRemoteSession = p.sessions?.find(s => s.isRemote);
+                return {
+                    id: `project:${p.path}`,
+                    type: 'project',
+                    title: p.name,
+                    projectPath: p.path,
+                    score: p.score,
+                    description: p.path,
+                    isPinned: !!favoritesLookup[p.path],
+                    shortcut: favoritesLookup[p.path]?.shortcut,
+                    sessionCount: p.sessionCount || 0,
+                    sessions: p.sessions || [],
+                    // Remote status derived from sessions
+                    isRemote: !!firstRemoteSession,
+                    remoteHost: firstRemoteSession?.remoteHost || '',
+                    remoteHostDisplayName: firstRemoteSession?.remoteHostDisplayName || '',
+                };
+            });
     }, [projects, favoritesLookup]);
 
     // Convert saved layouts to action format
