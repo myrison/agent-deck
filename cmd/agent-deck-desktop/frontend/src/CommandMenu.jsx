@@ -248,7 +248,7 @@ export default function CommandMenu({
                 }
                 break;
         }
-    };
+    });
 
     const handleSelect = (item) => {
         logger.info('Item selected', {
