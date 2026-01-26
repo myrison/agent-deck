@@ -77,6 +77,7 @@ export function createSearchManager(terminal) {
     let currentQuery = '';
     let decorations = [];
     let disposed = false;
+    let lastActiveRow = -1; // Track previous active row for efficient updates
 
     /**
      * Clear all decorations
@@ -151,6 +152,82 @@ export function createSearchManager(terminal) {
                 decorations.push(decoration);
             }
         }
+
+        // Track the active row
+        lastActiveRow = currentIndex >= 0 && matches[currentIndex] ? matches[currentIndex].row : -1;
+    };
+
+    /**
+     * Update active decoration efficiently (only changes affected rows)
+     * This avoids rebuilding all decorations on next/previous navigation
+     */
+    const updateActiveDecoration = () => {
+        if (!terminal || disposed || matches.length === 0 || currentIndex < 0) return;
+
+        const newActiveRow = matches[currentIndex].row;
+
+        // If we're on the same row, no update needed
+        if (newActiveRow === lastActiveRow) return;
+
+        // Find and update the old active row's decoration (if it exists)
+        if (lastActiveRow >= 0) {
+            const oldDecoration = decorations.find(dec => {
+                // We need to check which row this decoration is for
+                // Since decorations don't store their row, we recreate it
+                try {
+                    const marker = dec.marker;
+                    if (!marker) return false;
+                    const buffer = terminal.buffer.active;
+                    const decorationRow = buffer.baseY + buffer.cursorY + marker.line;
+                    return decorationRow === lastActiveRow;
+                } catch {
+                    return false;
+                }
+            });
+
+            if (oldDecoration) {
+                // Dispose old decoration and recreate as inactive
+                const index = decorations.indexOf(oldDecoration);
+                if (index >= 0) {
+                    try {
+                        oldDecoration.dispose();
+                    } catch {}
+                    const newDecoration = createRowDecoration(lastActiveRow, false);
+                    if (newDecoration) {
+                        decorations[index] = newDecoration;
+                    }
+                }
+            }
+        }
+
+        // Find and update the new active row's decoration
+        const newDecoration = decorations.find(dec => {
+            try {
+                const marker = dec.marker;
+                if (!marker) return false;
+                const buffer = terminal.buffer.active;
+                const decorationRow = buffer.baseY + buffer.cursorY + marker.line;
+                return decorationRow === newActiveRow;
+            } catch {
+                return false;
+            }
+        });
+
+        if (newDecoration) {
+            // Dispose old decoration and recreate as active
+            const index = decorations.indexOf(newDecoration);
+            if (index >= 0) {
+                try {
+                    newDecoration.dispose();
+                } catch {}
+                const activeDecoration = createRowDecoration(newActiveRow, true);
+                if (activeDecoration) {
+                    decorations[index] = activeDecoration;
+                }
+            }
+        }
+
+        lastActiveRow = newActiveRow;
     };
 
     /**
@@ -213,7 +290,7 @@ export function createSearchManager(terminal) {
 
         // Wrap around
         currentIndex = (currentIndex + 1) % matches.length;
-        createDecorations();
+        updateActiveDecoration();
         scrollToCurrentMatch();
 
         return { total: matches.length, current: currentIndex + 1 };
@@ -229,7 +306,7 @@ export function createSearchManager(terminal) {
 
         // Wrap around
         currentIndex = currentIndex <= 0 ? matches.length - 1 : currentIndex - 1;
-        createDecorations();
+        updateActiveDecoration();
         scrollToCurrentMatch();
 
         return { total: matches.length, current: currentIndex + 1 };
@@ -242,6 +319,7 @@ export function createSearchManager(terminal) {
         matches = [];
         currentIndex = -1;
         currentQuery = '';
+        lastActiveRow = -1;
         clearDecorations();
     };
 

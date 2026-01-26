@@ -50,12 +50,13 @@ func (ht *HistoryTracker) GetTmuxInfo() (historySize int, inAltScreen bool, curs
 	}
 
 	parts := strings.Split(strings.TrimSpace(string(out)), ",")
-	if len(parts) >= 4 {
-		historySize, _ = strconv.Atoi(parts[0])
-		inAltScreen = parts[1] == "1"
-		cursorX, _ = strconv.Atoi(parts[2])
-		cursorY, _ = strconv.Atoi(parts[3])
+	if len(parts) < 4 {
+		return 0, false, 0, 0, fmt.Errorf("unexpected tmux output: got %d fields, expected 4", len(parts))
 	}
+	historySize, _ = strconv.Atoi(parts[0])
+	inAltScreen = parts[1] == "1"
+	cursorX, _ = strconv.Atoi(parts[2])
+	cursorY, _ = strconv.Atoi(parts[3])
 	return historySize, inAltScreen, cursorX, cursorY, nil
 }
 
@@ -88,8 +89,8 @@ func (ht *HistoryTracker) FetchHistoryGap(currentHistorySize int) (string, error
 	// -S = start offset (furthest back in history)
 	// -E = end offset (closest to viewport)
 	// Negative offsets: -1 is the line just above viewport, -2 is two lines up, etc.
-	startOffset := -currentHistorySize            // Start at oldest unfetched line
-	endOffset := -(ht.lastHistoryIndex + 1)       // End just after last fetched line
+	startOffset := -currentHistorySize      // Start at oldest unfetched line
+	endOffset := -(ht.lastHistoryIndex + 1) // End just after last fetched line
 
 	// Clamp to valid range (don't go beyond what's in history)
 	if ht.lastHistoryIndex == 0 {
@@ -183,8 +184,8 @@ func (ht *HistoryTracker) DiffViewport(currentContent string) string {
 
 	// DEBUG: Always use full viewport redraw to diagnose rendering artifacts
 	// TODO: Remove this once artifacts are fixed
-	_ = diffPercent   // Suppress unused warning
-	_ = lineMismatch  // Suppress unused warning
+	_ = diffPercent  // Suppress unused warning
+	_ = lineMismatch // Suppress unused warning
 	ht.lastViewportLines = newLines
 	return ht.buildFullViewportOutput(newLines)
 
