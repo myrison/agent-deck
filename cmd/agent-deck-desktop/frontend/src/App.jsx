@@ -818,10 +818,24 @@ function App() {
     // customLabel is optional - if provided, will be set as the session's custom label
     const handleLaunchProject = useCallback(async (projectPath, projectName, tool, configKey = '', customLabel = '') => {
         try {
-            logger.info('Launching project', { projectPath, projectName, tool, configKey, customLabel });
+            // Auto-fetch default config if none provided
+            let effectiveConfigKey = configKey;
+            if (!effectiveConfigKey) {
+                try {
+                    const defaultConfig = await GetDefaultLaunchConfig(tool);
+                    if (defaultConfig?.key) {
+                        effectiveConfigKey = defaultConfig.key;
+                        logger.info('Using default config', { tool, configKey: effectiveConfigKey });
+                    }
+                } catch (err) {
+                    logger.warn('Failed to get default config:', err);
+                }
+            }
+
+            logger.info('Launching project', { projectPath, projectName, tool, configKey: effectiveConfigKey, customLabel });
 
             // Create session with config key
-            const session = await CreateSession(projectPath, projectName, tool, configKey);
+            const session = await CreateSession(projectPath, projectName, tool, effectiveConfigKey);
             logger.info('Session created', { sessionId: session.id, tmuxSession: session.tmuxSession });
 
             // Validate session object
@@ -873,10 +887,24 @@ function App() {
     // Launch a remote session (modified version of handleLaunchProject)
     const handleLaunchRemoteProject = useCallback(async (hostId, projectPath, projectName, tool, configKey = '') => {
         try {
-            logger.info('Launching remote project', { hostId, projectPath, projectName, tool, configKey });
+            // Auto-fetch default config if none provided
+            let effectiveConfigKey = configKey;
+            if (!effectiveConfigKey) {
+                try {
+                    const defaultConfig = await GetDefaultLaunchConfig(tool);
+                    if (defaultConfig?.key) {
+                        effectiveConfigKey = defaultConfig.key;
+                        logger.info('Using default config for remote', { tool, configKey: effectiveConfigKey });
+                    }
+                } catch (err) {
+                    logger.warn('Failed to get default config:', err);
+                }
+            }
+
+            logger.info('Launching remote project', { hostId, projectPath, projectName, tool, configKey: effectiveConfigKey });
 
             // Create session on remote host
-            const session = await CreateRemoteSession(hostId, projectPath, projectName, tool, configKey);
+            const session = await CreateRemoteSession(hostId, projectPath, projectName, tool, effectiveConfigKey);
             logger.info('Remote session created', { sessionId: session.id, tmuxSession: session.tmuxSession, remoteHost: session.remoteHost });
 
             // Clear remote session state
