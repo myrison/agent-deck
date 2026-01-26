@@ -13,6 +13,7 @@ import { findAllMatches, createSearchManager } from '../utils/searchUtils';
  * @param {string[]} lines - Lines of text in the buffer
  * @param {object} options - Optional configuration
  * @param {number} options.baseY - Scrollback offset (default: 0)
+ * @param {number} options.cursorY - Cursor Y position in viewport (default: 0)
  * @param {number} options.viewportY - Current viewport position (default: 0)
  * @param {number} options.rows - Visible rows (default: min(lines.length, 24))
  * @param {number} options.cols - Columns (default: 80)
@@ -20,6 +21,7 @@ import { findAllMatches, createSearchManager } from '../utils/searchUtils';
 function createMockTerminal(lines = [], options = {}) {
     const {
         baseY = 0,
+        cursorY = 0,
         viewportY = 0,
         rows = Math.min(lines.length, 24),
         cols = 80,
@@ -37,6 +39,7 @@ function createMockTerminal(lines = [], options = {}) {
             active: {
                 length: lines.length,
                 baseY,
+                cursorY,
                 viewportY,
                 getLine: (y) => mockLines[y] || null,
             },
@@ -702,26 +705,39 @@ describe('createSearchManager', () => {
         });
     });
 
-    describe('baseY offset handling', () => {
-        it('creates markers with correct offset for scrollback buffer', () => {
+    describe('baseY and cursorY offset handling', () => {
+        it('creates markers with correct offset accounting for baseY and cursorY', () => {
             const lines = Array(50).fill('some text');
             lines[10] = 'find me';
 
-            // Simulate scrollback: baseY is 100 (100 lines scrolled off top)
-            const terminal = createMockTerminal(lines, { baseY: 100 });
+            // Simulate scrollback: baseY is 100, cursor at row 5 in viewport
+            const terminal = createMockTerminal(lines, { baseY: 100, cursorY: 5 });
 
             const manager = createSearchManager(terminal);
             manager.search('find');
 
-            // Marker offset should be: row - baseY = 10 - 100 = -90
+            // Marker offset should be: row - baseY - cursorY = 10 - 100 - 5 = -95
             expect(terminal.registerMarker).toHaveBeenCalled();
             const markerCall = terminal.registerMarker.mock.calls[0];
-            expect(markerCall[0]).toBe(10 - 100); // -90
+            expect(markerCall[0]).toBe(10 - 100 - 5); // -95
+        });
+
+        it('handles matches with cursor at different positions', () => {
+            const lines = ['line1', 'find me', 'line3'];
+            const terminal = createMockTerminal(lines, { baseY: 0, cursorY: 10 });
+
+            const manager = createSearchManager(terminal);
+            manager.search('find');
+
+            // Match is at row 1, offset = 1 - 0 - 10 = -9
+            expect(terminal.registerMarker).toHaveBeenCalled();
+            const markerCall = terminal.registerMarker.mock.calls[0];
+            expect(markerCall[0]).toBe(1 - 0 - 10); // -9
         });
 
         it('handles matches in scrollback with positive baseY', () => {
             const lines = ['line1', 'find me', 'line3'];
-            const terminal = createMockTerminal(lines, { baseY: 50 });
+            const terminal = createMockTerminal(lines, { baseY: 50, cursorY: 0 });
 
             const manager = createSearchManager(terminal);
             manager.search('find');

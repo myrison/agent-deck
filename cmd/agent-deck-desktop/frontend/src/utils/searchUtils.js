@@ -7,11 +7,11 @@
  * - Creates row decorations for visual highlighting
  */
 
-// Color scheme for highlighting
-const COLORS = {
-    ROW_HIGHLIGHT: 'rgba(255, 213, 0, 0.15)',     // Light yellow - full row
-    MATCH_HIGHLIGHT: 'rgba(255, 213, 0, 0.4)',    // Medium yellow - match text
-    ACTIVE_MATCH: 'rgba(255, 165, 0, 0.6)',       // Orange - current match
+// CSS variable names for theme-aware highlighting
+// These are defined in themes.css for both dark and light modes
+const CSS_VARS = {
+    ROW_HIGHLIGHT: 'var(--search-row-highlight)',
+    MATCH_ACTIVE: 'var(--search-match-active)',
 };
 
 /**
@@ -94,23 +94,33 @@ export function createSearchManager(terminal) {
 
     /**
      * Create row decoration for a match
+     *
+     * registerMarker(offset) creates a marker relative to the cursor position.
+     * For absolute buffer row R: offset = R - baseY - cursorY
      */
     const createRowDecoration = (row, isActive) => {
         if (!terminal || disposed) return null;
 
         try {
-            const marker = terminal.registerMarker(row - terminal.buffer.active.baseY);
+            const buffer = terminal.buffer.active;
+            // Calculate offset from cursor position to target row
+            // Marker is placed at: baseY + cursorY + offset
+            // We want: baseY + cursorY + offset = row
+            // Therefore: offset = row - baseY - cursorY
+            const offset = row - buffer.baseY - buffer.cursorY;
+            const marker = terminal.registerMarker(offset);
             if (!marker) return null;
+
+            const bgColor = isActive ? CSS_VARS.MATCH_ACTIVE : CSS_VARS.ROW_HIGHLIGHT;
 
             const decoration = terminal.registerDecoration({
                 marker,
                 width: terminal.cols,
-                backgroundColor: isActive ? COLORS.ACTIVE_MATCH : COLORS.ROW_HIGHLIGHT,
             });
 
             if (decoration) {
                 decoration.onRender((element) => {
-                    element.style.backgroundColor = isActive ? COLORS.ACTIVE_MATCH : COLORS.ROW_HIGHLIGHT;
+                    element.style.backgroundColor = bgColor;
                     element.style.width = '100%';
                     element.style.opacity = '1';
                 });

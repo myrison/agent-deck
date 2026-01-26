@@ -62,6 +62,10 @@
 
     --selection-bg: rgba(76, 201, 240, 0.3);
 
+    /* Search highlight colors - for terminal search decorations */
+    --search-row-highlight: rgba(76, 201, 240, 0.12);    /* Light cyan tint for rows with matches */
+    --search-match-active: rgba(76, 201, 240, 0.25);     /* Stronger cyan for current match row */
+
     /* Status colors */
     --status-running: #4ecdc4;
     --status-waiting: #ffe66d;
@@ -124,6 +128,10 @@
     --kbd-text: #6b6b80;
 
     --selection-bg: rgba(0, 119, 204, 0.2);
+
+    /* Search highlight colors - for terminal search decorations */
+    --search-row-highlight: rgba(0, 119, 204, 0.12);     /* Light blue tint for rows with matches */
+    --search-match-active: rgba(0, 119, 204, 0.25);      /* Stronger blue for current match row */
 
     /* Status colors - adjusted for light bg */
     --status-running: #00a693;
