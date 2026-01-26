@@ -7,8 +7,6 @@
   item you chose in the launcher vs. opening the last saved layout
 - need an easy way to replace session with another session vs. force close and re-add
 
-### Not able to delete saved layouts
-
 ### right clicking a session 'tab' in the sessions view causes whole react app to crash
 
 ### Build support for dragging / pasting an image into an ssh'd session (doesn't work by default)
@@ -72,6 +70,7 @@
 ---
 
 ### Recently implemented
+- Delete saved layouts via Cmd+Backspace in Command Menu ✓
 - Window resize blank screen fix (terminal went blank on resize, required navigating away and back) ✓
 - Turn front page view of sessions into a list of agents on left, preview pane on right (like TMUX)
 - Add hostname to top status bar in session view to clearly indicate which host the session is running in
