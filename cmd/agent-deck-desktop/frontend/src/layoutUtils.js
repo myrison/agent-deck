@@ -685,7 +685,7 @@ export function applySavedLayout(currentLayout, savedLayout, allSessions = []) {
     const assignedSessionIds = new Set();
 
     // Build list of sessions available for binding resolution
-    // Combine current sessions with all sessions (current sessions take priority)
+    // Use allSessions which contains the full session list from the app state
     const availableForBinding = [...allSessions];
 
     // Assign sessions to new panes based on bindings
