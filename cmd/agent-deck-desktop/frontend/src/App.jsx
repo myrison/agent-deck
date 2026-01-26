@@ -248,6 +248,7 @@ function App() {
                 logger.info('Palette action: new terminal');
                 setSelectedSession(null);
                 setView('terminal');
+                setShowCommandMenu(true);  // Re-open CommandMenu
                 break;
             case 'refresh-sessions':
                 logger.info('Palette action: refresh sessions');
@@ -1155,6 +1156,7 @@ function App() {
         logger.info('Starting new terminal');
         setSelectedSession(null);
         setView('terminal');
+        setShowCommandMenu(true);  // Auto-open CommandMenu
     }, []);
 
     const handleBackToSelector = useCallback(() => {
@@ -1342,8 +1344,8 @@ function App() {
             handleOpenHelp();
             return;
         }
-        // Cmd+N to open new terminal (in selector view)
-        if (hasAppModifier(e) && e.key === 'n' && view === 'selector') {
+        // Cmd+N to open new terminal (works in any view)
+        if (hasAppModifier(e) && e.key === 'n') {
             e.preventDefault();
             logger.info('Cmd+N pressed - opening new terminal');
             handleNewTerminal();
