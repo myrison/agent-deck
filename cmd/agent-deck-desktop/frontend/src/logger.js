@@ -1,8 +1,8 @@
 // Development logger utility with backend file logging
 //
 // This module intercepts ALL console output and pipes it to the backend log file
-// at /tmp/agent-deck-desktop-debug.log so agents can read logs directly without
-// requiring manual relay from the developer.
+// at ~/.agent-deck/logs/frontend-console.log so agents can read logs directly
+// without requiring manual relay from the developer.
 //
 // Usage:
 //   - Call installGlobalErrorHandler() at app startup (already done in main.jsx)
@@ -10,8 +10,8 @@
 //   - Use createLogger(context) for contextual logging with nice formatting
 //
 // Agent access:
-//   - Logs are written to: /tmp/agent-deck-desktop-debug.log
-//   - Use: tail -f /tmp/agent-deck-desktop-debug.log
+//   - Logs are written to: ~/.agent-deck/logs/frontend-console.log
+//   - Use: tail -f ~/.agent-deck/logs/frontend-console.log
 //   - Or use the /read-desktop-logs skill
 
 import { LogFrontendDiagnostic } from '../wailsjs/go/main/App';

@@ -65,7 +65,7 @@ func init() {
 	}
 
 	logDir := filepath.Join(homeDir, ".agent-deck", "logs")
-	if err := os.MkdirAll(logDir, 0755); err != nil {
+	if err := os.MkdirAll(logDir, 0700); err != nil {
 		return
 	}
 
