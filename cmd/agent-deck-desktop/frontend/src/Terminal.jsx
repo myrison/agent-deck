@@ -15,7 +15,7 @@ import { createScrollAccumulator, DEFAULT_SCROLL_SPEED } from './utils/scrollAcc
 import { useTheme } from './context/ThemeContext';
 import { getTerminalTheme } from './themes/terminal';
 import { createMacKeyBindingHandler } from './hooks/useMacKeyBindings';
-import { hasAppModifier } from './utils/platform';
+import { shouldInterceptShortcut } from './utils/platform';
 
 // Connection state constants for remote sessions
 const CONN_STATE = {
@@ -271,7 +271,8 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
 
             // Let app-level shortcuts pass through to the document handler
             // These include pane management (Cmd+D, Cmd+Shift+Z, etc.)
-            if (hasAppModifier(e) && (e.shiftKey || e.altKey)) {
+            // Use shouldInterceptShortcut for consistency with App.jsx's appMod check
+            if (shouldInterceptShortcut(e, true) && (e.shiftKey || e.altKey)) {
                 // App shortcuts with Shift or Alt modifiers should not be consumed by xterm
                 // Examples: Cmd+Shift+Z (zoom), Cmd+Alt+Arrow (navigate panes)
                 return true; // Let event propagate to App's document handler
