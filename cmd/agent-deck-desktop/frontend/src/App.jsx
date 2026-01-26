@@ -1454,7 +1454,7 @@ function App() {
         // ============================================================
 
         // Cmd+D - Split pane right (vertical divider)
-        if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'd' && view === 'terminal') {
+        if (appMod && !e.shiftKey && e.key === 'd' && view === 'terminal') {
             e.preventDefault();
             logger.info('Cmd+D pressed - split right');
             handleSplitPane('vertical');
@@ -1462,7 +1462,7 @@ function App() {
         }
 
         // Cmd+Shift+D - Split pane down (horizontal divider)
-        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'D' && view === 'terminal') {
+        if (appMod && e.shiftKey && e.key === 'D' && view === 'terminal') {
             e.preventDefault();
             logger.info('Cmd+Shift+D pressed - split down');
             handleSplitPane('horizontal');
@@ -1470,7 +1470,7 @@ function App() {
         }
 
         // Cmd+Shift+W - Close current pane
-        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'W' && view === 'terminal') {
+        if (appMod && e.shiftKey && e.key === 'W' && view === 'terminal') {
             e.preventDefault();
             logger.info('Cmd+Shift+W pressed - close pane');
             handleClosePane();
@@ -1478,7 +1478,7 @@ function App() {
         }
 
         // Cmd+Option+Arrow keys - Navigate between panes
-        if ((e.metaKey || e.ctrlKey) && e.altKey && view === 'terminal') {
+        if (appMod && e.altKey && view === 'terminal') {
             if (e.key === 'ArrowLeft') {
                 e.preventDefault();
                 handleNavigatePane('left');
@@ -1502,19 +1502,19 @@ function App() {
         }
 
         // Cmd+Option+[ and Cmd+Option+] - Cycle through panes
-        if ((e.metaKey || e.ctrlKey) && e.altKey && e.key === '[' && view === 'terminal') {
+        if (appMod && e.altKey && e.key === '[' && view === 'terminal') {
             e.preventDefault();
             handleCyclicNavigatePane('prev');
             return;
         }
-        if ((e.metaKey || e.ctrlKey) && e.altKey && e.key === ']' && view === 'terminal') {
+        if (appMod && e.altKey && e.key === ']' && view === 'terminal') {
             e.preventDefault();
             handleCyclicNavigatePane('next');
             return;
         }
 
         // Cmd+Shift+Z - Toggle zoom on current pane
-        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'Z' && view === 'terminal') {
+        if (appMod && e.shiftKey && e.key === 'Z' && view === 'terminal') {
             e.preventDefault();
             logger.info('Cmd+Shift+Z pressed - toggle zoom');
             handleToggleZoom();
@@ -1529,14 +1529,14 @@ function App() {
         }
 
         // Cmd+Option+= - Balance pane sizes
-        if ((e.metaKey || e.ctrlKey) && e.altKey && e.key === '=' && view === 'terminal') {
+        if (appMod && e.altKey && e.key === '=' && view === 'terminal') {
             e.preventDefault();
             handleBalancePanes();
             return;
         }
 
         // Layout presets: Cmd+Option+1/2/3/4
-        if ((e.metaKey || e.ctrlKey) && e.altKey && view === 'terminal') {
+        if (appMod && e.altKey && view === 'terminal') {
             if (e.key === '1') {
                 e.preventDefault();
                 handleApplyPreset('single');
