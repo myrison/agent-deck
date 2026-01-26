@@ -48,13 +48,17 @@ const logger = createLogger('App');
 
 // Helper to get effective config key - fetches default if none provided
 const getEffectiveConfigKey = async (configKey, tool) => {
-    if (configKey) return configKey;
+    if (configKey) {
+        logger.debug('Using provided config key', { tool, configKey });
+        return configKey;
+    }
     try {
         const defaultConfig = await GetDefaultLaunchConfig(tool);
         if (defaultConfig?.key) {
-            logger.info('Using default config', { tool, configKey: defaultConfig.key });
+            logger.info('Using default config', { tool, configKey: defaultConfig.key, configName: defaultConfig.name });
             return defaultConfig.key;
         }
+        logger.info('No default config found for tool', { tool });
     } catch (err) {
         logger.warn('Failed to get default config:', err);
     }
@@ -957,8 +961,31 @@ function App() {
 
     // Show session picker for a project with multiple sessions
     const handleShowSessionPicker = useCallback((projectPath, projectName, projectSessions) => {
-        logger.info('Showing session picker', { projectPath, projectName, sessionCount: projectSessions?.length });
-        setSessionPickerProject({ path: projectPath, name: projectName, sessions: projectSessions });
+        // Derive remote info from sessions
+        // If ALL sessions are remote and from the SAME host, treat project as remote
+        let isRemote = false;
+        let remoteHost = null;
+
+        if (projectSessions && projectSessions.length > 0) {
+            const remoteSessions = projectSessions.filter(s => s.isRemote);
+            if (remoteSessions.length === projectSessions.length && remoteSessions.length > 0) {
+                // All sessions are remote - check if all from same host
+                const hosts = new Set(remoteSessions.map(s => s.remoteHost).filter(Boolean));
+                if (hosts.size === 1) {
+                    isRemote = true;
+                    remoteHost = remoteSessions[0].remoteHost;
+                }
+            }
+        }
+
+        logger.info('Showing session picker', { projectPath, projectName, sessionCount: projectSessions?.length, isRemote, remoteHost });
+        setSessionPickerProject({
+            path: projectPath,
+            name: projectName,
+            sessions: projectSessions,
+            isRemote,
+            remoteHost
+        });
     }, []);
 
     // Handle session selection from session picker
@@ -980,19 +1007,37 @@ function App() {
     // Handle creating a new session from session picker
     const handleSessionPickerCreateNew = useCallback(async (customLabel) => {
         if (!sessionPickerProject) return;
-        logger.info('Session picker: creating new session', { path: sessionPickerProject.path, customLabel });
+
+        const { path, name, isRemote, remoteHost } = sessionPickerProject;
+        const tool = 'claude'; // Default tool for session picker (could be made configurable later)
+
+        logger.info('Session picker: creating new session', {
+            path,
+            name,
+            customLabel,
+            isRemote,
+            remoteHost
+        });
+
         try {
-            await handleLaunchProject(
-                sessionPickerProject.path,
-                sessionPickerProject.name,
-                'claude',
-                '',
-                customLabel || ''  // empty = auto-generate label
-            );
+            if (isRemote && remoteHost) {
+                // Create remote session - handleLaunchRemoteProject handles config fetching
+                await handleLaunchRemoteProject(remoteHost, path, name, tool, '');
+                // Note: customLabel not supported for remote sessions yet via this path
+                if (customLabel) {
+                    logger.warn('Custom label not applied to remote session (not implemented)');
+                }
+            } else {
+                // Create local session - handleLaunchProject handles config fetching
+                await handleLaunchProject(path, name, tool, '', customLabel || '');
+            }
+        } catch (err) {
+            logger.error('Session picker: failed to create session', err);
+            // Error is already shown by handleLaunchProject/handleLaunchRemoteProject
         } finally {
             setSessionPickerProject(null);
         }
-    }, [sessionPickerProject, handleLaunchProject]);
+    }, [sessionPickerProject, handleLaunchProject, handleLaunchRemoteProject]);
 
     // Cancel session picker
     const handleCancelSessionPicker = useCallback(() => {

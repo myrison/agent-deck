@@ -775,6 +775,21 @@ func sanitizeShellArgs(args []string) error {
 // If configKey is non-empty, the launch config settings will be applied.
 // The session is persisted to sessions.json so it survives app restarts.
 func (tm *TmuxManager) CreateSession(projectPath, title, tool, configKey string) (SessionInfo, error) {
+	// Validate projectPath exists locally
+	// This prevents silent fallback to home directory when path is from remote/docker
+	if projectPath != "" {
+		info, err := os.Stat(projectPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return SessionInfo{}, fmt.Errorf("project path does not exist: %s (this may be a remote path - use the remote session option)", projectPath)
+			}
+			return SessionInfo{}, fmt.Errorf("cannot access project path %s: %w", projectPath, err)
+		}
+		if !info.IsDir() {
+			return SessionInfo{}, fmt.Errorf("project path is not a directory: %s", projectPath)
+		}
+	}
+
 	// Generate unique session ID (matches TUI format: {8-char-hex}-{unix-timestamp})
 	sessionID := generateSessionID()
 
