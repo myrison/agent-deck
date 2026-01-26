@@ -18,6 +18,19 @@ function getStatusColor(status) {
     }
 }
 
+// Generate a consistent accent color from a string (for visual distinction)
+// Uses golden ratio hashing for even color distribution
+function getSessionAccentColor(str) {
+    if (!str) return null;
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    // Use golden ratio for good hue distribution
+    const hue = Math.abs(hash * 137.508) % 360;
+    return `hsl(${hue}, 55%, 55%)`;
+}
+
 // Get relative project path (simplified)
 function getRelativePath(fullPath) {
     if (!fullPath) return '';
@@ -148,27 +161,47 @@ export default function SessionTab({ tab, index, isActive, onSwitch, onClose, on
         onClose?.();
     };
 
-    // Calculate tab title: show "Name + N more" if multiple sessions
-    const tabTitle = useMemo(() => {
+    // Calculate tab title and whether we have a custom label
+    const { tabTitle, hasCustomLabel, toolTitle } = useMemo(() => {
         if (!session) {
-            return paneCount > 1 ? `${paneCount} panes` : 'Empty';
+            return {
+                tabTitle: paneCount > 1 ? `${paneCount} panes` : 'Empty',
+                hasCustomLabel: false,
+                toolTitle: null
+            };
         }
+        const hasLabel = Boolean(session.customLabel);
         const displayName = session.customLabel || session.title;
-        if (sessions.length > 1) {
-            return `${displayName} +${sessions.length - 1}`;
-        }
-        return displayName;
+        const suffix = sessions.length > 1 ? ` +${sessions.length - 1}` : '';
+        return {
+            tabTitle: displayName + suffix,
+            hasCustomLabel: hasLabel,
+            toolTitle: hasLabel ? session.title : null
+        };
     }, [session, sessions.length, paneCount]);
+
+    // Get accent color for visual distinction (based on custom label or title)
+    const sessionAccentColor = useMemo(() => {
+        if (!session) return null;
+        // Use custom label if set, otherwise use title for distinction
+        const distinctionKey = session.customLabel || session.title;
+        return getSessionAccentColor(distinctionKey);
+    }, [session]);
 
     return (
         <>
             <button
-                className={`session-tab${isActive ? ' active' : ''}${paneCount > 1 ? ' multi-pane' : ''}`}
+                className={`session-tab${isActive ? ' active' : ''}${paneCount > 1 ? ' multi-pane' : ''}${hasCustomLabel ? ' has-label' : ''}`}
                 onClick={onSwitch}
                 onContextMenu={onContextMenu}
                 onMouseEnter={(e) => showTooltip(e, getTooltipContent())}
                 onMouseLeave={hideTooltip}
+                style={sessionAccentColor ? { '--session-accent': sessionAccentColor } : undefined}
             >
+                {/* Accent indicator for visual distinction */}
+                {sessionAccentColor && (
+                    <span className="tab-accent" style={{ backgroundColor: sessionAccentColor }} />
+                )}
                 <span
                     className="tab-status"
                     style={{ backgroundColor: session ? getStatusColor(session.status) : '#6c757d' }}
@@ -179,8 +212,13 @@ export default function SessionTab({ tab, index, isActive, onSwitch, onClose, on
                         <span style={{ fontSize: '10px' }}>+</span>
                     )}
                 </span>
-                <span className="tab-title">
-                    {tabTitle}
+                <span className="tab-title-container">
+                    <span className={`tab-title${hasCustomLabel ? ' custom-label' : ''}`}>
+                        {tabTitle}
+                    </span>
+                    {hasCustomLabel && toolTitle && (
+                        <span className="tab-tool-subtitle">{toolTitle}</span>
+                    )}
                 </span>
                 {paneCount > 1 && (
                     <span className="tab-pane-badge">{paneCount}</span>

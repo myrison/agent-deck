@@ -28,6 +28,17 @@
     box-shadow: 0 -2px 0 0 var(--accent-primary) inset;
 }
 
+/* Accent indicator for visual distinction between sessions */
+.tab-accent {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    border-radius: 4px 0 0 4px;
+    opacity: 0.8;
+}
+
 /* Status indicator */
 .tab-status {
     width: 16px;
@@ -41,14 +52,37 @@
     flex-shrink: 0;
 }
 
+/* Tab title container - holds title and optional subtitle */
+.tab-title-container {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
 /* Tab title */
 .tab-title {
-    flex: 1;
     font-size: var(--font-base);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    min-width: 0;
+}
+
+/* Custom label styling - more prominent */
+.tab-title.custom-label {
+    font-weight: 600;
+    color: var(--accent-primary);
+}
+
+/* Tool subtitle when custom label is set */
+.tab-tool-subtitle {
+    font-size: var(--font-xs);
+    color: var(--text-dimmed);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1;
 }
 
 /* Close button - hidden by default, shown on hover */
@@ -119,6 +153,11 @@
 
 .tooltip-status {
     text-transform: capitalize;
+}
+
+/* Tab with custom label - subtle emphasis */
+.session-tab.has-label {
+    padding-left: 10px; /* Extra padding for accent indicator */
 }
 
 /* Multi-pane tab styling */
