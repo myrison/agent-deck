@@ -224,10 +224,11 @@ export default function UnifiedTopBar({
             logger.info('Session deleted successfully');
             // Notify parent to handle cleanup (close tabs, update state)
             onSessionDeleted?.(session.id);
+            setDeletingTab(null);
         } catch (err) {
             logger.error('Failed to delete session:', err);
+            alert('Failed to delete session. Please try again.');
         }
-        setDeletingTab(null);
     }, [deletingTab, onSessionDeleted]);
 
     const handleCancelDeleteSession = useCallback(() => {

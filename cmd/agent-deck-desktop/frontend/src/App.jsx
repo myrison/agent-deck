@@ -1420,10 +1420,11 @@ function App() {
             logger.info('Session deleted successfully');
             // Trigger cleanup of tabs containing this session
             handleSessionDeleted(selectedSession.id);
+            setShowDeleteDialog(false);
         } catch (err) {
             logger.error('Failed to delete session:', err);
+            alert('Failed to delete session. Please try again.');
         }
-        setShowDeleteDialog(false);
     }, [selectedSession, handleSessionDeleted]);
 
     // Handle opening help modal
