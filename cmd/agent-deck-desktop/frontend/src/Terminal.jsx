@@ -227,19 +227,15 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // Use ref to allow settings to be updated without recreating handler
         const softNewlineModeRef = { current: 'both' }; // Default to both
         const autoCopyOnSelectRef = { current: false }; // Auto-copy selected text to clipboard
-        const clickToCursorEnabledRef = { current: false }; // Click-to-cursor experimental feature
-        const cursorPosRef = { current: { x: 0, y: 0 } }; // tmux cursor position (0-indexed)
 
         // Load settings asynchronously and update the refs
         GetTerminalSettings()
             .then(settings => {
                 softNewlineModeRef.current = settings?.softNewline || 'both';
                 autoCopyOnSelectRef.current = settings?.autoCopyOnSelect || false;
-                clickToCursorEnabledRef.current = settings?.clickToCursor || false;
                 logger.info('Loaded terminal settings:', {
                     softNewline: softNewlineModeRef.current,
                     autoCopyOnSelect: autoCopyOnSelectRef.current,
-                    clickToCursor: clickToCursorEnabledRef.current,
                 });
             })
             .catch(err => {
@@ -603,105 +599,6 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         };
         EventsOn('terminal:connection-failed', handleConnectionFailed);
 
-        // ============================================================
-        // CURSOR POSITION TRACKING (for click-to-cursor feature)
-        // ============================================================
-        // The backend polls tmux for cursor_x and cursor_y and emits terminal:cursor.
-        // We use this to calculate arrow key sequences when user clicks in the terminal.
-        // ============================================================
-        const handleCursorUpdate = (data) => {
-            if (data?.sessionId !== sessionId) return;  // Multi-pane filter
-            cursorPosRef.current = {
-                x: data.cursorX,
-                y: data.cursorY,
-            };
-        };
-        EventsOn('terminal:cursor', handleCursorUpdate);
-
-        // ============================================================
-        // CLICK-TO-CURSOR HANDLER
-        // ============================================================
-        // When click-to-cursor is enabled in settings, clicking in the terminal
-        // at a Claude Code prompt moves the cursor to that position using arrow keys.
-        // Guards: feature enabled, normal buffer (not vim/nano), at bottom of scrollback.
-        // ============================================================
-        const handleTerminalClick = (e) => {
-            // Guard: feature must be enabled
-            if (!clickToCursorEnabledRef.current) return;
-
-            // Guard: not in alt-screen (vim, nano, less, etc.)
-            if (isInAltScreen) return;
-
-            // Guard: must be at bottom of scrollback (viewing live content, not history)
-            if (!xtermRef.current) return;
-            const buffer = xtermRef.current.buffer.active;
-            const isAtBottom = buffer.viewportY >= buffer.baseY;
-            if (!isAtBottom) return;
-
-            // Get the terminal element to calculate cell dimensions
-            const termEl = terminalRef.current;
-            if (!termEl) return;
-
-            // Get the xterm screen element for accurate positioning
-            const screenEl = termEl.querySelector('.xterm-screen');
-            if (!screenEl) return;
-
-            // Calculate click position relative to the screen
-            const rect = screenEl.getBoundingClientRect();
-            const clickX = e.clientX - rect.left;
-            const clickY = e.clientY - rect.top;
-
-            // Calculate cell dimensions from the terminal
-            const cellWidth = rect.width / xtermRef.current.cols;
-            const cellHeight = rect.height / xtermRef.current.rows;
-
-            // Convert to terminal cell coordinates (0-indexed)
-            const clickCol = Math.floor(clickX / cellWidth);
-            const clickRow = Math.floor(clickY / cellHeight);
-
-            // Get current cursor position from tmux (0-indexed)
-            const cursorX = cursorPosRef.current.x;
-            const cursorY = cursorPosRef.current.y;
-
-            // Calculate deltas
-            const deltaX = clickCol - cursorX;
-            const deltaY = clickRow - cursorY;
-
-            // If already at the clicked position, do nothing
-            if (deltaX === 0 && deltaY === 0) return;
-
-            // Build arrow key sequence
-            // ANSI escape codes: \x1b[A=Up, \x1b[B=Down, \x1b[C=Right, \x1b[D=Left
-            let sequence = '';
-
-            // Move vertically first (for multi-line input)
-            if (deltaY > 0) {
-                // Move down
-                sequence += `\x1b[${deltaY}B`;
-            } else if (deltaY < 0) {
-                // Move up
-                sequence += `\x1b[${-deltaY}A`;
-            }
-
-            // Then move horizontally
-            if (deltaX > 0) {
-                // Move right
-                sequence += `\x1b[${deltaX}C`;
-            } else if (deltaX < 0) {
-                // Move left
-                sequence += `\x1b[${-deltaX}D`;
-            }
-
-            if (sequence) {
-                logger.debug('[CLICK-TO-CURSOR] Click at (%d,%d), cursor at (%d,%d), sending sequence',
-                    clickCol, clickRow, cursorX, cursorY);
-                WriteTerminal(sessionId, sequence).catch(console.error);
-            }
-        };
-
-        // Attach click handler to terminal element
-        terminalRef.current?.addEventListener('click', handleTerminalClick);
-
         // Track last sent dimensions to avoid duplicate calls
         let lastCols = term.cols;
         let lastRows = term.rows;
@@ -845,7 +742,6 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             if (viewportEl) viewportEl.removeEventListener('scroll', handleDOMScroll);
             if (terminalRef.current) {
                 terminalRef.current.removeEventListener('wheel', handleWheel);
-                terminalRef.current.removeEventListener('click', handleTerminalClick);
             }
             if (scrollSettleTimer) clearTimeout(scrollSettleTimer);
             term.dispose();
