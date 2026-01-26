@@ -12,26 +12,30 @@ cd frontend && npm install  # Install frontend dependencies
 
 ## Debugging & Logging
 
-**Log locations:**
-- **Backend debug log**: `$TMPDIR/agent-deck-desktop-debug.log` (on macOS: `/var/folders/.../T/agent-deck-desktop-debug.log`)
-- **Frontend console**: View → Developer → Developer Tools (or right-click → Inspect) in the Wails window
+**IMPORTANT: For frontend debugging, use the `/read-desktop-logs` skill.** This skill provides instructions for reading frontend console logs that are automatically captured to a file. All `console.log/debug/info/warn/error` calls are intercepted and piped to the log file in dev mode.
+
+**Log location:**
+```
+~/.agent-deck/logs/frontend-console.log
+```
 
 **Reading logs:**
 ```bash
-# Find and watch backend debug log in real-time (macOS)
-tail -f "$(find /var/folders -name 'agent-deck-desktop-debug.log' 2>/dev/null | head -1)"
-
-# Or use TMPDIR directly
-tail -f "$TMPDIR/agent-deck-desktop-debug.log"
+# Watch logs in real-time
+tail -f ~/.agent-deck/logs/frontend-console.log
 
 # View recent log entries
-cat "$TMPDIR/agent-deck-desktop-debug.log" | tail -100
+tail -100 ~/.agent-deck/logs/frontend-console.log
+
+# Search for specific patterns
+grep -i "DEBUG" ~/.agent-deck/logs/frontend-console.log | tail -50
 ```
 
 **Frontend logging utility** (`frontend/src/logger.js`):
-- `logger.debug()` - Dev mode only, console only
-- `logger.info()` - Console only
-- `logger.warn()` / `logger.error()` - Console AND backend debug log file
+- All `console.*` calls are automatically intercepted and written to the log file (dev mode)
+- `logger.debug()` - Dev mode only, with component context prefix
+- `logger.info()` - With component context prefix
+- `logger.warn()` / `logger.error()` - With component context prefix
 
 **Adding debug logging:**
 ```javascript
@@ -39,15 +43,15 @@ import { createLogger } from './logger';
 const logger = createLogger('MyComponent');
 logger.info('Something happened', { data: value });
 
-// For critical debugging, use console.error (always visible):
-console.error('[DEBUG] checkpoint reached', { state });
+// Or just use console.log - it's automatically captured:
+console.log('[DEBUG] checkpoint reached', { state });
 ```
 
 **Common debugging steps:**
 1. Run `wails dev` to start with hot reload
-2. Open browser dev tools in the Wails window (View → Developer → Developer Tools)
-3. Check Console tab for frontend errors
-4. Check `/tmp/agent-deck-desktop-debug.log` for backend errors
+2. Run `tail -f ~/.agent-deck/logs/frontend-console.log` in another terminal to watch logs
+3. Reproduce the issue in the app
+4. Check the log file for errors and debug output
 5. Errors from Go functions called via Wails bindings appear in the frontend catch blocks
 
 ## Git & Pull Requests
