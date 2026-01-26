@@ -1793,7 +1793,8 @@ function App() {
             />
             {showSearch && (
                 <Search
-                    searchAddon={searchRefs.current?.[activeTab?.activePaneId] || searchAddonRef.current}
+                    terminal={searchRefs.current?.[activeTab?.activePaneId]?.terminal}
+                    searchAddon={searchRefs.current?.[activeTab?.activePaneId]?.searchAddon || searchAddonRef.current}
                     onClose={handleCloseSearch}
                     focusTrigger={searchFocusTrigger}
                 />

@@ -49,6 +49,16 @@
     color: var(--accent-error);
 }
 
+.search-status .match-count {
+    color: var(--accent-primary);
+    font-weight: 500;
+    font-family: monospace;
+}
+
+.search-status .no-matches {
+    color: var(--accent-error);
+}
+
 .search-hint {
     font-size: var(--font-md);
     color: var(--text-dimmed);
