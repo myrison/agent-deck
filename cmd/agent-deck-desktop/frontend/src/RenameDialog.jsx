@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import './RenameDialog.css';
+import { withKeyboardIsolation } from './utils/keyboardIsolation';
 
 // Shared dialog component for renaming favorites or adding labels
 export default function RenameDialog({ currentName, title = 'Rename', placeholder = 'Enter text...', onSave, onCancel }) {
@@ -14,10 +15,7 @@ export default function RenameDialog({ currentName, title = 'Rename', placeholde
         }
     }, []);
 
-    const handleKeyDown = (e) => {
-        // Stop propagation to prevent App.jsx and background components from receiving these events
-        e.stopPropagation();
-
+    const handleKeyDown = withKeyboardIsolation((e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
             if (name.trim()) {
@@ -27,7 +25,7 @@ export default function RenameDialog({ currentName, title = 'Rename', placeholde
             e.preventDefault();
             onCancel();
         }
-    };
+    });
 
     return (
         <div className="rename-dialog-overlay" onClick={onCancel}>

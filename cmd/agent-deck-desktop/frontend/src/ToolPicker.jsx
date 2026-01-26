@@ -3,6 +3,7 @@ import './ToolPicker.css';
 import { createLogger } from './logger';
 import { TOOLS } from './utils/tools';
 import ToolIcon from './ToolIcon';
+import { withKeyboardIsolation } from './utils/keyboardIsolation';
 
 const logger = createLogger('ToolPicker');
 
@@ -15,10 +16,7 @@ export default function ToolPicker({ projectPath, projectName, onSelect, onSelec
         containerRef.current?.focus();
     }, [projectPath, projectName]);
 
-    const handleKeyDown = (e) => {
-        // Stop propagation to prevent App.jsx and background components from receiving these events
-        e.stopPropagation();
-
+    const handleKeyDown = withKeyboardIsolation((e) => {
         const withConfig = e.metaKey || e.ctrlKey;
 
         switch (e.key) {
@@ -55,7 +53,7 @@ export default function ToolPicker({ projectPath, projectName, onSelect, onSelec
                 handleSelect(TOOLS[2], withConfig);
                 break;
         }
-    };
+    });
 
     const handleSelect = (tool, withConfig = false) => {
         if (withConfig && onSelectWithConfig) {

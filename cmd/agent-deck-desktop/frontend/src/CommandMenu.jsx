@@ -4,6 +4,7 @@ import './CommandMenu.css';
 import { createLogger } from './logger';
 import ToolIcon from './ToolIcon';
 import { formatShortcut } from './utils/shortcuts';
+import { withKeyboardIsolation } from './utils/keyboardIsolation';
 import RenameDialog from './RenameDialog';
 import DeleteLayoutDialog from './DeleteLayoutDialog';
 
@@ -184,10 +185,7 @@ export default function CommandMenu({
         }
     }, [selectedIndex]);
 
-    const handleKeyDown = (e) => {
-        // Stop propagation to prevent App.jsx and background components from receiving these events
-        e.stopPropagation();
-
+    const handleKeyDown = withKeyboardIsolation((e) => {
         switch (e.key) {
             case 'ArrowDown':
                 e.preventDefault();

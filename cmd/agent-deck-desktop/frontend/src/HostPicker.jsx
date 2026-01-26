@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import './HostPicker.css';
 import { createLogger } from './logger';
 import { ListSSHHosts, GetSSHHostStatus, TestSSHConnection } from '../wailsjs/go/main/App';
+import { withKeyboardIsolation } from './utils/keyboardIsolation';
 
 const logger = createLogger('HostPicker');
 
@@ -61,10 +62,7 @@ export default function HostPicker({ onSelect, onCancel }) {
         setTesting(null);
     };
 
-    const handleKeyDown = (e) => {
-        // Stop propagation to prevent App.jsx and background components from receiving these events
-        e.stopPropagation();
-
+    const handleKeyDown = withKeyboardIsolation((e) => {
         if (hosts.length === 0) {
             if (e.key === 'Escape') {
                 e.preventDefault();
@@ -101,7 +99,7 @@ export default function HostPicker({ onSelect, onCancel }) {
                 handleSelect(hosts[idx]);
             }
         }
-    };
+    });
 
     const handleSelect = (hostId) => {
         logger.info('Host selected', { hostId });

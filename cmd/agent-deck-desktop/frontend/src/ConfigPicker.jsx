@@ -3,6 +3,7 @@ import './ConfigPicker.css';
 import { GetLaunchConfigsForTool } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { TOOLS } from './utils/tools';
+import { withKeyboardIsolation } from './utils/keyboardIsolation';
 
 const logger = createLogger('ConfigPicker');
 
@@ -49,10 +50,7 @@ export default function ConfigPicker({ tool, projectPath, projectName, onSelect,
     }, [tool]);
 
     // Handle keyboard navigation
-    const handleKeyDown = useCallback((e) => {
-        // Stop propagation to prevent App.jsx and background components from receiving these events
-        e.stopPropagation();
-
+    const handleKeyDown = useCallback(withKeyboardIsolation((e) => {
         switch (e.key) {
             case 'ArrowDown':
             case 'ArrowRight':
@@ -77,7 +75,7 @@ export default function ConfigPicker({ tool, projectPath, projectName, onSelect,
                 onCancel();
                 break;
         }
-    }, [configs, selectedIndex, onCancel]);
+    }), [configs, selectedIndex, onCancel]);
 
     const handleSelect = (config) => {
         logger.info('Config selected', { key: config.key, name: config.name, tool });

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import './DeleteLayoutDialog.css';
+import { withKeyboardIsolation } from './utils/keyboardIsolation';
 
 // Confirmation dialog for deleting a saved layout
 export default function DeleteLayoutDialog({ layout, onConfirm, onCancel }) {
@@ -12,10 +13,7 @@ export default function DeleteLayoutDialog({ layout, onConfirm, onCancel }) {
         }
     }, []);
 
-    const handleKeyDown = (e) => {
-        // Stop propagation to prevent App.jsx and background components from receiving these events
-        e.stopPropagation();
-
+    const handleKeyDown = withKeyboardIsolation((e) => {
         if (e.key === 'Escape') {
             e.preventDefault();
             onCancel();
@@ -26,7 +24,7 @@ export default function DeleteLayoutDialog({ layout, onConfirm, onCancel }) {
                 onConfirm();
             }
         }
-    };
+    });
 
     // Extract layout name from title (format is "Layout: {name}")
     const layoutName = layout?.title?.replace(/^Layout:\s*/, '') || 'this layout';
