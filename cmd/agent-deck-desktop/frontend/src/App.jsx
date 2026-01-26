@@ -41,6 +41,7 @@ import {
     layoutToSaveFormat,
     applySavedLayout,
 } from './layoutUtils';
+import { updateSessionLabelInLayout, tabContainsSession } from './utils/tabContextMenu';
 
 const logger = createLogger('App');
 
@@ -1048,10 +1049,15 @@ function App() {
     // Handle tab label updated from context menu
     const handleTabLabelUpdated = useCallback((sessionId, newLabel) => {
         setOpenTabs(prev => prev.map(tab => {
-            if (tab.session.id === sessionId) {
-                return { ...tab, session: { ...tab.session, customLabel: newLabel || undefined } };
+            // Check if this tab contains the session (works with layout-based tabs)
+            if (!tabContainsSession(tab, sessionId)) {
+                return tab;
             }
-            return tab;
+            // Update the session label within the layout
+            return {
+                ...tab,
+                layout: updateSessionLabelInLayout(tab.layout, sessionId, newLabel),
+            };
         }));
         if (selectedSession?.id === sessionId) {
             setSelectedSession(prev => prev ? { ...prev, customLabel: newLabel || undefined } : prev);
