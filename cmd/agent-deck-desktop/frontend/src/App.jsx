@@ -18,8 +18,9 @@ import FocusModeOverlay from './FocusModeOverlay';
 import MoveModeOverlay from './MoveModeOverlay';
 import SaveLayoutModal from './SaveLayoutModal';
 import HostPicker, { LOCAL_HOST_ID } from './HostPicker';
+import DeleteSessionDialog from './DeleteSessionDialog';
 import { BranchIcon } from './ToolIcon';
-import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames } from '../wailsjs/go/main/App';
+import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames, DeleteSession } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE } from './constants/terminal';
 import { shouldInterceptShortcut, hasAppModifier } from './utils/platform';
@@ -93,6 +94,7 @@ function App() {
     const [configPickerTool, setConfigPickerTool] = useState(null);
     const [showSettings, setShowSettings] = useState(false);
     const [showLabelDialog, setShowLabelDialog] = useState(false);
+    const [showDeleteDialog, setShowDeleteDialog] = useState(false);
     // Tab state - now includes layout tree and active pane
     // Each tab: { id, name, layout: LayoutNode, activePaneId: string, openedAt, zoomedPaneId: string|null }
     const [openTabs, setOpenTabs] = useState([]);
@@ -1409,6 +1411,21 @@ function App() {
         });
     }, [activeTabId]);
 
+    // Handle delete button click from terminal header
+    const handleDeleteCurrentSession = useCallback(async () => {
+        if (!selectedSession) return;
+        try {
+            logger.info('Deleting current session', { sessionId: selectedSession.id, title: selectedSession.title });
+            await DeleteSession(selectedSession.id);
+            logger.info('Session deleted successfully');
+            // Trigger cleanup of tabs containing this session
+            handleSessionDeleted(selectedSession.id);
+        } catch (err) {
+            logger.error('Failed to delete session:', err);
+        }
+        setShowDeleteDialog(false);
+    }, [selectedSession, handleSessionDeleted]);
+
     // Handle opening help modal
     const handleOpenHelp = useCallback(() => {
         logger.info('Opening help modal');
@@ -1454,7 +1471,7 @@ function App() {
         // Don't handle shortcuts when modals with input fields or their own handlers are open
         // This includes modals with text input (CommandMenu, RenameDialog, etc) and modal handlers (HelpModal, Settings)
         // Also includes picker modals that handle their own keyboard navigation
-        if (showHelpModal || showSettings || showCommandMenu || showLabelDialog || showRemotePathInput ||
+        if (showHelpModal || showSettings || showCommandMenu || showLabelDialog || showDeleteDialog || showRemotePathInput ||
             sessionPickerProject || showToolPicker || showConfigPicker || showHostPicker || showSaveLayoutModal) {
             return;
         }
@@ -1753,7 +1770,7 @@ function App() {
             e.preventDefault();
             handleFontSizeReset();
         }
-    }, [view, showSearch, showHelpModal, showSettings, showLabelDialog, showCommandMenu, showRemotePathInput, sessionPickerProject, showToolPicker, showConfigPicker, showHostPicker, showSaveLayoutModal, handleBackToSelector, buildShortcutKey, shortcuts, savedLayoutShortcuts, handleLaunchProject, handleApplySavedLayout, handleCycleStatusFilter, handleOpenHelp, handleNewTerminal, handleOpenSettings, selectedSession, activeTabId, openTabs, handleCloseTab, handleSwitchTab, handleFontSizeChange, handleFontSizeReset, activeTab, handleSplitPane, handleClosePane, handleClearSession, handleNavigatePane, handleCyclicNavigatePane, handleToggleZoom, handleExitZoom, handleBalancePanes, handleApplyPreset, moveMode, handleMoveToPane, handleExitMoveMode]);
+    }, [view, showSearch, showHelpModal, showSettings, showLabelDialog, showDeleteDialog, showCommandMenu, showRemotePathInput, sessionPickerProject, showToolPicker, showConfigPicker, showHostPicker, showSaveLayoutModal, handleBackToSelector, buildShortcutKey, shortcuts, savedLayoutShortcuts, handleLaunchProject, handleApplySavedLayout, handleCycleStatusFilter, handleOpenHelp, handleNewTerminal, handleOpenSettings, selectedSession, activeTabId, openTabs, handleCloseTab, handleSwitchTab, handleFontSizeChange, handleFontSizeReset, activeTab, handleSplitPane, handleClosePane, handleClearSession, handleNavigatePane, handleCyclicNavigatePane, handleToggleZoom, handleExitZoom, handleBalancePanes, handleApplyPreset, moveMode, handleMoveToPane, handleExitMoveMode]);
 
     useEffect(() => {
         // Use capture phase to intercept keys before terminal swallows them
@@ -1778,6 +1795,7 @@ function App() {
                         onSwitchTab={handleSwitchTab}
                         onCloseTab={handleCloseTab}
                         onTabLabelUpdated={handleTabLabelUpdated}
+                        onSessionDeleted={handleSessionDeleted}
                     />
                 )}
                 <SessionSelector
@@ -1927,6 +1945,7 @@ function App() {
                     onSwitchTab={handleSwitchTab}
                     onCloseTab={handleCloseTab}
                     onTabLabelUpdated={handleTabLabelUpdated}
+                    onSessionDeleted={handleSessionDeleted}
                 />
             )}
             <div className="terminal-header">
@@ -1968,6 +1987,18 @@ function App() {
                             <span style={{ color: 'var(--text-muted)' }}>Empty pane - Cmd+K to open session</span>
                         )}
                     </div>
+                )}
+                {/* Spacer to push delete button to the right */}
+                <div style={{ flex: 1 }} />
+                {/* Delete session button - only shown when a session is selected */}
+                {selectedSession && (
+                    <button
+                        className="header-delete-button"
+                        onClick={() => setShowDeleteDialog(true)}
+                        title="Delete this session"
+                    >
+                        Delete
+                    </button>
                 )}
             </div>
             <div className="terminal-container">
@@ -2122,6 +2153,13 @@ function App() {
                     placeholder="Enter label..."
                     onSave={handleSaveSessionCustomLabel}
                     onCancel={() => setShowLabelDialog(false)}
+                />
+            )}
+            {showDeleteDialog && selectedSession && (
+                <DeleteSessionDialog
+                    session={selectedSession}
+                    onConfirm={handleDeleteCurrentSession}
+                    onCancel={() => setShowDeleteDialog(false)}
                 />
             )}
         </div>

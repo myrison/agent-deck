@@ -226,3 +226,14 @@
 .session-tab-context-menu button:hover {
     background: var(--bg-selected);
 }
+
+.session-tab-context-menu button.danger:hover {
+    background: var(--accent-error);
+    color: #fff;
+}
+
+.session-tab-context-menu .context-menu-divider {
+    height: 1px;
+    background: var(--border-primary);
+    margin: 4px 0;
+}

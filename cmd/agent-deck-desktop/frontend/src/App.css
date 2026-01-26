@@ -44,6 +44,23 @@ html, body, #root {
     border-color: var(--accent-primary);
 }
 
+.header-delete-button {
+    background: transparent;
+    border: 1px solid var(--border-primary);
+    color: var(--text-muted);
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: var(--font-lg);
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.header-delete-button:hover {
+    background: var(--accent-error);
+    border-color: var(--accent-error);
+    color: #fff;
+}
+
 .session-title-header {
     color: var(--text-muted);
     font-size: var(--font-lg);

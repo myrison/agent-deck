@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import './UnifiedTopBar.css';
-import { GetQuickLaunchFavorites, RemoveQuickLaunchFavorite, UpdateQuickLaunchShortcut, UpdateQuickLaunchFavoriteName, UpdateSessionCustomLabel } from '../wailsjs/go/main/App';
+import { GetQuickLaunchFavorites, RemoveQuickLaunchFavorite, UpdateQuickLaunchShortcut, UpdateQuickLaunchFavoriteName, UpdateSessionCustomLabel, DeleteSession } from '../wailsjs/go/main/App';
 import ShortcutEditor from './ShortcutEditor';
 import RenameDialog from './RenameDialog';
+import DeleteSessionDialog from './DeleteSessionDialog';
 import SessionTab from './SessionTab';
 import { createLogger } from './logger';
 import { formatShortcut } from './utils/shortcuts';
@@ -24,6 +25,7 @@ export default function UnifiedTopBar({
     onSwitchTab,
     onCloseTab,
     onTabLabelUpdated,
+    onSessionDeleted,
 }) {
     const [favorites, setFavorites] = useState([]);
     const [contextMenu, setContextMenu] = useState(null);
@@ -31,6 +33,7 @@ export default function UnifiedTopBar({
     const [editingName, setEditingName] = useState(null);
     const [tabContextMenu, setTabContextMenu] = useState(null); // { x, y, tab }
     const [labelingTab, setLabelingTab] = useState(null);
+    const [deletingTab, setDeletingTab] = useState(null); // Tab being deleted (for confirmation dialog)
     const { show: showTooltip, hide: hideTooltip, Tooltip } = useTooltip();
 
     // Load favorites
@@ -194,6 +197,43 @@ export default function UnifiedTopBar({
         setLabelingTab(null);
     }, [labelingTab, onTabLabelUpdated]);
 
+    // Delete session handlers
+    const handleTabDeleteSession = useCallback(() => {
+        if (!tabContextMenu?.tab) return;
+        const session = getTabSession(tabContextMenu.tab);
+        if (!session) {
+            logger.warn('Cannot delete: no session in tab');
+            setTabContextMenu(null);
+            return;
+        }
+        logger.info('Opening delete confirmation', { sessionId: session.id, title: session.title });
+        setDeletingTab(tabContextMenu.tab);
+        setTabContextMenu(null);
+    }, [tabContextMenu]);
+
+    const handleConfirmDeleteSession = useCallback(async () => {
+        if (!deletingTab) return;
+        const session = getTabSession(deletingTab);
+        if (!session) {
+            setDeletingTab(null);
+            return;
+        }
+        try {
+            logger.info('Deleting session', { sessionId: session.id, title: session.title });
+            await DeleteSession(session.id);
+            logger.info('Session deleted successfully');
+            // Notify parent to handle cleanup (close tabs, update state)
+            onSessionDeleted?.(session.id);
+        } catch (err) {
+            logger.error('Failed to delete session:', err);
+        }
+        setDeletingTab(null);
+    }, [deletingTab, onSessionDeleted]);
+
+    const handleCancelDeleteSession = useCallback(() => {
+        setDeletingTab(null);
+    }, []);
+
     // Close context menu on click outside
     useEffect(() => {
         if (contextMenu) {
@@ -338,6 +378,14 @@ export default function UnifiedTopBar({
                             Remove Custom Label
                         </button>
                     )}
+                    {getTabSession(tabContextMenu.tab) && (
+                        <>
+                            <div className="context-menu-divider" />
+                            <button onClick={handleTabDeleteSession} className="danger">
+                                Delete Session
+                            </button>
+                        </>
+                    )}
                 </div>
             )}
 
@@ -349,6 +397,15 @@ export default function UnifiedTopBar({
                     placeholder="Enter label..."
                     onSave={handleTabSaveLabel}
                     onCancel={() => setLabelingTab(null)}
+                />
+            )}
+
+            {/* Delete Session Confirmation Dialog */}
+            {deletingTab && getTabSession(deletingTab) && (
+                <DeleteSessionDialog
+                    session={getTabSession(deletingTab)}
+                    onConfirm={handleConfirmDeleteSession}
+                    onCancel={handleCancelDeleteSession}
                 />
             )}
 
