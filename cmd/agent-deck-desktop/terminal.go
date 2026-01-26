@@ -428,7 +428,7 @@ func (t *Terminal) startRemoteTmuxPolling(hostID, tmuxSession string, rows int) 
 
 // pollRemoteTmuxLoop continuously polls remote tmux for display updates.
 func (t *Terminal) pollRemoteTmuxLoop(hostID, tmuxSession string) {
-	ticker := time.NewTicker(80 * time.Millisecond) // Match local polling rate for responsive typing
+	ticker := time.NewTicker(40 * time.Millisecond) // ~25 fps - reduced from 80ms for lower input latency
 	defer ticker.Stop()
 
 	for {
@@ -733,7 +733,7 @@ func (t *Terminal) stopTmuxPolling() {
 
 // pollTmuxLoop continuously polls tmux for display updates.
 func (t *Terminal) pollTmuxLoop() {
-	ticker := time.NewTicker(80 * time.Millisecond) // ~12.5 fps
+	ticker := time.NewTicker(40 * time.Millisecond) // ~25 fps - reduced from 80ms for lower input latency
 	defer ticker.Stop()
 
 	for {
