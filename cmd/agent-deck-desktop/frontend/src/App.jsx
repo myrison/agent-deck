@@ -1770,6 +1770,16 @@ function App() {
                         onCancel={handleCancelRemotePathInput}
                     />
                 )}
+                {sessionPickerProject && (
+                    <SessionPicker
+                        projectPath={sessionPickerProject.path}
+                        projectName={sessionPickerProject.name}
+                        sessions={sessionPickerProject.sessions}
+                        onSelectSession={handleSessionPickerSelect}
+                        onCreateNew={handleSessionPickerCreateNew}
+                        onCancel={handleCancelSessionPicker}
+                    />
+                )}
                 {showSettings && (
                     <SettingsModal
                         onClose={() => setShowSettings(false)}
