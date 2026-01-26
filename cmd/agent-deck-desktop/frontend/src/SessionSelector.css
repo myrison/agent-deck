@@ -254,6 +254,24 @@
     color: var(--text-dimmed);
 }
 
+.custom-label-badge {
+    font-size: var(--font-xs);
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(78, 205, 196, 0.2);
+    color: var(--accent-primary);
+    margin-left: 6px;
+    white-space: nowrap;
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+[data-theme="light"] .custom-label-badge {
+    background: rgba(0, 150, 136, 0.15);
+    color: #00796b;
+}
+
 .session-list-status {
     font-size: var(--font-lg);
     flex-shrink: 0;
