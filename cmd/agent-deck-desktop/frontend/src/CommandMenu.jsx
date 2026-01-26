@@ -48,6 +48,7 @@ export default function CommandMenu({
     pinMode = false, // When true, selecting pins instead of launching
     showLayoutActions = false, // Show layout commands (when in terminal view)
     newTabMode = false, // When true, opened via Cmd+T for new tab
+    newSessionMode = false, // When true, Cmd+N was used - only show projects for new session creation
 }) {
     const [query, setQuery] = useState('');
     const [selectedIndex, setSelectedIndex] = useState(0);
@@ -135,6 +136,19 @@ export default function CommandMenu({
             return pinFuse.search(query).map(r => r.item);
         }
 
+        // New session mode: only show projects (for launching new sessions)
+        if (newSessionMode) {
+            if (!query.trim()) {
+                logger.debug('New session mode: showing all projects', { count: projectItems.length });
+                return projectItems;
+            }
+            const projectFuse = new Fuse(projectItems, {
+                keys: [{ name: 'title', weight: 0.5 }, { name: 'projectPath', weight: 0.5 }],
+                threshold: 0.4,
+            });
+            return projectFuse.search(query).map(r => r.item);
+        }
+
         if (!query.trim()) {
             // No query: show sessions first, then projects, then actions
             const allItems = [...sessions, ...projectItems, ...allActions];
@@ -144,7 +158,7 @@ export default function CommandMenu({
         const searchResults = fuse.search(query).map(result => result.item);
         logger.debug('Search results', { query, count: searchResults.length });
         return searchResults;
-    }, [query, fuse, sessions, projectItems, allActions, pinMode]);
+    }, [query, fuse, sessions, projectItems, allActions, pinMode, newSessionMode]);
 
     // Reset selection when results change
     useEffect(() => {
@@ -247,12 +261,17 @@ export default function CommandMenu({
         } else if (item.type === 'project') {
             // Derive count from actual array to avoid sync issues with item.sessionCount
             const sessionCount = item.sessions?.length ?? 0;
-            if (sessionCount > 1) {
+
+            // In newSessionMode, always show picker if sessions exist (to access "New Session" option)
+            if (newSessionMode && sessionCount > 0) {
+                logger.info('New session mode: showing session picker', { path: item.projectPath, count: sessionCount });
+                onShowSessionPicker?.(item.projectPath, item.title, item.sessions);
+            } else if (sessionCount > 1) {
                 // Multiple sessions exist - show session picker
                 logger.info('Project has multiple sessions, showing picker', { path: item.projectPath, count: sessionCount });
                 onShowSessionPicker?.(item.projectPath, item.title, item.sessions);
             } else if (sessionCount === 1) {
-                // Single session exists - attach directly to it
+                // Single session exists - attach directly to it (default behavior, not in newSessionMode)
                 logger.info('Project has single session, attaching', { path: item.projectPath, sessionId: item.sessions[0].id });
                 onSelectSession?.({ ...item.sessions[0], title: item.title, projectPath: item.projectPath });
             } else {
@@ -293,7 +312,12 @@ export default function CommandMenu({
                     ref={inputRef}
                     type="text"
                     className="menu-input"
-                    placeholder={pinMode ? "Search projects to pin..." : newTabMode ? "Search for a session to open in a new tab..." : "Search sessions or actions..."}
+                    placeholder={
+                        pinMode ? "Search projects to pin..."
+                        : newSessionMode ? "Launch a new agent session in..."
+                        : newTabMode ? "Search for a session to open in a new tab..."
+                        : "Search sessions or actions..."
+                    }
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     onKeyDown={handleKeyDown}
@@ -405,10 +429,10 @@ export default function CommandMenu({
                 </div>
                 <div className="menu-footer">
                     <span className="menu-hint"><kbd>↑↓</kbd> Navigate</span>
-                    <span className="menu-hint"><kbd>Enter</kbd> {pinMode ? 'Pin to Quick Launch' : 'Select'}</span>
-                    {!pinMode && <span className="menu-hint"><kbd>⇧Enter</kbd> Label</span>}
+                    <span className="menu-hint"><kbd>Enter</kbd> {pinMode ? 'Pin to Quick Launch' : newSessionMode ? 'Launch' : 'Select'}</span>
+                    {!pinMode && !newSessionMode && <span className="menu-hint"><kbd>⇧Enter</kbd> Label</span>}
                     {!pinMode && <span className="menu-hint"><kbd>⌘Enter</kbd> Tool picker</span>}
-                    {!pinMode && <span className="menu-hint"><kbd>⌘P</kbd> Pin</span>}
+                    {!pinMode && !newSessionMode && <span className="menu-hint"><kbd>⌘P</kbd> Pin</span>}
                     <span className="menu-hint"><kbd>Esc</kbd> Close</span>
                 </div>
             </div>
