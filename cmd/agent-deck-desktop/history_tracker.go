@@ -34,25 +34,29 @@ func NewHistoryTracker(session string, rows int) *HistoryTracker {
 	}
 }
 
-// GetTmuxInfo gets current history size and alt-screen status from tmux.
-// Returns: historySize (lines scrolled off top), inAltScreen (vim/less/htop active), error
-func (ht *HistoryTracker) GetTmuxInfo() (historySize int, inAltScreen bool, err error) {
-	// Query tmux for history_size and alternate_on
+// GetTmuxInfo gets current history size, alt-screen status, and cursor position from tmux.
+// Returns: historySize (lines scrolled off top), inAltScreen (vim/less/htop active), cursorX, cursorY, error
+func (ht *HistoryTracker) GetTmuxInfo() (historySize int, inAltScreen bool, cursorX int, cursorY int, err error) {
+	// Query tmux for history_size, alternate_on, cursor_x, and cursor_y
 	// history_size = number of lines in scrollback (above visible pane)
 	// alternate_on = 1 if app is using alternate screen buffer (vim, less, htop)
+	// cursor_x = cursor column (0-indexed)
+	// cursor_y = cursor row (0-indexed)
 	cmd := exec.Command(tmuxBinaryPath, "display-message", "-t", ht.tmuxSession, "-p",
-		"#{history_size},#{alternate_on}")
+		"#{history_size},#{alternate_on},#{cursor_x},#{cursor_y}")
 	out, err := cmd.Output()
 	if err != nil {
-		return 0, false, err
+		return 0, false, 0, 0, err
 	}
 
 	parts := strings.Split(strings.TrimSpace(string(out)), ",")
-	if len(parts) >= 2 {
+	if len(parts) >= 4 {
 		historySize, _ = strconv.Atoi(parts[0])
 		inAltScreen = parts[1] == "1"
+		cursorX, _ = strconv.Atoi(parts[2])
+		cursorY, _ = strconv.Atoi(parts[3])
 	}
-	return historySize, inAltScreen, nil
+	return historySize, inAltScreen, cursorX, cursorY, nil
 }
 
 // FetchHistoryGap retrieves lines from tmux history that we haven't seen yet.
@@ -177,12 +181,14 @@ func (ht *HistoryTracker) DiffViewport(currentContent string) string {
 		lineMismatch = lineDiff > (len(ht.lastViewportLines) / 2)
 	}
 
-	if diffPercent > 80 || lineMismatch {
-		ht.lastViewportLines = newLines
-		return ht.buildFullViewportOutput(newLines)
-	}
+	// DEBUG: Always use full viewport redraw to diagnose rendering artifacts
+	// TODO: Remove this once artifacts are fixed
+	_ = diffPercent   // Suppress unused warning
+	_ = lineMismatch  // Suppress unused warning
+	ht.lastViewportLines = newLines
+	return ht.buildFullViewportOutput(newLines)
 
-	// Smart diff: only update changed lines
+	// Smart diff: only update changed lines (DISABLED FOR DEBUGGING)
 	var output strings.Builder
 
 	// Always start with cursor home to establish known state
