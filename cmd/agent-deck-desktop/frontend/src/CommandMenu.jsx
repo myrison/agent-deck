@@ -5,6 +5,7 @@ import { createLogger } from './logger';
 import ToolIcon from './ToolIcon';
 import { formatShortcut } from './utils/shortcuts';
 import RenameDialog from './RenameDialog';
+import DeleteLayoutDialog from './DeleteLayoutDialog';
 
 const logger = createLogger('CommandMenu');
 
@@ -41,6 +42,7 @@ export default function CommandMenu({
     onShowSessionPicker, // (projectPath, projectName, sessions) => void - for projects with multiple sessions
     onPinToQuickLaunch, // (projectPath, projectName) => void - for Cmd+P
     onLayoutAction, // (actionId) => void - for layout actions
+    onDeleteSavedLayout, // (layoutId) => void - for Cmd+Backspace on saved layouts
     sessions = [],
     projects = [],
     favorites = [], // Quick launch favorites for shortcut hints
@@ -53,6 +55,7 @@ export default function CommandMenu({
     const [query, setQuery] = useState('');
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [labelingProject, setLabelingProject] = useState(null); // { path, name } - for Shift+Enter
+    const [deletingLayout, setDeletingLayout] = useState(null); // saved-layout item for deletion confirmation
     const inputRef = useRef(null);
     const listRef = useRef(null);
 
@@ -233,6 +236,15 @@ export default function CommandMenu({
                 logger.info('Escape pressed, closing menu');
                 onClose();
                 break;
+            case 'Backspace':
+                // Cmd+Backspace to delete saved layout
+                if ((e.metaKey || e.ctrlKey) && results[selectedIndex]?.type === 'saved-layout') {
+                    e.preventDefault();
+                    const layout = results[selectedIndex];
+                    logger.info('Cmd+Backspace on saved layout, showing delete dialog', { layoutId: layout.layoutId });
+                    setDeletingLayout(layout);
+                }
+                break;
         }
     };
 
@@ -304,6 +316,23 @@ export default function CommandMenu({
         setLabelingProject(null);
         onClose();
     };
+
+    // Handle confirming layout deletion
+    const handleConfirmDeleteLayout = async () => {
+        if (!deletingLayout) return;
+        logger.info('Confirming layout deletion', { layoutId: deletingLayout.layoutId });
+        try {
+            await onDeleteSavedLayout?.(deletingLayout.layoutId);
+            setDeletingLayout(null);
+            onClose(); // Close command menu after successful deletion
+        } catch (err) {
+            logger.error('Failed to delete layout:', err);
+            // Keep dialog open on error so user can retry or cancel
+        }
+    };
+
+    // Check if currently selected item is a saved layout (for footer hint)
+    const selectedIsSavedLayout = results[selectedIndex]?.type === 'saved-layout';
 
     return (
         <div className="menu-overlay" onClick={onClose}>
@@ -435,6 +464,7 @@ export default function CommandMenu({
                         <span className="menu-hint"><kbd>⌘Enter</kbd> Tool picker</span>
                     )}
                     {!pinMode && !newSessionMode && <span className="menu-hint"><kbd>⌘P</kbd> Pin</span>}
+                    {selectedIsSavedLayout && <span className="menu-hint"><kbd>⌘⌫</kbd> Delete</span>}
                     <span className="menu-hint"><kbd>Esc</kbd> Close</span>
                 </div>
             </div>
@@ -446,6 +476,14 @@ export default function CommandMenu({
                     placeholder="Enter label..."
                     onSave={handleSaveProjectLabel}
                     onCancel={() => setLabelingProject(null)}
+                />
+            )}
+
+            {deletingLayout && (
+                <DeleteLayoutDialog
+                    layout={deletingLayout}
+                    onConfirm={handleConfirmDeleteLayout}
+                    onCancel={() => setDeletingLayout(null)}
                 />
             )}
         </div>

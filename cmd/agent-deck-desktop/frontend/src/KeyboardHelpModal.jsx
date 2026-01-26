@@ -172,6 +172,10 @@ export default function KeyboardHelpModal({ onClose }) {
                                 <span>Pin to Quick Launch</span>
                             </div>
                             <div className="help-row">
+                                <kbd>{modKey}⌫</kbd>
+                                <span>Delete saved layout</span>
+                            </div>
+                            <div className="help-row">
                                 <kbd>Esc</kbd>
                                 <span>Close palette</span>
                             </div>

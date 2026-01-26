@@ -795,6 +795,7 @@ function App() {
             setSavedLayouts(layouts || []);
         } catch (err) {
             logger.error('Failed to delete layout:', err);
+            throw err; // Re-throw so caller can handle (e.g., keep dialog open)
         }
     }, []);
 
@@ -1876,6 +1877,7 @@ function App() {
                     onLayoutAction={handleLayoutAction}
                     showLayoutActions={true}
                     savedLayouts={savedLayouts}
+                    onDeleteSavedLayout={handleDeleteSavedLayout}
                     onLaunchProject={(path, name, tool, config, label) => {
                         // If we have an active empty pane, launch into it
                         // For now, use the default behavior (creates new tab)
