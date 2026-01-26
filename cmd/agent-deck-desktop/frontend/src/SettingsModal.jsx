@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './SettingsModal.css';
 import LaunchConfigEditor from './LaunchConfigEditor';
-import { GetLaunchConfigs, DeleteLaunchConfig, GetSoftNewlineMode, SetSoftNewlineMode, SetFontSize, GetScrollSpeed, SetScrollSpeed, ResetGroupSettings } from '../wailsjs/go/main/App';
+import { GetLaunchConfigs, DeleteLaunchConfig, GetSoftNewlineMode, SetSoftNewlineMode, SetFontSize, GetScrollSpeed, SetScrollSpeed, ResetGroupSettings, GetAutoCopyOnSelectEnabled, SetAutoCopyOnSelectEnabled, GetClickToCursorEnabled, SetClickToCursorEnabled } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { TOOLS } from './utils/tools';
 import ToolIcon from './ToolIcon';
@@ -20,6 +20,8 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
     const [editingConfig, setEditingConfig] = useState(null); // null = list view, object = editing
     const [creatingForTool, setCreatingForTool] = useState(null); // tool name when creating new
     const [softNewlineMode, setSoftNewlineMode] = useState('both');
+    const [autoCopyOnSelect, setAutoCopyOnSelect] = useState(false);
+    const [clickToCursor, setClickToCursor] = useState(false);
     const { themePreference, setTheme } = useTheme();
     const containerRef = useRef(null);
 
@@ -45,6 +47,22 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
             logger.error('Failed to load terminal settings:', err);
         }
         // Font size is passed as prop from App.jsx, no need to load here
+
+        try {
+            const autoCopyEnabled = await GetAutoCopyOnSelectEnabled();
+            setAutoCopyOnSelect(autoCopyEnabled);
+            logger.info('Loaded auto-copy on select:', autoCopyEnabled);
+        } catch (err) {
+            logger.error('Failed to load auto-copy setting:', err);
+        }
+
+        try {
+            const clickToCursorEnabled = await GetClickToCursorEnabled();
+            setClickToCursor(clickToCursorEnabled);
+            logger.info('Loaded click-to-cursor:', clickToCursorEnabled);
+        } catch (err) {
+            logger.error('Failed to load click-to-cursor setting:', err);
+        }
     };
 
     const handleSoftNewlineModeChange = async (mode) => {
@@ -115,6 +133,28 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
         } catch (err) {
             logger.error('Failed to reset group settings:', err);
             alert('Failed to reset settings: ' + err.message);
+        }
+    };
+
+    const handleAutoCopyOnSelectChange = async (enabled) => {
+        try {
+            await SetAutoCopyOnSelectEnabled(enabled);
+            setAutoCopyOnSelect(enabled);
+            logger.info('Set auto-copy on select:', enabled);
+        } catch (err) {
+            logger.error('Failed to save auto-copy setting:', err);
+            alert('Failed to save setting: ' + err.message);
+        }
+    };
+
+    const handleClickToCursorChange = async (enabled) => {
+        try {
+            await SetClickToCursorEnabled(enabled);
+            setClickToCursor(enabled);
+            logger.info('Set click-to-cursor:', enabled);
+        } catch (err) {
+            logger.error('Failed to save click-to-cursor setting:', err);
+            alert('Failed to save setting: ' + err.message);
         }
     };
 
@@ -381,6 +421,40 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
                             >
                                 Reset to TUI Defaults
                             </button>
+                        </div>
+                    </div>
+
+                    {/* Experimental Features */}
+                    <div className="settings-theme-section">
+                        <div className="settings-theme-header">
+                            <span className="settings-theme-icon">🧪</span>
+                            <h3>Experimental</h3>
+                        </div>
+                        <div className="settings-checkbox-item">
+                            <label className="settings-checkbox-label">
+                                <input
+                                    type="checkbox"
+                                    checked={autoCopyOnSelect}
+                                    onChange={(e) => handleAutoCopyOnSelectChange(e.target.checked)}
+                                />
+                                Auto-copy on select
+                            </label>
+                            <p className="settings-input-description">
+                                Automatically copy selected text to clipboard.
+                            </p>
+                        </div>
+                        <div className="settings-checkbox-item">
+                            <label className="settings-checkbox-label">
+                                <input
+                                    type="checkbox"
+                                    checked={clickToCursor}
+                                    onChange={(e) => handleClickToCursorChange(e.target.checked)}
+                                />
+                                Click-to-cursor
+                            </label>
+                            <p className="settings-input-description">
+                                Click in the terminal to move cursor to that position (Claude Code prompts only).
+                            </p>
                         </div>
                     </div>
 

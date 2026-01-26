@@ -1002,6 +1002,106 @@ func (tm *TmuxManager) MarkSessionAccessed(sessionID string) error {
 	return nil
 }
 
+// DeleteSession removes a session from sessions.json and kills its tmux session.
+// If the session is remote, it will attempt to kill the tmux session via SSH.
+func (tm *TmuxManager) DeleteSession(sessionID string, sshBridge *SSHBridge) error {
+	sessionsPath, err := tm.getSessionsPath()
+	if err != nil {
+		return err
+	}
+
+	// Read current sessions
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		return fmt.Errorf("failed to read sessions file: %w", err)
+	}
+
+	// Parse as raw JSON to preserve all fields
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("failed to parse sessions file: %w", err)
+	}
+
+	// Parse instances array
+	var instances []map[string]interface{}
+	if err := json.Unmarshal(raw["instances"], &instances); err != nil {
+		return fmt.Errorf("failed to parse instances: %w", err)
+	}
+
+	// Find the session and remove it
+	found := false
+	var tmuxSession string
+	var remoteHost string
+	var newInstances []map[string]interface{}
+	for _, inst := range instances {
+		if id, ok := inst["id"].(string); ok && id == sessionID {
+			found = true
+			if ts, ok := inst["tmux_session"].(string); ok {
+				tmuxSession = ts
+			}
+			if rh, ok := inst["remote_host"].(string); ok {
+				remoteHost = rh
+			}
+			// Skip this session (don't add to newInstances)
+			continue
+		}
+		newInstances = append(newInstances, inst)
+	}
+
+	if !found {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	// Kill the tmux session
+	if tmuxSession != "" {
+		if remoteHost != "" && sshBridge != nil {
+			// Remote session - kill via SSH
+			tmuxPath := sshBridge.GetTmuxPath(remoteHost)
+			killCmd := fmt.Sprintf("%s kill-session -t %q 2>/dev/null || true", tmuxPath, tmuxSession)
+			if _, err := sshBridge.RunCommand(remoteHost, killCmd); err != nil {
+				// Log warning but continue - the session may already be dead
+				fmt.Printf("Warning: failed to kill remote tmux session: %v\n", err)
+			}
+		} else {
+			// Local session - kill directly
+			cmd := exec.Command(tmuxBinaryPath, "kill-session", "-t", tmuxSession)
+			if err := cmd.Run(); err != nil {
+				// Log warning but continue - the session may already be dead
+				fmt.Printf("Warning: failed to kill tmux session: %v\n", err)
+			}
+		}
+	}
+
+	// Marshal instances back
+	instancesData, err := json.Marshal(newInstances)
+	if err != nil {
+		return fmt.Errorf("failed to marshal instances: %w", err)
+	}
+	raw["instances"] = instancesData
+
+	// Update timestamp
+	updatedAt, _ := json.Marshal(time.Now().Format(time.RFC3339Nano))
+	raw["updated_at"] = updatedAt
+
+	// Write back with indentation (atomic write via temp file)
+	output, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	tmpPath := sessionsPath + ".tmp"
+	if err := os.WriteFile(tmpPath, output, 0600); err != nil {
+		return fmt.Errorf("failed to write temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, sessionsPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to finalize save: %w", err)
+	}
+
+	return nil
+}
+
 // UpdateSessionCustomLabel updates the custom_label field for a session.
 // Pass an empty string to remove the custom label.
 func (tm *TmuxManager) UpdateSessionCustomLabel(sessionID, customLabel string) error {

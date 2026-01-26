@@ -221,10 +221,11 @@ const SessionList = forwardRef(function SessionList({
         }
     }, [groups, expandedGroups, handleCollapseAll, handleExpandAll]);
 
-    // Expose toggle function to parent via ref
+    // Expose functions to parent via ref
     useImperativeHandle(ref, () => ({
         toggleAllGroups: handleToggleAllGroups,
-    }), [handleToggleAllGroups]);
+        refresh: loadSessions,
+    }), [handleToggleAllGroups, loadSessions]);
 
     // Check if a group path is visible
     const isGroupVisible = useCallback((groupPath) => {

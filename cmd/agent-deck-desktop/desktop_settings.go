@@ -32,6 +32,13 @@ type TerminalConfig struct {
 	// ScrollSpeed controls mouse/trackpad scroll speed as a percentage
 	// Range: 50-250, Default: 100 (100% = normal speed)
 	ScrollSpeed int `toml:"scroll_speed"`
+	// ClickToCursor enables experimental click-to-position cursor feature
+	// When enabled and in alt-screen mode (nano/vim), clicking sends arrow keys
+	// to move the cursor to the clicked position. Default: false
+	ClickToCursor bool `toml:"click_to_cursor"`
+	// AutoCopyOnSelect enables automatic clipboard copy when text is selected
+	// Similar to Kitty terminal behavior. Default: false
+	AutoCopyOnSelect bool `toml:"auto_copy_on_select"`
 }
 
 // DesktopSettingsManager manages desktop-specific settings in config.toml
@@ -141,9 +148,11 @@ func (dsm *DesktopSettingsManager) saveDesktopSettings(desktop *DesktopConfig) e
 	existingConfig["desktop"] = map[string]interface{}{
 		"theme": desktop.Theme,
 		"terminal": map[string]interface{}{
-			"soft_newline": desktop.Terminal.SoftNewline,
-			"font_size":    desktop.Terminal.FontSize,
-			"scroll_speed": desktop.Terminal.ScrollSpeed,
+			"soft_newline":        desktop.Terminal.SoftNewline,
+			"font_size":           desktop.Terminal.FontSize,
+			"scroll_speed":        desktop.Terminal.ScrollSpeed,
+			"click_to_cursor":     desktop.Terminal.ClickToCursor,
+			"auto_copy_on_select": desktop.Terminal.AutoCopyOnSelect,
 		},
 	}
 
@@ -312,6 +321,62 @@ func (dsm *DesktopSettingsManager) SetScrollSpeed(speed int) error {
 	}
 
 	config.Terminal.ScrollSpeed = speed
+	return dsm.saveDesktopSettings(config)
+}
+
+// GetClickToCursor returns whether click-to-cursor is enabled
+// This is an experimental feature for positioning cursor in nano/vim
+func (dsm *DesktopSettingsManager) GetClickToCursor() (bool, error) {
+	config, err := dsm.loadDesktopSettings()
+	if err != nil {
+		return false, err
+	}
+	return config.Terminal.ClickToCursor, nil
+}
+
+// SetClickToCursor enables or disables click-to-cursor feature
+func (dsm *DesktopSettingsManager) SetClickToCursor(enabled bool) error {
+	config, err := dsm.loadDesktopSettings()
+	if err != nil {
+		config = &DesktopConfig{
+			Theme: "dark",
+			Terminal: TerminalConfig{
+				SoftNewline: "both",
+				FontSize:    14,
+				ScrollSpeed: 100,
+			},
+		}
+	}
+
+	config.Terminal.ClickToCursor = enabled
+	return dsm.saveDesktopSettings(config)
+}
+
+// GetAutoCopyOnSelect returns whether auto-copy on select is enabled
+// This feature automatically copies selected text to clipboard.
+func (dsm *DesktopSettingsManager) GetAutoCopyOnSelect() (bool, error) {
+	config, err := dsm.loadDesktopSettings()
+	if err != nil {
+		return false, err
+	}
+	return config.Terminal.AutoCopyOnSelect, nil
+}
+
+// SetAutoCopyOnSelect enables or disables auto-copy on select feature
+func (dsm *DesktopSettingsManager) SetAutoCopyOnSelect(enabled bool) error {
+	config, err := dsm.loadDesktopSettings()
+	if err != nil {
+		config = &DesktopConfig{
+			Theme: "dark",
+			Terminal: TerminalConfig{
+				SoftNewline: "both",
+				FontSize:    14,
+				ScrollSpeed: 100,
+			},
+		}
+	}
+
+	config.Terminal.AutoCopyOnSelect = enabled
 	return dsm.saveDesktopSettings(config)
 }
 

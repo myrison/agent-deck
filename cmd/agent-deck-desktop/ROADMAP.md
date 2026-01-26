@@ -1,38 +1,64 @@
 # Agent Deck Desktop - Feature Roadmap
 
-TIL:
-- the app supports multiple instances at once
->>   How it works:
+## Bugs / High Priority
+
+### New terminal session does not work, silently fails
+- This fails when choosing new session, or new remote session
+
+### Tool picker investigation
+- In command launcher, we say that Cmd+Enter opens a tool picker, but it's unclear if this actually works -- what is it supposed to do, and does it do it?
+
+### Detect session status changes better than we do today
+- Auto-update logos for each session during refresh process to detect if it's in a shell or agent session
+   - Currently it seems to only load once and never update
+   - This should occur on session tabs, in the session launcher, and in the session list (anywhere the icon is seen)
+   - It should be implemented with a shared logo location if not done this way already so the logo is updated 1x, and automatically appears everywhere
+
+### Settings panel shortcut conflict
+- Opening settings panel from within a session returns user to session list, probably because it's firing on Cmd+, shortcut as well as Cmd+Shift+,
+   - Need to revisit the shortcut for return to sessions as Cmd+, is a Mac standard for settings
+
+---
+
+## Priorities to implement
+
+### Enable a button in the app for opening second app window
+- Support with keyboard and launcher shortcut, probably Cmd+N, and reserve Cmd+T for new tab
+- The app supports multiple instances at once
+- How it works:
   - First instance launched becomes "primary" (manages the notification bar)
   - Additional instances run as "secondary" (fully functional, but don't manage notifications to avoid conflicts)
   - Both can view/attach/manage the same sessions
 
-### Action for us: enable a button in the app for this and keyboard and launcher shortcut, probably CMD + N, and reserve CMD +T for new tab
+---
 
-## Priorities to implement
+## In implementation now
 
-- add ability to position cursor with mouse inside agent desk desktop
-   - i.e. could we allow editors like nano that don't support cursor positioning to have the cursor positioned via
-     mouse click?  This would be awesome
-- opening settings panel from within a session returns user to session list, probably b/c it's firing on Cmd , shortcut as well as cmd + shift + ,
-   - probably need to revisit the shortcut for return to sessions as that's a mac shortcut for settings in every app, isn't it?  Need something more idiomatic
+### Click-to-cursor (experimental)
+- Position cursor with mouse click in terminal
+- Works by sending arrow key sequences based on click position vs cursor position
+- Guards: only at Claude Code prompts, normal buffer (not vim/nano), at bottom of scrollback
 
-- add an easy ability to create numerous Claude sessions in the same directory and to easily view them in menu trees and the launcher.
-   - add option to launcher when searching for a session that asks to open an existing session (or choose from several existing sessions in a single directory, or open a new one in an existing directory)
+### Multiple Claude sessions in same directory
+- Add an easy ability to create numerous Claude sessions in the same directory and to easily view them in menu trees and the launcher
+   - Add option to launcher when searching for a session that asks to open an existing session (or choose from several existing sessions in a single directory, or open a new one in an existing directory)
    - This will require thought and planning to avoid confusion
-   - end goal... allow users to work on multiple things at once in the same directory, with separate agents, and add labels to each duplicated session to distinguish them.  If no label provided by user, auto-apply incremental label #1, #2, etc. (brainstorm with claude what feels right here before implementing, there may be a better way)
+   - End goal: allow users to work on multiple things at once in the same directory, with separate agents, and add labels to each duplicated session to distinguish them. If no label provided by user, auto-apply incremental label #1, #2, etc.
 
+---
 
 ### Recently implemented
-
-- turn front page view of sessions into a list of agents on left, preview pane on right (like TMUX)
-- add hostname to top status bar in session view to clearly indicate which host the session is running in
-- add path to same status menu, for same reason
-- Bug: determine why branch sometimes not shown in this status bar (i.e. for agent-deck, no branch shown
-- add button & launcher action & keyboard shortcut to hide all groups (i.e. collapse to single view)
-- support keybindings, combos that allow the keyboard to jump one word at a time on mac, or to EoL, beg. of lines
+- Window resize blank screen fix (terminal went blank on resize, required navigating away and back) ✓
+- Turn front page view of sessions into a list of agents on left, preview pane on right (like TMUX)
+- Add hostname to top status bar in session view to clearly indicate which host the session is running in
+- Add path to same status menu, for same reason
+- Bug: determine why branch sometimes not shown in this status bar (i.e. for agent-deck, no branch shown)
+- Add button & launcher action & keyboard shortcut to hide all groups (i.e. collapse to single view)
+- Support keybindings, combos that allow the keyboard to jump one word at a time on Mac, or to EOL, beginning of lines
 - Update documentation to show capabilities of desktop app -- dedicated Readme, plus mention on front page Readme
-   - Add remote SSH capabilities to main ireadme
+   - Add remote SSH capabilities to main readme
+- Add auto-copy on select to app, option to disable in settings
+- Remove sessions from agent-deck sessions list
 
 --
 

@@ -7,6 +7,7 @@ import SessionTab from './SessionTab';
 import { createLogger } from './logger';
 import { formatShortcut } from './utils/shortcuts';
 import { getToolColor } from './utils/tools';
+import { shouldRenderTabContextMenu, hasTabCustomLabel, getTabSession } from './utils/tabContextMenu';
 import ToolIcon from './ToolIcon';
 import { useTooltip } from './Tooltip';
 
@@ -169,9 +170,11 @@ export default function UnifiedTopBar({
 
     const handleTabRemoveLabel = useCallback(async () => {
         if (!tabContextMenu?.tab) return;
+        const session = getTabSession(tabContextMenu.tab);
+        if (!session) return;
         try {
-            await UpdateSessionCustomLabel(tabContextMenu.tab.session.id, '');
-            onTabLabelUpdated?.(tabContextMenu.tab.session.id, '');
+            await UpdateSessionCustomLabel(session.id, '');
+            onTabLabelUpdated?.(session.id, '');
         } catch (err) {
             logger.error('Failed to remove tab label:', err);
         }
@@ -180,9 +183,11 @@ export default function UnifiedTopBar({
 
     const handleTabSaveLabel = useCallback(async (newLabel) => {
         if (!labelingTab || !newLabel.trim()) return;
+        const session = getTabSession(labelingTab);
+        if (!session) return;
         try {
-            await UpdateSessionCustomLabel(labelingTab.session.id, newLabel.trim());
-            onTabLabelUpdated?.(labelingTab.session.id, newLabel.trim());
+            await UpdateSessionCustomLabel(session.id, newLabel.trim());
+            onTabLabelUpdated?.(session.id, newLabel.trim());
         } catch (err) {
             logger.error('Failed to save tab label:', err);
         }
@@ -319,16 +324,16 @@ export default function UnifiedTopBar({
             )}
 
             {/* Tab Context Menu */}
-            {tabContextMenu && (
+            {shouldRenderTabContextMenu(tabContextMenu) && (
                 <div
                     className="session-tab-context-menu"
                     style={{ left: tabContextMenu.x, top: tabContextMenu.y }}
                     onClick={(e) => e.stopPropagation()}
                 >
                     <button onClick={handleTabAddLabel}>
-                        {tabContextMenu.tab.session.customLabel ? 'Edit Custom Label' : 'Add Custom Label'}
+                        {hasTabCustomLabel(tabContextMenu.tab) ? 'Edit Custom Label' : 'Add Custom Label'}
                     </button>
-                    {tabContextMenu.tab.session.customLabel && (
+                    {hasTabCustomLabel(tabContextMenu.tab) && (
                         <button onClick={handleTabRemoveLabel}>
                             Remove Custom Label
                         </button>
@@ -337,10 +342,10 @@ export default function UnifiedTopBar({
             )}
 
             {/* Tab Label Dialog */}
-            {labelingTab && (
+            {labelingTab && getTabSession(labelingTab) && (
                 <RenameDialog
-                    currentName={labelingTab.session.customLabel || ''}
-                    title={labelingTab.session.customLabel ? 'Edit Custom Label' : 'Add Custom Label'}
+                    currentName={getTabSession(labelingTab)?.customLabel || ''}
+                    title={getTabSession(labelingTab)?.customLabel ? 'Edit Custom Label' : 'Add Custom Label'}
                     placeholder="Enter label..."
                     onSave={handleTabSaveLabel}
                     onCancel={() => setLabelingTab(null)}

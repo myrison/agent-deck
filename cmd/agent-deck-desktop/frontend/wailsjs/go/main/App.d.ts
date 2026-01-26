@@ -16,9 +16,15 @@ export function DeleteLaunchConfig(arg1:string):Promise<void>;
 
 export function DeleteSavedLayout(arg1:string):Promise<void>;
 
+export function DeleteSession(arg1:string):Promise<void>;
+
 export function DiscoverProjects():Promise<Array<main.ProjectInfo>>;
 
 export function GenerateConfigKey(arg1:string,arg2:string):Promise<string>;
+
+export function GetAutoCopyOnSelectEnabled():Promise<boolean>;
+
+export function GetClickToCursorEnabled():Promise<boolean>;
 
 export function GetDefaultLaunchConfig(arg1:string):Promise<main.LaunchConfigInfo>;
 
@@ -93,6 +99,10 @@ export function SaveLayout(arg1:main.SavedLayout):Promise<main.SavedLayout>;
 export function SessionExists(arg1:string):Promise<boolean>;
 
 export function SetAllGroupsExpanded(arg1:Array<string>,arg2:boolean):Promise<void>;
+
+export function SetAutoCopyOnSelectEnabled(arg1:boolean):Promise<void>;
+
+export function SetClickToCursorEnabled(arg1:boolean):Promise<void>;
 
 export function SetDesktopTheme(arg1:string):Promise<void>;
 
