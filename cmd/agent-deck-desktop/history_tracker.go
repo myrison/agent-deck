@@ -34,30 +34,26 @@ func NewHistoryTracker(session string, rows int) *HistoryTracker {
 	}
 }
 
-// GetTmuxInfo gets current history size, alt-screen status, and cursor position from tmux.
-// Returns: historySize (lines scrolled off top), inAltScreen (vim/less/htop active), cursorX, cursorY, error
-func (ht *HistoryTracker) GetTmuxInfo() (historySize int, inAltScreen bool, cursorX int, cursorY int, err error) {
-	// Query tmux for history_size, alternate_on, cursor_x, and cursor_y
+// GetTmuxInfo gets current history size and alt-screen status from tmux.
+// Returns: historySize (lines scrolled off top), inAltScreen (vim/less/htop active), error
+func (ht *HistoryTracker) GetTmuxInfo() (historySize int, inAltScreen bool, err error) {
+	// Query tmux for history_size and alternate_on
 	// history_size = number of lines in scrollback (above visible pane)
 	// alternate_on = 1 if app is using alternate screen buffer (vim, less, htop)
-	// cursor_x = cursor column (0-indexed)
-	// cursor_y = cursor row (0-indexed)
 	cmd := exec.Command(tmuxBinaryPath, "display-message", "-t", ht.tmuxSession, "-p",
-		"#{history_size},#{alternate_on},#{cursor_x},#{cursor_y}")
+		"#{history_size},#{alternate_on}")
 	out, err := cmd.Output()
 	if err != nil {
-		return 0, false, 0, 0, err
+		return 0, false, err
 	}
 
 	parts := strings.Split(strings.TrimSpace(string(out)), ",")
-	if len(parts) < 4 {
-		return 0, false, 0, 0, fmt.Errorf("unexpected tmux output: got %d fields, expected 4", len(parts))
+	if len(parts) < 2 {
+		return 0, false, fmt.Errorf("unexpected tmux output: got %d fields, expected 2", len(parts))
 	}
 	historySize, _ = strconv.Atoi(parts[0])
 	inAltScreen = parts[1] == "1"
-	cursorX, _ = strconv.Atoi(parts[2])
-	cursorY, _ = strconv.Atoi(parts[3])
-	return historySize, inAltScreen, cursorX, cursorY, nil
+	return historySize, inAltScreen, nil
 }
 
 // FetchHistoryGap retrieves lines from tmux history that we haven't seen yet.
