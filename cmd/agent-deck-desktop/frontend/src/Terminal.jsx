@@ -136,9 +136,12 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // Expose for debugging (remove in production)
         window._xterm = term;
 
-        // Expose search addon via ref
+        // Expose terminal and search addon via ref for enhanced search
         if (searchRef) {
-            searchRef.current = searchAddon;
+            searchRef.current = {
+                terminal: term,
+                searchAddon: searchAddon,
+            };
         }
 
         // Get the session ID for this terminal (used for multi-pane support)
