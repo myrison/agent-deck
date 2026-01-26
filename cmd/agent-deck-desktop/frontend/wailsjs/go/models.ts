@@ -154,17 +154,38 @@ export namespace main {
 	        this.lastError = source["lastError"];
 	    }
 	}
+	export class PaneBinding {
+	    projectPath: string;
+	    projectName: string;
+	    customLabel?: string;
+	    tool?: string;
+	    remoteHost?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new PaneBinding(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectPath = source["projectPath"];
+	        this.projectName = source["projectName"];
+	        this.customLabel = source["customLabel"];
+	        this.tool = source["tool"];
+	        this.remoteHost = source["remoteHost"];
+	    }
+	}
 	export class SavedLayoutNode {
 	    type: string;
 	    id?: string;
 	    direction?: string;
 	    ratio?: number;
 	    children?: SavedLayoutNode[];
-	
+	    binding?: PaneBinding;
+
 	    static createFrom(source: any = {}) {
 	        return new SavedLayoutNode(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.type = source["type"];
@@ -172,8 +193,9 @@ export namespace main {
 	        this.direction = source["direction"];
 	        this.ratio = source["ratio"];
 	        this.children = this.convertValues(source["children"], SavedLayoutNode);
+	        this.binding = this.convertValues(source["binding"], PaneBinding);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;

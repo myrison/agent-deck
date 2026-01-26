@@ -9,6 +9,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// PaneBinding represents session binding hints for restoring a layout pane
+type PaneBinding struct {
+	ProjectPath string `json:"projectPath"`
+	ProjectName string `json:"projectName"`
+	CustomLabel string `json:"customLabel,omitempty"`
+	Tool        string `json:"tool,omitempty"`
+	RemoteHost  string `json:"remoteHost,omitempty"`
+}
+
 // SavedLayoutNode represents a layout tree node (matches JS LayoutNode type)
 type SavedLayoutNode struct {
 	Type      string             `json:"type"`                // "pane" or "split"
@@ -16,6 +25,7 @@ type SavedLayoutNode struct {
 	Direction string             `json:"direction,omitempty"` // "horizontal" or "vertical" (for type="split")
 	Ratio     float64            `json:"ratio,omitempty"`     // Split ratio 0.0-1.0 (for type="split")
 	Children  []*SavedLayoutNode `json:"children,omitempty"`  // Two children (for type="split")
+	Binding   *PaneBinding       `json:"binding,omitempty"`   // Session binding (for type="pane")
 }
 
 // SavedLayout represents a saved layout template

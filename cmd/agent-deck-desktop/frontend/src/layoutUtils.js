@@ -551,16 +551,53 @@ export function getFirstPaneId(layout) {
 // ============================================================
 
 /**
- * Convert a layout to a saveable format (strip session data, keep structure)
+ * Extract binding info from a session for layout persistence
+ * @param {Object|null} session - Session object
+ * @returns {Object|null} Binding object or null
+ */
+function extractBindingFromSession(session) {
+    if (!session) return null;
+
+    // Extract projectPath from session.title (format: "projectName" where title matches the project)
+    // Session has: id, title, projectPath, tool, customLabel, remoteHost, etc.
+    const binding = {
+        projectPath: session.projectPath || '',
+        projectName: session.title || '',
+    };
+
+    // Only include optional fields if they have values
+    if (session.customLabel) {
+        binding.customLabel = session.customLabel;
+    }
+    if (session.tool) {
+        binding.tool = session.tool;
+    }
+    if (session.remoteHost) {
+        binding.remoteHost = session.remoteHost;
+    }
+
+    return binding;
+}
+
+/**
+ * Convert a layout to a saveable format (strip session data, keep structure and bindings)
  * @param {Object} layout - Layout node with sessions
- * @returns {Object} Layout structure without sessions (for saving as template)
+ * @returns {Object} Layout structure with bindings (for saving as template)
  */
 export function layoutToSaveFormat(layout) {
     if (layout.type === 'pane') {
-        return {
+        const result = {
             type: 'pane',
             id: generatePaneId(), // Generate new IDs for the template
         };
+
+        // Extract binding from the session if present
+        const binding = extractBindingFromSession(layout.session);
+        if (binding) {
+            result.binding = binding;
+        }
+
+        return result;
     }
 
     return {
@@ -575,34 +612,111 @@ export function layoutToSaveFormat(layout) {
 }
 
 /**
- * Apply a saved layout template to the current layout, preserving sessions
- * Similar to applyPreset but takes a SavedLayout structure
+ * Find the best matching session for a binding from available sessions
+ * Resolution order:
+ *   1. Match by customLabel in same projectPath
+ *   2. Match by tool in same projectPath
+ *   3. First session in same projectPath
+ *   4. Return null (empty pane with launcher)
+ *
+ * @param {Object} binding - Binding object with projectPath, customLabel, tool, etc.
+ * @param {Array} availableSessions - Array of sessions not yet assigned
+ * @returns {Object|null} Best matching session or null
+ */
+export function findBestSessionForBinding(binding, availableSessions) {
+    if (!binding || !binding.projectPath || availableSessions.length === 0) {
+        return null;
+    }
+
+    // Filter sessions in the same project
+    const projectSessions = availableSessions.filter(
+        s => s.projectPath === binding.projectPath
+    );
+
+    if (projectSessions.length === 0) {
+        return null;
+    }
+
+    // Priority 1: Match by customLabel
+    if (binding.customLabel) {
+        const labelMatch = projectSessions.find(
+            s => s.customLabel === binding.customLabel
+        );
+        if (labelMatch) {
+            return labelMatch;
+        }
+    }
+
+    // Priority 2: Match by tool
+    if (binding.tool) {
+        const toolMatch = projectSessions.find(
+            s => s.tool === binding.tool
+        );
+        if (toolMatch) {
+            return toolMatch;
+        }
+    }
+
+    // Priority 3: First session in the project
+    return projectSessions[0];
+}
+
+/**
+ * Apply a saved layout template to the current layout, using bindings to restore sessions
  * @param {Object} currentLayout - Current layout with sessions
  * @param {Object} savedLayout - Saved layout structure (from SavedLayout.layout)
+ * @param {Array} allSessions - All available sessions for binding resolution
  * @returns {Object} { layout: newLayout, closedSessions: Session[] }
  */
-export function applySavedLayout(currentLayout, savedLayout) {
-    // Get all sessions from current layout
+export function applySavedLayout(currentLayout, savedLayout, allSessions = []) {
+    // Get all sessions from current layout (these may be closed if not in new layout)
     const currentPanes = getPaneList(currentLayout);
-    const sessions = currentPanes
+    const currentSessions = currentPanes
         .map(p => p.session)
         .filter(s => s != null);
 
     // Clone the saved layout and assign new pane IDs
     const clonedLayout = cloneLayoutWithNewIds(savedLayout);
 
-    // Get panes in new layout
+    // Get panes in new layout (with their bindings)
     const newPanes = getPaneList(clonedLayout);
 
-    // Assign sessions to new panes
+    // Track assigned session IDs to avoid duplicates
+    const assignedSessionIds = new Set();
+
+    // Build list of sessions available for binding resolution
+    // Use allSessions which contains the full session list from the app state
+    const availableForBinding = [...allSessions];
+
+    // Assign sessions to new panes based on bindings
     let result = clonedLayout;
     const closedSessions = [];
 
-    for (let i = 0; i < sessions.length; i++) {
-        if (i < newPanes.length) {
-            result = updatePaneSession(result, newPanes[i].id, sessions[i]);
-        } else {
-            closedSessions.push(sessions[i]);
+    for (const pane of newPanes) {
+        // Get binding from the saved layout pane
+        const binding = pane.binding;
+
+        if (binding) {
+            // Filter out already assigned sessions
+            const unassignedSessions = availableForBinding.filter(
+                s => !assignedSessionIds.has(s.id)
+            );
+
+            // Find best session for this binding
+            const session = findBestSessionForBinding(binding, unassignedSessions);
+
+            if (session) {
+                result = updatePaneSession(result, pane.id, session);
+                assignedSessionIds.add(session.id);
+            }
+            // If no session found, pane remains empty (launcher will show)
+        }
+    }
+
+    // Find sessions from current layout that weren't assigned to new layout
+    for (const session of currentSessions) {
+        if (!assignedSessionIds.has(session.id)) {
+            closedSessions.push(session);
         }
     }
 
@@ -610,18 +724,23 @@ export function applySavedLayout(currentLayout, savedLayout) {
 }
 
 /**
- * Clone a layout tree with new pane IDs
+ * Clone a layout tree with new pane IDs (preserves bindings for session resolution)
  * @param {Object} node - Layout node to clone
- * @returns {Object} Cloned layout with fresh IDs
+ * @returns {Object} Cloned layout with fresh IDs and preserved bindings
  */
 function cloneLayoutWithNewIds(node) {
     if (node.type === 'pane') {
-        return {
+        const result = {
             type: 'pane',
             id: generatePaneId(),
             sessionId: null,
             session: null,
         };
+        // Preserve binding for session resolution during applySavedLayout
+        if (node.binding) {
+            result.binding = { ...node.binding };
+        }
+        return result;
     }
     return {
         type: 'split',

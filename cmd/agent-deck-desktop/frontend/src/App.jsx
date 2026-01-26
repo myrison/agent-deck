@@ -736,7 +736,7 @@ function App() {
     const handleApplySavedLayout = useCallback((savedLayout) => {
         if (!activeTab || !savedLayout?.layout) return;
 
-        const { layout, closedSessions } = applySavedLayout(activeTab.layout, savedLayout.layout);
+        const { layout, closedSessions } = applySavedLayout(activeTab.layout, savedLayout.layout, sessions);
         const firstPaneId = getFirstPaneId(layout);
 
         logger.info('Applied saved layout', { name: savedLayout.name, closedSessions: closedSessions.length });
@@ -754,7 +754,7 @@ function App() {
         // Update selected session to the first pane's session
         const firstPane = findPane(layout, firstPaneId);
         setSelectedSession(firstPane?.session || null);
-    }, [activeTab, activeTabId]);
+    }, [activeTab, activeTabId, sessions]);
 
     // Handle layout actions from command menu
     // NOTE: Defined after all the handlers it depends on to avoid forward reference issues
