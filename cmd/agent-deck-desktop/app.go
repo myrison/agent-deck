@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // Version is set at build time via ldflags.
@@ -471,8 +473,15 @@ func (a *App) GetAutoCopyOnSelectEnabled() bool {
 }
 
 // SetAutoCopyOnSelectEnabled enables or disables auto-copy on select.
+// Emits a 'settings:autoCopyOnSelect' event so running terminals can update.
 func (a *App) SetAutoCopyOnSelectEnabled(enabled bool) error {
-	return a.desktopSettings.SetAutoCopyOnSelect(enabled)
+	err := a.desktopSettings.SetAutoCopyOnSelect(enabled)
+	if err != nil {
+		return err
+	}
+	// Emit event to notify running terminals of the setting change
+	wailsRuntime.EventsEmit(a.ctx, "settings:autoCopyOnSelect", enabled)
+	return nil
 }
 
 // ==================== SSH Remote Session Methods ====================
