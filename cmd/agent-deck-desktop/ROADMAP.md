@@ -1,44 +1,17 @@
 # Agent Deck Desktop - Feature Roadmap
 
-## Bugs / High Priority
-
-### saving grids / panel layouts doesn't seem to save the sessions that were loaded within them
-- every time you choose the launcher to open the same panel, it just opens a 2x2 grid with the
-  item you chose in the launcher vs. opening the last saved layout
-- need an easy way to replace session with another session vs. force close and re-add
-
-### right clicking a session 'tab' in the sessions view causes whole react app to crash
 
 ### Build support for dragging / pasting an image into an ssh'd session (doesn't work by default)
-
-
-## Search improvements
-- Change highlighting on search function to highlight entire rows where term is found with lightly shaded color, and darker shared color highlights specific search term
-- show number of matches found in search modal, and the number yuo're on at the time [ie. (3/4)]
 
 ## Label Visibility
 - Labels indicate important work being done where the user has taken the trouble to apply a label
 - add filter to session view that filters only to sessions with labels
-
-## Command Shift Z shortcut doesn't work on sessions page in multi-pane view
-- does not work for zoom in or zoom out
-
-
-### New terminal session does not work, silently fails
-- This fails when choosing new session, or new remote session
-
-### Tool picker investigation
-- In command launcher, we say that Cmd+Enter opens a tool picker, but it's unclear if this actually works -- what is it supposed to do, and does it do it?
 
 ### Detect session status changes better than we do today
 - Auto-update logos for each session during refresh process to detect if it's in a shell or agent session
    - Currently it seems to only load once and never update
    - This should occur on session tabs, in the session launcher, and in the session list (anywhere the icon is seen)
    - It should be implemented with a shared logo location if not done this way already so the logo is updated 1x, and automatically appears everywhere
-
-### Settings panel shortcut conflict
-- Opening settings panel from within a session returns user to session list, probably because it's firing on Cmd+, shortcut as well as Cmd+Shift+,
-   - Need to revisit the shortcut for return to sessions as Cmd+, is a Mac standard for settings
 
 ---
 
@@ -52,20 +25,30 @@
   - Additional instances run as "secondary" (fully functional, but don't manage notifications to avoid conflicts)
   - Both can view/attach/manage the same sessions
 
+### Build support for dragging / pasting an image into an ssh'd session (doesn't work by default)
+
+## Label Visibility
+- Labels indicate important work being done where the user has taken the trouble to apply a label
+- add filter to session view that filters only to sessions with labels
+
+
+### Detect session status changes better than we do today
+- Auto-update logos for each session during refresh process to detect if it's in a shell or agent session
+   - Currently it seems to only load once and never update
+   - This should occur on session tabs, in the session launcher, and in the session list (anywhere the icon is seen)
+   - It should be implemented with a shared logo location if not done this way already so the logo is updated 1x, and automatically appears everywhere
+
+
 ---
 
 ## In implementation now
 
-### Click-to-cursor (experimental)
-- Position cursor with mouse click in terminal
-- Works by sending arrow key sequences based on click position vs cursor position
-- Guards: only at Claude Code prompts, normal buffer (not vim/nano), at bottom of scrollback
+### grids / panel layouts
+- need an easy way to replace session with another session vs. force close and re-add
 
-### Multiple Claude sessions in same directory
-- Add an easy ability to create numerous Claude sessions in the same directory and to easily view them in menu trees and the launcher
-   - Add option to launcher when searching for a session that asks to open an existing session (or choose from several existing sessions in a single directory, or open a new one in an existing directory)
-   - This will require thought and planning to avoid confusion
-   - End goal: allow users to work on multiple things at once in the same directory, with separate agents, and add labels to each duplicated session to distinguish them. If no label provided by user, auto-apply incremental label #1, #2, etc.
+### saving grids / panel layouts doesn't seem to save the sessions that were loaded within them
+- every time you choose the launcher to open the same panel, it just opens a 2x2 grid with the
+  item you chose in the launcher vs. opening the last saved layout
 
 ---
 
@@ -82,6 +65,18 @@
    - Add remote SSH capabilities to main readme
 - Add auto-copy on select to app, option to disable in settings
 - Remove sessions from agent-deck sessions list
+- Change highlighting on search function to highlight entire rows where term is found with lightly shaded color, and darker shared color highlights specific search term
+- Command Shift Z shortcut doesn't work on sessions page in multi-pane view
+- Opening settings panel from within a session returns user to session list, probably because it's firing on Cmd+, shortcut as well as Cmd+Shift+,
+- New terminal session does not work, silently fails, This fails when choosing new session, or new remote session
+**Multiple Claude sessions in same directory**
+- Add an easy ability to create numerous Claude sessions in the same directory and to easily view them in menu trees and the launcher
+   - Add option to launcher when searching for a session that asks to open an existing session (or choose from several existing sessions in a single directory, or open a new one in an existing directory)
+   - This will require thought and planning to avoid confusion
+   - End goal: allow users to work on multiple things at once in the same directory, with separate agents, and add labels to each duplicated session to distinguish them. If no label provided by user, auto-apply incremental label #1, #2, etc.
+- Not able to delete saved layouts
+- In command launcher, we say that Cmd+Enter opens a tool picker, but it's unclear if this actually works -- what is it supposed to do, and does it do it?
+- grids / panel layouts - need an easy way to replace session with another session vs. force close and re-add
 
 --
 
@@ -324,3 +319,8 @@ Assuming prototype validates:
 - Leverage existing Agent Deck infrastructure
 - Familiar to power users
 - Window management (future splits)
+
+### Click-to-cursor (experimental - ABANDONED)
+- Position cursor with mouse click in terminal
+- Works by sending arrow key sequences based on click position vs cursor position
+- Guards: only at Claude Code prompts, normal buffer (not vim/nano), at bottom of scrollback
