@@ -1691,6 +1691,18 @@ function App() {
         return () => document.removeEventListener('keydown', handleKeyDown, true);
     }, [handleKeyDown]);
 
+    // Shared modal: SessionPicker (rendered in both selector and terminal views)
+    const sessionPickerModal = sessionPickerProject && (
+        <SessionPicker
+            projectPath={sessionPickerProject.path}
+            projectName={sessionPickerProject.name}
+            sessions={sessionPickerProject.sessions}
+            onSelectSession={handleSessionPickerSelect}
+            onCreateNew={handleSessionPickerCreateNew}
+            onCancel={handleCancelSessionPicker}
+        />
+    );
+
     // Show session selector
     if (view === 'selector') {
         return (
@@ -1770,16 +1782,7 @@ function App() {
                         onCancel={handleCancelRemotePathInput}
                     />
                 )}
-                {sessionPickerProject && (
-                    <SessionPicker
-                        projectPath={sessionPickerProject.path}
-                        projectName={sessionPickerProject.name}
-                        sessions={sessionPickerProject.sessions}
-                        onSelectSession={handleSessionPickerSelect}
-                        onCreateNew={handleSessionPickerCreateNew}
-                        onCancel={handleCancelSessionPicker}
-                    />
-                )}
+                {sessionPickerModal}
                 {showSettings && (
                     <SettingsModal
                         onClose={() => setShowSettings(false)}
@@ -1988,16 +1991,7 @@ function App() {
                     newSessionMode={paletteNewSessionMode}
                 />
             )}
-            {sessionPickerProject && (
-                <SessionPicker
-                    projectPath={sessionPickerProject.path}
-                    projectName={sessionPickerProject.name}
-                    sessions={sessionPickerProject.sessions}
-                    onSelectSession={handleSessionPickerSelect}
-                    onCreateNew={handleSessionPickerCreateNew}
-                    onCancel={handleCancelSessionPicker}
-                />
-            )}
+            {sessionPickerModal}
             {showToolPicker && toolPickerProject && (
                 <ToolPicker
                     projectPath={toolPickerProject.path}
