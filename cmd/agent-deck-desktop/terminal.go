@@ -62,7 +62,7 @@ func init() {
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err == nil {
 		debugLogFile = f
-		fmt.Fprintf(debugLogFile, "=== Agent Deck Desktop Debug Log ===\n")
+		fmt.Fprintf(debugLogFile, "=== RevvySwarm Desktop Debug Log ===\n")
 		fmt.Fprintf(debugLogFile, "Started: %s\n", time.Now().Format(time.RFC3339))
 		fmt.Fprintf(debugLogFile, "Log file: %s\n\n", logPath)
 		debugLogFile.Sync()

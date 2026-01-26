@@ -56,9 +56,9 @@ func main() {
 	}
 
 	// Set app title based on mode
-	appTitle := "RevDen"
+	appTitle := "RevvySwarm"
 	if isDev {
-		appTitle = "RevDen (Dev)"
+		appTitle = "RevvySwarm (Dev)"
 	}
 
 	// Create application with options

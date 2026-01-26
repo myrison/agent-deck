@@ -133,7 +133,7 @@ const SessionSelector = forwardRef(function SessionSelector({ onSelect, onNewTer
     return (
         <div className="session-selector" ref={containerRef}>
             <div className="session-selector-header">
-                <h2>Agent Deck Sessions</h2>
+                <h2>RevvySwarm Sessions</h2>
             </div>
 
             <div className="session-selector-split">

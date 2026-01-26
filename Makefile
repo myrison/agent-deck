@@ -77,7 +77,7 @@ release: clean
 # Desktop app targets
 DESKTOP_DIR=./cmd/agent-deck-desktop
 
-# Run desktop app in dev mode (uses "RevDen Dev" name)
+# Run desktop app in dev mode (uses "RevvySwarm (Dev)" name)
 desktop-dev:
 	@$(DESKTOP_DIR)/dev.sh
 
@@ -87,7 +87,7 @@ desktop-build:
 
 # Install desktop app to /Applications
 desktop-install: desktop-build
-	@echo "Installing RevDen.app to /Applications..."
-	@rm -rf /Applications/RevDen.app
-	@cp -r $(DESKTOP_DIR)/build/bin/RevDen.app /Applications/
-	@echo "✅ Installed to /Applications/RevDen.app"
+	@echo "Installing RevvySwarm.app to /Applications..."
+	@rm -rf /Applications/RevvySwarm.app
+	@cp -r $(DESKTOP_DIR)/build/bin/RevvySwarm.app /Applications/
+	@echo "✅ Installed to /Applications/RevvySwarm.app"

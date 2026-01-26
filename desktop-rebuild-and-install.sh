@@ -1,5 +1,5 @@
 #!/bin/bash
-# Rebuild and install RevDen desktop app (production) from source
+# Rebuild and install RevvySwarm desktop app (production) from source
 # This temporarily swaps wails.json to production config for the build
 set -e
 
@@ -7,13 +7,13 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DESKTOP_DIR="$REPO_DIR/cmd/agent-deck-desktop"
 BUILD_DIR="$DESKTOP_DIR/build/bin"
 WAILS_JSON="$DESKTOP_DIR/wails.json"
-APP_NAME="RevDen.app"
+APP_NAME="RevvySwarm.app"
 
 # Production wails.json config
 PROD_CONFIG='{
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "RevDen",
-  "outputfilename": "RevDen",
+  "name": "RevvySwarm",
+  "outputfilename": "RevvySwarm",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
@@ -23,7 +23,7 @@ PROD_CONFIG='{
     "email": "jason.cumberland@revenium.io"
   },
   "info": {
-    "productName": "RevDen",
+    "productName": "RevvySwarm",
     "companyName": "Revenium",
     "copyright": "Copyright © 2025 Revenium",
     "comments": "AI Agent Session Manager"
@@ -44,7 +44,7 @@ trap cleanup EXIT
 # Write production config
 echo "$PROD_CONFIG" > "$WAILS_JSON"
 
-echo "Building RevDen desktop app (production)..."
+echo "Building RevvySwarm desktop app (production)..."
 cd "$REPO_DIR"
 make desktop-build
 
