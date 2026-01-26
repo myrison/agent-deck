@@ -77,6 +77,7 @@ function App() {
     const [showQuickLaunch, setShowQuickLaunch] = useState(true); // Show by default if favorites exist
     const [palettePinMode, setPalettePinMode] = useState(false); // When true, selecting pins instead of launching
     const [paletteNewTabMode, setPaletteNewTabMode] = useState(false); // When true, Cmd+T was used to open palette
+    const [paletteNewSessionMode, setPaletteNewSessionMode] = useState(false); // When true, Cmd+N was used - new session only
     const [quickLaunchKey, setQuickLaunchKey] = useState(0); // For forcing refresh
     const [shortcuts, setShortcuts] = useState({}); // shortcut -> {path, name, tool}
     const [favorites, setFavorites] = useState([]); // All quick launch favorites
@@ -994,6 +995,7 @@ function App() {
         setShowCommandMenu(false);
         setPalettePinMode(false);
         setPaletteNewTabMode(false);
+        setPaletteNewSessionMode(false);
     }, []);
 
     // Handle tool selection from picker (use default config if available)
@@ -1366,11 +1368,12 @@ function App() {
             handleOpenHelp();
             return;
         }
-        // Cmd+N to open new terminal (works in any view)
+        // Cmd+N - New session mode (shows only projects for launching new sessions)
         if (hasAppModifier(e) && e.key === 'n') {
             e.preventDefault();
-            logger.info('Cmd+N pressed - opening new terminal');
-            handleNewTerminal();
+            logger.info('Cmd+N pressed - opening command menu for new session');
+            setPaletteNewSessionMode(true);
+            setShowCommandMenu(true);
             return;
         }
         // Cmd+F to open search (only in terminal view)
@@ -1646,6 +1649,7 @@ function App() {
                         favorites={favorites}
                         pinMode={palettePinMode}
                         newTabMode={paletteNewTabMode}
+                        newSessionMode={paletteNewSessionMode}
                     />
                 )}
                 {showToolPicker && toolPickerProject && (
@@ -1885,6 +1889,7 @@ function App() {
                     favorites={favorites}
                     pinMode={palettePinMode}
                     newTabMode={paletteNewTabMode}
+                    newSessionMode={paletteNewSessionMode}
                 />
             )}
             {sessionPickerProject && (
