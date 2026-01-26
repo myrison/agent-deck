@@ -1,28 +1,39 @@
 import { useState, useEffect, useRef } from 'react';
 import './HostPicker.css';
 import { createLogger } from './logger';
-import { ListSSHHosts, GetSSHHostStatus, TestSSHConnection } from '../wailsjs/go/main/App';
+import { ListSSHHosts, GetSSHHostStatus, GetSSHHostDisplayNames, TestSSHConnection } from '../wailsjs/go/main/App';
 import { withKeyboardIsolation } from './utils/keyboardIsolation';
 
 const logger = createLogger('HostPicker');
 
+// Special ID for local host option (always first)
+export const LOCAL_HOST_ID = 'local';
+
 export default function HostPicker({ onSelect, onCancel }) {
-    const [hosts, setHosts] = useState([]);
+    const [sshHosts, setSSHHosts] = useState([]);
     const [hostStatuses, setHostStatuses] = useState({});
+    const [hostDisplayNames, setHostDisplayNames] = useState({}); // hostId -> friendly name
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [loading, setLoading] = useState(true);
     const [testing, setTesting] = useState(null); // hostId being tested
     const containerRef = useRef(null);
 
-    // Load hosts on mount
+    // Build full host list with Local first
+    const hosts = [LOCAL_HOST_ID, ...sshHosts];
+
+    // Load SSH hosts on mount
     useEffect(() => {
         const loadHosts = async () => {
             try {
-                const hostList = await ListSSHHosts();
-                setHosts(hostList || []);
-                logger.info('Loaded SSH hosts', { count: hostList?.length || 0 });
+                const [hostList, displayNames] = await Promise.all([
+                    ListSSHHosts(),
+                    GetSSHHostDisplayNames(),
+                ]);
+                setSSHHosts(hostList || []);
+                setHostDisplayNames(displayNames || {});
+                logger.info('Loaded SSH hosts', { count: hostList?.length || 0, displayNames });
 
-                // Get connection statuses
+                // Get connection statuses for SSH hosts
                 if (hostList && hostList.length > 0) {
                     const statuses = await GetSSHHostStatus();
                     const statusMap = {};
@@ -63,11 +74,19 @@ export default function HostPicker({ onSelect, onCancel }) {
     };
 
     const handleKeyDown = withKeyboardIsolation((e) => {
-        if (hosts.length === 0) {
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                onCancel();
-            }
+        // Always handle Escape
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            logger.info('Host picker cancelled');
+            onCancel();
+            return;
+        }
+
+        // L key to quick-select Local
+        if (e.key === 'l' || e.key === 'L') {
+            e.preventDefault();
+            logger.info('L key pressed - selecting Local');
+            handleSelect(LOCAL_HOST_ID);
             return;
         }
 
@@ -85,13 +104,8 @@ export default function HostPicker({ onSelect, onCancel }) {
                 e.preventDefault();
                 handleSelect(hosts[selectedIndex]);
                 break;
-            case 'Escape':
-                e.preventDefault();
-                logger.info('Host picker cancelled');
-                onCancel();
-                break;
         }
-        // Number keys for quick select
+        // Number keys for quick select (1-9)
         if (e.key >= '1' && e.key <= '9') {
             const idx = parseInt(e.key, 10) - 1;
             if (idx < hosts.length) {
@@ -110,39 +124,69 @@ export default function HostPicker({ onSelect, onCancel }) {
         return (
             <div className="host-picker-overlay" onClick={onCancel}>
                 <div className="host-picker-container" onClick={e => e.stopPropagation()}>
-                    <div className="host-picker-loading">Loading SSH hosts...</div>
+                    <div className="host-picker-loading">Loading hosts...</div>
                 </div>
             </div>
         );
     }
 
-    if (hosts.length === 0) {
+    // Render helper for a host option
+    const renderHostOption = (hostId, index) => {
+        const isLocal = hostId === LOCAL_HOST_ID;
+        const status = hostStatuses[hostId];
+        const isConnected = status?.connected;
+        const hasError = status?.lastError;
+        // Use friendly display name if available, fall back to hostId
+        // Add "(via SSH)" suffix to clarify these are remote connections
+        const baseName = hostDisplayNames[hostId] || hostId;
+        const displayName = `${baseName} (via SSH)`;
+
         return (
-            <div className="host-picker-overlay" onClick={onCancel}>
-                <div
-                    ref={containerRef}
-                    className="host-picker-container"
-                    onClick={e => e.stopPropagation()}
-                    onKeyDown={handleKeyDown}
-                    tabIndex={0}
-                >
-                    <div className="host-picker-header">
-                        <h3>No SSH Hosts Configured</h3>
-                    </div>
-                    <div className="host-picker-empty">
-                        <p>Add SSH hosts in <code>~/.agent-deck/config.toml</code>:</p>
-                        <pre>{`[ssh_hosts.myserver]
-host = "myserver.example.com"
-user = "deploy"
-identity_file = "~/.ssh/id_ed25519"`}</pre>
-                    </div>
-                    <div className="host-picker-footer">
-                        <span className="host-picker-hint"><kbd>Esc</kbd> Close</span>
-                    </div>
-                </div>
-            </div>
+            <button
+                key={hostId}
+                className={`host-picker-option ${index === selectedIndex ? 'selected' : ''} ${isLocal ? 'local' : ''}`}
+                onClick={() => handleSelect(hostId)}
+                onMouseEnter={() => setSelectedIndex(index)}
+            >
+                {isLocal ? (
+                    // Local option with distinct styling
+                    <>
+                        <span className="host-picker-local-icon">💻</span>
+                        <div className="host-picker-info">
+                            <div className="host-picker-name">Local</div>
+                            <div className="host-picker-subtitle-text">Use native folder picker</div>
+                        </div>
+                        <span className="host-picker-shortcut local-shortcut">L</span>
+                    </>
+                ) : (
+                    // SSH host option
+                    <>
+                        <span className="host-picker-server-icon">🖥️</span>
+                        <span className={`host-picker-status-dot ${isConnected ? 'connected' : hasError ? 'error' : 'unknown'}`}>
+                            {isConnected ? '●' : hasError ? '○' : '○'}
+                        </span>
+                        <div className="host-picker-info">
+                            <div className="host-picker-name">{displayName}</div>
+                            {hasError && (
+                                <div className="host-picker-error" title={hasError}>
+                                    {hasError.substring(0, 50)}...
+                                </div>
+                            )}
+                        </div>
+                        <button
+                            className="host-picker-test"
+                            onClick={(e) => handleTestConnection(hostId, e)}
+                            disabled={testing === hostId}
+                            title="Test connection"
+                        >
+                            {testing === hostId ? '...' : '🔌'}
+                        </button>
+                        <span className="host-picker-shortcut">{index + 1}</span>
+                    </>
+                )}
+            </button>
         );
-    }
+    };
 
     return (
         <div className="host-picker-overlay" onClick={onCancel}>
@@ -154,48 +198,15 @@ identity_file = "~/.ssh/id_ed25519"`}</pre>
                 tabIndex={0}
             >
                 <div className="host-picker-header">
-                    <h3>Select Remote Host</h3>
-                    <p className="host-picker-subtitle">Choose an SSH host for the new session</p>
+                    <h3>Select Host</h3>
+                    <p className="host-picker-subtitle">Choose where to create the session</p>
                 </div>
                 <div className="host-picker-options">
-                    {hosts.map((hostId, index) => {
-                        const status = hostStatuses[hostId];
-                        const isConnected = status?.connected;
-                        const hasError = status?.lastError;
-
-                        return (
-                            <button
-                                key={hostId}
-                                className={`host-picker-option ${index === selectedIndex ? 'selected' : ''}`}
-                                onClick={() => handleSelect(hostId)}
-                                onMouseEnter={() => setSelectedIndex(index)}
-                            >
-                                <span className={`host-picker-status ${isConnected ? 'connected' : hasError ? 'error' : 'unknown'}`}>
-                                    {isConnected ? '●' : hasError ? '○' : '?'}
-                                </span>
-                                <div className="host-picker-info">
-                                    <div className="host-picker-name">{hostId}</div>
-                                    {hasError && (
-                                        <div className="host-picker-error" title={hasError}>
-                                            {hasError.substring(0, 50)}...
-                                        </div>
-                                    )}
-                                </div>
-                                <button
-                                    className="host-picker-test"
-                                    onClick={(e) => handleTestConnection(hostId, e)}
-                                    disabled={testing === hostId}
-                                    title="Test connection"
-                                >
-                                    {testing === hostId ? '...' : '🔌'}
-                                </button>
-                                <span className="host-picker-shortcut">{index + 1}</span>
-                            </button>
-                        );
-                    })}
+                    {hosts.map((hostId, index) => renderHostOption(hostId, index))}
                 </div>
                 <div className="host-picker-footer">
                     <span className="host-picker-hint"><kbd>↑↓</kbd> Navigate</span>
+                    <span className="host-picker-hint"><kbd>L</kbd> Local</span>
                     <span className="host-picker-hint"><kbd>1-9</kbd> Quick select</span>
                     <span className="host-picker-hint"><kbd>Enter</kbd> Select</span>
                     <span className="host-picker-hint"><kbd>Esc</kbd> Cancel</span>
