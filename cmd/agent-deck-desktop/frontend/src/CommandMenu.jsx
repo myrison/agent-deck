@@ -13,7 +13,6 @@ const logger = createLogger('CommandMenu');
 // Quick actions available in the menu
 const QUICK_ACTIONS = [
     { id: 'new-terminal', type: 'action', title: 'New Terminal', description: 'Start a new shell session' },
-    { id: 'create-remote-session', type: 'action', title: 'Create Remote Session', description: 'Create a session on a remote SSH host' },
     { id: 'refresh-sessions', type: 'action', title: 'Refresh Sessions', description: 'Reload session list' },
     { id: 'toggle-quick-launch', type: 'action', title: 'Toggle Quick Launch Bar', description: 'Show/hide quick launch bar' },
     { id: 'toggle-theme', type: 'action', title: 'Toggle Theme', description: 'Switch between light and dark mode' },
@@ -42,6 +41,7 @@ export default function CommandMenu({
     onLaunchProject, // (projectPath, projectName, tool, configKey?, customLabel?) => void
     onShowToolPicker, // (projectPath, projectName) => void - for Cmd+Enter
     onShowSessionPicker, // (projectPath, projectName, sessions) => void - for projects with multiple sessions
+    onShowHostPicker, // (projectPath, projectName) => void - for host-first flow in newSessionMode
     onPinToQuickLaunch, // (projectPath, projectName) => void - for Cmd+P
     onLayoutAction, // (actionId) => void - for layout actions
     onDeleteSavedLayout, // (layoutId) => void - for Cmd+Backspace on saved layouts
@@ -276,16 +276,23 @@ export default function CommandMenu({
             // Derive count from actual array to avoid sync issues with item.sessionCount
             const sessionCount = item.sessions?.length ?? 0;
 
-            // In newSessionMode, always show picker if sessions exist (to access "New Session" option)
-            if (newSessionMode && sessionCount > 0) {
-                logger.info('New session mode: showing session picker', { path: item.projectPath, count: sessionCount });
-                onShowSessionPicker?.(item.projectPath, item.title, item.sessions);
+            // In newSessionMode, use host-first flow for creating new sessions
+            if (newSessionMode) {
+                if (sessionCount > 0) {
+                    // Show session picker with existing sessions + "New Session" option
+                    logger.info('New session mode: showing session picker', { path: item.projectPath, count: sessionCount });
+                    onShowSessionPicker?.(item.projectPath, item.title, item.sessions);
+                } else {
+                    // No sessions - start host-first flow
+                    logger.info('New session mode: starting host selection', { path: item.projectPath });
+                    onShowHostPicker?.(item.projectPath, item.title);
+                }
             } else if (sessionCount > 1) {
                 // Multiple sessions exist - show session picker
                 logger.info('Project has multiple sessions, showing picker', { path: item.projectPath, count: sessionCount });
                 onShowSessionPicker?.(item.projectPath, item.title, item.sessions);
             } else if (sessionCount === 1) {
-                // Single session exists - attach directly to it (default behavior, not in newSessionMode)
+                // Single session exists - attach directly to it
                 logger.info('Project has single session, attaching', { path: item.projectPath, sessionId: item.sessions[0].id });
                 onSelectSession?.({ ...item.sessions[0], title: item.title, projectPath: item.projectPath });
             } else {

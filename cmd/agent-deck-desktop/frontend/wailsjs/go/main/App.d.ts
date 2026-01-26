@@ -6,6 +6,8 @@ export function AddQuickLaunchFavorite(arg1:string,arg2:string,arg3:string):Prom
 
 export function AttachSession(arg1:string,arg2:string,arg3:number,arg4:number):Promise<void>;
 
+export function BrowseLocalDirectory(arg1:string):Promise<string>;
+
 export function CloseTerminal(arg1:string):Promise<void>;
 
 export function CreateRemoteSession(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<main.SessionInfo>;

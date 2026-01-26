@@ -10,6 +10,10 @@ export function AttachSession(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['AttachSession'](arg1, arg2, arg3, arg4);
 }
 
+export function BrowseLocalDirectory(arg1) {
+  return window['go']['main']['App']['BrowseLocalDirectory'](arg1);
+}
+
 export function CloseTerminal(arg1) {
   return window['go']['main']['App']['CloseTerminal'](arg1);
 }

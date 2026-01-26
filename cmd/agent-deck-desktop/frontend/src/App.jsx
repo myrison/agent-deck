@@ -17,9 +17,9 @@ import PaneLayout from './PaneLayout';
 import FocusModeOverlay from './FocusModeOverlay';
 import MoveModeOverlay from './MoveModeOverlay';
 import SaveLayoutModal from './SaveLayoutModal';
-import HostPicker from './HostPicker';
+import HostPicker, { LOCAL_HOST_ID } from './HostPicker';
 import { BranchIcon } from './ToolIcon';
-import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession } from '../wailsjs/go/main/App';
+import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE } from './constants/terminal';
 import { shouldInterceptShortcut, hasAppModifier } from './utils/platform';
@@ -126,10 +126,15 @@ function App() {
     // Theme context for toggle
     const { theme, setTheme } = useTheme();
 
-    // Remote session creation flow state
+    // Host-first session creation flow state
     const [showHostPicker, setShowHostPicker] = useState(false);
     const [selectedRemoteHost, setSelectedRemoteHost] = useState(null);
     const [showRemotePathInput, setShowRemotePathInput] = useState(false);
+    // pendingHostSelection tracks project info from CommandMenu while user selects host
+    // { path?: string, name?: string } - existing project info (used as default for folder picker)
+    const [pendingHostSelection, setPendingHostSelection] = useState(null);
+    // SSH host display names (hostId -> friendly name like "MacBook" or "Docker")
+    const [sshHostDisplayNames, setSSHHostDisplayNames] = useState({});
 
     // Cycle through status filter modes: all -> active -> idle -> all
     const handleCycleStatusFilter = useCallback(() => {
@@ -229,7 +234,25 @@ function App() {
             }
         };
         loadSavedLayouts();
+
+        // Load SSH host display names for friendly naming in dialogs
+        const loadSSHHostDisplayNames = async () => {
+            try {
+                const names = await GetSSHHostDisplayNames();
+                setSSHHostDisplayNames(names || {});
+                logger.info('Loaded SSH host display names', { names });
+            } catch (err) {
+                logger.error('Failed to load SSH host display names:', err);
+            }
+        };
+        loadSSHHostDisplayNames();
     }, [loadShortcuts]);
+
+    // Helper to get friendly SSH host name with "(via SSH)" suffix
+    const getSSHHostFriendlyName = useCallback((hostId) => {
+        const baseName = sshHostDisplayNames[hostId] || hostId;
+        return `${baseName} (via SSH)`;
+    }, [sshHostDisplayNames]);
 
     const handleCloseSearch = useCallback(() => {
         setShowSearch(false);
@@ -289,10 +312,6 @@ function App() {
                     });
                     return newValue;
                 });
-                break;
-            case 'create-remote-session':
-                logger.info('Palette action: create remote session');
-                setShowHostPicker(true);
                 break;
             case 'toggle-theme':
                 logger.info('Palette action: toggle theme', { currentTheme: theme });
@@ -867,14 +886,17 @@ function App() {
     // Launch a project with the specified tool and optional config
     // customLabel is optional - if provided, will be set as the session's custom label
     const handleLaunchProject = useCallback(async (projectPath, projectName, tool, configKey = '', customLabel = '') => {
+        console.error('[DEBUG] handleLaunchProject called', { projectPath, projectName, tool, configKey, customLabel });
         try {
             // Auto-fetch default config if none provided
             const effectiveConfigKey = await getEffectiveConfigKey(configKey, tool);
 
             logger.info('Launching project', { projectPath, projectName, tool, configKey: effectiveConfigKey, customLabel });
+            console.error('[DEBUG] Calling CreateSession with:', { projectPath, projectName, tool, effectiveConfigKey });
 
             // Create session with config key
             const session = await CreateSession(projectPath, projectName, tool, effectiveConfigKey);
+            console.error('[DEBUG] CreateSession returned:', session);
             logger.info('Session created', { sessionId: session.id, tmuxSession: session.tmuxSession });
 
             // Validate session object
@@ -1075,6 +1097,7 @@ function App() {
 
     // Handle tool selection from picker (use default config if available)
     const handleToolSelected = useCallback(async (tool) => {
+        console.error('[DEBUG] handleToolSelected called', { tool, toolPickerProject });
         if (toolPickerProject) {
             // Try to get default config for this tool
             let configKey = '';
@@ -1090,10 +1113,14 @@ function App() {
 
             // Check if this is a remote session
             if (toolPickerProject.isRemote && toolPickerProject.remoteHost) {
+                console.error('[DEBUG] Launching REMOTE project', { host: toolPickerProject.remoteHost, path: toolPickerProject.path });
                 handleLaunchRemoteProject(toolPickerProject.remoteHost, toolPickerProject.path, toolPickerProject.name, tool, configKey);
             } else {
+                console.error('[DEBUG] Launching LOCAL project', { path: toolPickerProject.path, name: toolPickerProject.name, tool, configKey });
                 handleLaunchProject(toolPickerProject.path, toolPickerProject.name, tool, configKey);
             }
+        } else {
+            console.error('[DEBUG] handleToolSelected: toolPickerProject is null/undefined!');
         }
         setShowToolPicker(false);
         setToolPickerProject(null);
@@ -1140,30 +1167,65 @@ function App() {
         setSelectedRemoteHost(null);
     }, []);
 
-    // ==================== Remote Session Creation ====================
+    // ==================== Host-First Session Creation ====================
 
     // Handle host selection from HostPicker
-    const handleHostSelected = useCallback((hostId) => {
-        logger.info('Remote host selected', { hostId });
-        setSelectedRemoteHost(hostId);
+    const handleHostSelected = useCallback(async (hostId) => {
+        console.error('[DEBUG] handleHostSelected called', { hostId, pendingProject: pendingHostSelection });
+        logger.info('Host selected', { hostId, pendingProject: pendingHostSelection });
         setShowHostPicker(false);
-        setShowRemotePathInput(true);
-    }, []);
+
+        if (hostId === LOCAL_HOST_ID) {
+            // Local: open native folder picker
+            try {
+                const defaultDir = pendingHostSelection?.path || '';
+                console.error('[DEBUG] Opening folder picker with defaultDir:', defaultDir);
+                const selectedPath = await BrowseLocalDirectory(defaultDir);
+                console.error('[DEBUG] Folder picker returned:', selectedPath);
+                if (selectedPath) {
+                    const name = selectedPath.split('/').pop() || 'project';
+                    logger.info('Local folder selected', { selectedPath, name });
+                    const toolProject = { path: selectedPath, name, isRemote: false, remoteHost: null };
+                    console.error('[DEBUG] Setting toolPickerProject:', toolProject);
+                    setToolPickerProject(toolProject);
+                    setShowToolPicker(true);
+                } else {
+                    logger.info('Folder picker cancelled');
+                }
+            } catch (err) {
+                console.error('[DEBUG] Folder picker error:', err);
+                logger.error('Failed to open folder picker:', err);
+            }
+            setPendingHostSelection(null);
+        } else {
+            // Remote: show path input
+            setSelectedRemoteHost(hostId);
+            setShowRemotePathInput(true);
+        }
+    }, [pendingHostSelection]);
 
     // Cancel host picker
     const handleCancelHostPicker = useCallback(() => {
         setShowHostPicker(false);
         setSelectedRemoteHost(null);
+        setPendingHostSelection(null);
     }, []);
 
     // Handle remote path input
     const handleRemotePathSubmit = useCallback((path) => {
-        if (!path.trim()) return;
+        console.error('[DEBUG] handleRemotePathSubmit called', { path, selectedRemoteHost });
+        if (!path.trim()) {
+            console.error('[DEBUG] handleRemotePathSubmit: empty path, returning');
+            return;
+        }
         logger.info('Remote path entered', { path, host: selectedRemoteHost });
         setShowRemotePathInput(false);
+        setPendingHostSelection(null);
         // Extract project name from path (last component)
         const projectName = path.split('/').pop() || path;
-        setToolPickerProject({ path: path.trim(), name: projectName, isRemote: true, remoteHost: selectedRemoteHost });
+        const toolProject = { path: path.trim(), name: projectName, isRemote: true, remoteHost: selectedRemoteHost };
+        console.error('[DEBUG] Setting toolPickerProject for remote:', toolProject);
+        setToolPickerProject(toolProject);
         setShowToolPicker(true);
     }, [selectedRemoteHost]);
 
@@ -1171,6 +1233,14 @@ function App() {
     const handleCancelRemotePathInput = useCallback(() => {
         setShowRemotePathInput(false);
         setSelectedRemoteHost(null);
+        setPendingHostSelection(null);
+    }, []);
+
+    // Start host-first session creation flow (called from CommandMenu in newSessionMode)
+    const handleStartHostSelection = useCallback((projectPath, projectName) => {
+        logger.info('Starting host selection flow', { projectPath, projectName });
+        setPendingHostSelection({ path: projectPath, name: projectName });
+        setShowHostPicker(true);
     }, []);
 
     // Open settings modal
@@ -1728,6 +1798,7 @@ function App() {
                         onLaunchProject={handleLaunchProject}
                         onShowToolPicker={handleShowToolPicker}
                         onShowSessionPicker={handleShowSessionPicker}
+                        onShowHostPicker={handleStartHostSelection}
                         onPinToQuickLaunch={handlePinToQuickLaunch}
                         sessions={sessions}
                         projects={projects}
@@ -1764,7 +1835,7 @@ function App() {
                 {showRemotePathInput && selectedRemoteHost && (
                     <RenameDialog
                         currentName=""
-                        title={`Project Path on ${selectedRemoteHost}`}
+                        title={`Project Path on ${getSSHHostFriendlyName(selectedRemoteHost)}`}
                         placeholder="/home/user/projects/myproject"
                         onSave={handleRemotePathSubmit}
                         onCancel={handleCancelRemotePathInput}
@@ -1969,6 +2040,7 @@ function App() {
                     }}
                     onShowToolPicker={handleShowToolPicker}
                     onShowSessionPicker={handleShowSessionPicker}
+                    onShowHostPicker={handleStartHostSelection}
                     onPinToQuickLaunch={handlePinToQuickLaunch}
                     sessions={sessions}
                     projects={projects}
@@ -2015,7 +2087,7 @@ function App() {
             {showRemotePathInput && selectedRemoteHost && (
                 <RenameDialog
                     currentName=""
-                    title={`Project Path on ${selectedRemoteHost}`}
+                    title={`Project Path on ${getSSHHostFriendlyName(selectedRemoteHost)}`}
                     placeholder="/home/user/projects/myproject"
                     onSave={handleRemotePathSubmit}
                     onCancel={handleCancelRemotePathInput}

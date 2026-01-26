@@ -57,8 +57,19 @@ var (
 )
 
 func init() {
-	// Create log file in temp directory
-	logPath := filepath.Join(os.TempDir(), "agent-deck-desktop-debug.log")
+	// Create log file in ~/.agent-deck/logs/ for stable, predictable access by agents
+	// This allows Claude and other AI agents to read frontend logs directly
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+
+	logDir := filepath.Join(homeDir, ".agent-deck", "logs")
+	if err := os.MkdirAll(logDir, 0700); err != nil {
+		return
+	}
+
+	logPath := filepath.Join(logDir, "frontend-console.log")
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err == nil {
 		debugLogFile = f

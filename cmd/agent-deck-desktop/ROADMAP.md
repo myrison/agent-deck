@@ -17,6 +17,16 @@
 
 ## Priorities to implement
 
+### Add in-app settings for Project Discovery scan paths
+- Currently `[project_discovery].scan_paths` must be manually edited in `~/.agent-deck/config.toml`
+- Users can't discover new projects without existing sessions unless this is configured
+- Add UI in Settings modal to:
+  - View configured scan paths
+  - Add/remove scan paths (with folder picker)
+  - Set max_depth
+  - Configure ignore patterns
+- Without this, the host-first session creation flow fails because projects without sessions aren't discoverable
+
 ### Enable a button in the app for opening second app window
 - Support with keyboard and launcher shortcut, probably Cmd+N, and reserve Cmd+T for new tab
 - The app supports multiple instances at once
