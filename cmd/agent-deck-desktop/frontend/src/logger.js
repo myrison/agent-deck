@@ -1,4 +1,19 @@
 // Development logger utility with backend file logging
+//
+// This module intercepts ALL console output and pipes it to the backend log file
+// at /tmp/agent-deck-desktop-debug.log so agents can read logs directly without
+// requiring manual relay from the developer.
+//
+// Usage:
+//   - Call installGlobalErrorHandler() at app startup (already done in main.jsx)
+//   - All console.log/debug/info/warn/error calls are automatically captured
+//   - Use createLogger(context) for contextual logging with nice formatting
+//
+// Agent access:
+//   - Logs are written to: /tmp/agent-deck-desktop-debug.log
+//   - Use: tail -f /tmp/agent-deck-desktop-debug.log
+//   - Or use the /read-desktop-logs skill
+
 import { LogFrontendDiagnostic } from '../wailsjs/go/main/App';
 
 const isDev = import.meta.env.DEV;
@@ -18,13 +33,49 @@ function formatArgs(args) {
         }
         if (typeof arg === 'object') {
             try {
-                return JSON.stringify(arg);
+                return JSON.stringify(arg, null, 2);
             } catch {
                 return String(arg);
             }
         }
         return String(arg);
     }).join(' ');
+}
+
+// Store original console methods before overriding
+const originalConsole = {
+    log: console.log.bind(console),
+    debug: console.debug.bind(console),
+    info: console.info.bind(console),
+    warn: console.warn.bind(console),
+    error: console.error.bind(console),
+};
+
+// Track if console interception is installed
+let consoleInterceptionInstalled = false;
+
+// Install console interception to capture ALL console output
+function installConsoleInterception() {
+    if (consoleInterceptionInstalled) return;
+    consoleInterceptionInstalled = true;
+
+    const levels = ['log', 'debug', 'info', 'warn', 'error'];
+
+    levels.forEach(level => {
+        console[level] = (...args) => {
+            // Always call original console method first
+            originalConsole[level](...args);
+
+            // Pipe to backend log file (in dev mode, capture all; in prod, only warn/error)
+            if (isDev || level === 'warn' || level === 'error') {
+                const timestamp = new Date().toISOString();
+                const message = `[${timestamp}] [CONSOLE.${level.toUpperCase()}] ${formatArgs(args)}`;
+                LogFrontendDiagnostic(message).catch(() => {
+                    // Ignore errors from logging - don't create infinite loop
+                });
+            }
+        };
+    });
 }
 
 class Logger {
@@ -38,17 +89,15 @@ class Logger {
         const prefix = `[${this.context}]`;
         const style = LOG_STYLES[level] || '';
 
-        // Always log to console
-        console[level](`%c${prefix}`, style, ...args);
+        // Log to console (which will be intercepted and sent to backend)
+        originalConsole[level](`%c${prefix}`, style, ...args);
 
-        // For warn and error, also write to backend log file
-        if (level === 'warn' || level === 'error') {
-            const timestamp = new Date().toISOString();
-            const message = `[${timestamp}] [${level.toUpperCase()}] ${prefix} ${formatArgs(args)}`;
-            LogFrontendDiagnostic(message).catch(() => {
-                // Ignore errors from logging - don't create infinite loop
-            });
-        }
+        // Also write directly to backend with context prefix
+        const timestamp = new Date().toISOString();
+        const message = `[${timestamp}] [${level.toUpperCase()}] ${prefix} ${formatArgs(args)}`;
+        LogFrontendDiagnostic(message).catch(() => {
+            // Ignore errors from logging - don't create infinite loop
+        });
     }
 
     debug(...args) {
@@ -78,6 +127,9 @@ export function installGlobalErrorHandler() {
     if (globalErrorHandlerInstalled) return;
     globalErrorHandlerInstalled = true;
 
+    // Install console interception FIRST so all logs are captured
+    installConsoleInterception();
+
     const globalLogger = createLogger('GLOBAL');
 
     // Catch unhandled promise rejections
@@ -91,7 +143,7 @@ export function installGlobalErrorHandler() {
     });
 
     // Log that we've installed the handler
-    LogFrontendDiagnostic('[INIT] Global error handler installed').catch(() => {});
+    LogFrontendDiagnostic('[INIT] Console interception and global error handler installed').catch(() => {});
 }
 
 export default { createLogger, installGlobalErrorHandler };

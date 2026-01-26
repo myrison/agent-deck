@@ -19,7 +19,8 @@ import (
 // shellUnsafePattern matches characters that could cause shell injection.
 // Used to validate arguments before building remote shell commands.
 // Includes newline/carriage return to prevent command injection via tmux send-keys.
-var shellUnsafePattern = regexp.MustCompile(`[;&|$` + "`" + `\\(){}[\]<>!*?#~\n\r]`)
+// Note: ~ (tilde) is allowed as it's commonly used for home directory paths.
+var shellUnsafePattern = regexp.MustCompile(`[;&|$` + "`" + `\\(){}[\]<>!*?#\n\r]`)
 
 // SessionInfo represents an Agent Deck session for the frontend.
 type SessionInfo struct {
