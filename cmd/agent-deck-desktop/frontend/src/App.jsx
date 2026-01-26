@@ -508,6 +508,32 @@ function App() {
         }
     }, [activeTab, activeTabId, handleCloseTab]);
 
+    // Clear session from active pane (keeps pane structure, removes session)
+    const handleClearSession = useCallback(() => {
+        if (!activeTab) return;
+
+        const pane = findPane(activeTab.layout, activeTab.activePaneId);
+        if (!pane?.session) {
+            logger.info('Pane already empty, nothing to clear');
+            return;
+        }
+
+        logger.info('Clearing session from pane', { paneId: activeTab.activePaneId, sessionTitle: pane.session.title });
+
+        const newLayout = updatePaneSession(activeTab.layout, activeTab.activePaneId, null);
+
+        setOpenTabs(prev => prev.map(tab =>
+            tab.id === activeTabId
+                ? { ...tab, layout: newLayout }
+                : tab
+        ));
+
+        // Clear selected session since pane is now empty
+        setSelectedSession(null);
+        setGitBranch('');
+        setIsWorktree(false);
+    }, [activeTab, activeTabId]);
+
     // Navigate to adjacent pane
     const handleNavigatePane = useCallback((direction) => {
         if (!activeTab) return;
@@ -744,6 +770,9 @@ function App() {
             case 'close-pane':
                 handleClosePane();
                 break;
+            case 'clear-session':
+                handleClearSession();
+                break;
             case 'balance-panes':
                 handleBalancePanes();
                 break;
@@ -782,7 +811,7 @@ function App() {
                     logger.warn('Unknown layout action:', actionId);
                 }
         }
-    }, [handleSplitPane, handleClosePane, handleBalancePanes, handleToggleZoom, handleEnterMoveMode, handleApplyPreset, handleOpenSaveLayoutModal, savedLayouts, handleApplySavedLayout]);
+    }, [handleSplitPane, handleClosePane, handleClearSession, handleBalancePanes, handleToggleZoom, handleEnterMoveMode, handleApplyPreset, handleOpenSaveLayoutModal, savedLayouts, handleApplySavedLayout]);
 
     // Delete a saved layout
     const handleDeleteSavedLayout = useCallback(async (layoutId) => {
@@ -1493,10 +1522,18 @@ function App() {
             return;
         }
 
-        // Cmd+Shift+W - Close current pane
+        // Cmd+Shift+W - Clear session from pane (keeps pane structure)
         if (appMod && e.shiftKey && e.key === 'W' && view === 'terminal') {
             e.preventDefault();
-            logger.info('Cmd+Shift+W pressed - close pane');
+            logger.info('Cmd+Shift+W pressed - clear session from pane');
+            handleClearSession();
+            return;
+        }
+
+        // Cmd+Option+W - Close current pane (removes pane from grid)
+        if (appMod && e.altKey && e.key === 'w' && view === 'terminal') {
+            e.preventDefault();
+            logger.info('Cmd+Option+W pressed - close pane');
             handleClosePane();
             return;
         }
@@ -1598,7 +1635,7 @@ function App() {
             e.preventDefault();
             handleFontSizeReset();
         }
-    }, [view, showSearch, showHelpModal, showSettings, showLabelDialog, showCommandMenu, showRemotePathInput, handleBackToSelector, buildShortcutKey, shortcuts, savedLayoutShortcuts, handleLaunchProject, handleApplySavedLayout, handleCycleStatusFilter, handleOpenHelp, handleNewTerminal, handleOpenSettings, selectedSession, activeTabId, openTabs, handleCloseTab, handleSwitchTab, handleFontSizeChange, handleFontSizeReset, activeTab, handleSplitPane, handleClosePane, handleNavigatePane, handleCyclicNavigatePane, handleToggleZoom, handleExitZoom, handleBalancePanes, handleApplyPreset, moveMode, handleMoveToPane, handleExitMoveMode]);
+    }, [view, showSearch, showHelpModal, showSettings, showLabelDialog, showCommandMenu, showRemotePathInput, handleBackToSelector, buildShortcutKey, shortcuts, savedLayoutShortcuts, handleLaunchProject, handleApplySavedLayout, handleCycleStatusFilter, handleOpenHelp, handleNewTerminal, handleOpenSettings, selectedSession, activeTabId, openTabs, handleCloseTab, handleSwitchTab, handleFontSizeChange, handleFontSizeReset, activeTab, handleSplitPane, handleClosePane, handleClearSession, handleNavigatePane, handleCyclicNavigatePane, handleToggleZoom, handleExitZoom, handleBalancePanes, handleApplyPreset, moveMode, handleMoveToPane, handleExitMoveMode]);
 
     useEffect(() => {
         // Use capture phase to intercept keys before terminal swallows them
