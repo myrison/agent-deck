@@ -6,6 +6,7 @@ import Search from './Search';
 import SessionSelector from './SessionSelector';
 import CommandMenu from './CommandMenu';
 import ToolPicker from './ToolPicker';
+import SessionPicker from './SessionPicker';
 import ConfigPicker from './ConfigPicker';
 import SettingsModal from './SettingsModal';
 import UnifiedTopBar from './UnifiedTopBar';
@@ -57,6 +58,7 @@ function App() {
     const [projects, setProjects] = useState([]);
     const [showToolPicker, setShowToolPicker] = useState(false);
     const [toolPickerProject, setToolPickerProject] = useState(null);
+    const [sessionPickerProject, setSessionPickerProject] = useState(null); // { path, name, sessions }
     const [showQuickLaunch, setShowQuickLaunch] = useState(true); // Show by default if favorites exist
     const [palettePinMode, setPalettePinMode] = useState(false); // When true, selecting pins instead of launching
     const [paletteNewTabMode, setPaletteNewTabMode] = useState(false); // When true, Cmd+T was used to open palette
@@ -899,6 +901,51 @@ function App() {
         setShowToolPicker(true);
     }, []);
 
+    // Show session picker for a project with multiple sessions
+    const handleShowSessionPicker = useCallback((projectPath, projectName, projectSessions) => {
+        logger.info('Showing session picker', { projectPath, projectName, sessionCount: projectSessions?.length });
+        setSessionPickerProject({ path: projectPath, name: projectName, sessions: projectSessions });
+    }, []);
+
+    // Handle session selection from session picker
+    const handleSessionPickerSelect = useCallback((sessionId) => {
+        // Look up in picker's sessions first (source of truth), then global sessions as fallback
+        const session = sessionPickerProject?.sessions?.find(s => s.id === sessionId)
+            ?? sessions.find(s => s.id === sessionId);
+        if (session) {
+            logger.info('Session picker: attaching to session', { sessionId, title: session.title });
+            handleOpenTab(session);
+            setSelectedSession(session);
+            setView('terminal');
+        } else {
+            logger.warn('Session picker: session not found', { sessionId });
+        }
+        setSessionPickerProject(null);
+    }, [sessions, sessionPickerProject, handleOpenTab]);
+
+    // Handle creating a new session from session picker
+    const handleSessionPickerCreateNew = useCallback(async (customLabel) => {
+        if (!sessionPickerProject) return;
+        logger.info('Session picker: creating new session', { path: sessionPickerProject.path, customLabel });
+        try {
+            await handleLaunchProject(
+                sessionPickerProject.path,
+                sessionPickerProject.name,
+                'claude',
+                '',
+                customLabel || ''  // empty = auto-generate label
+            );
+        } finally {
+            setSessionPickerProject(null);
+        }
+    }, [sessionPickerProject, handleLaunchProject]);
+
+    // Cancel session picker
+    const handleCancelSessionPicker = useCallback(() => {
+        logger.info('Session picker cancelled');
+        setSessionPickerProject(null);
+    }, []);
+
     // Pin project to Quick Launch
     const handlePinToQuickLaunch = useCallback(async (projectPath, projectName) => {
         try {
@@ -1568,6 +1615,7 @@ function App() {
                         onAction={handlePaletteAction}
                         onLaunchProject={handleLaunchProject}
                         onShowToolPicker={handleShowToolPicker}
+                        onShowSessionPicker={handleShowSessionPicker}
                         onPinToQuickLaunch={handlePinToQuickLaunch}
                         sessions={sessions}
                         projects={projects}
@@ -1805,12 +1853,23 @@ function App() {
                         handleLaunchProject(path, name, tool, config, label);
                     }}
                     onShowToolPicker={handleShowToolPicker}
+                    onShowSessionPicker={handleShowSessionPicker}
                     onPinToQuickLaunch={handlePinToQuickLaunch}
                     sessions={sessions}
                     projects={projects}
                     favorites={favorites}
                     pinMode={palettePinMode}
                     newTabMode={paletteNewTabMode}
+                />
+            )}
+            {sessionPickerProject && (
+                <SessionPicker
+                    projectPath={sessionPickerProject.path}
+                    projectName={sessionPickerProject.name}
+                    sessions={sessionPickerProject.sessions}
+                    onSelectSession={handleSessionPickerSelect}
+                    onCreateNew={handleSessionPickerCreateNew}
+                    onCancel={handleCancelSessionPicker}
                 />
             )}
             {showToolPicker && toolPickerProject && (

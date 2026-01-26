@@ -433,3 +433,217 @@ scan_paths = ["~/code", "~/projects"]
 		}
 	})
 }
+
+// TestMultiSessionDiscovery tests that multiple sessions at the same path are correctly discovered
+func TestMultiSessionDiscovery(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	pd := &ProjectDiscovery{
+		frecencyPath: filepath.Join(tmpDir, "frecency.json"),
+		frecency:     &FrecencyData{Projects: make(map[string]ProjectUsage)},
+		configPath:   filepath.Join(tmpDir, "config.toml"), // No config = no scan paths
+	}
+
+	t.Run("single session at path", func(t *testing.T) {
+		sessions := []SessionInfo{
+			{ID: "sess1", ProjectPath: "/projects/api", Tool: "claude", Status: "running", CustomLabel: "bugfix"},
+		}
+
+		projects, err := pd.DiscoverProjects(sessions)
+		if err != nil {
+			t.Fatalf("DiscoverProjects failed: %v", err)
+		}
+
+		if len(projects) != 1 {
+			t.Fatalf("Expected 1 project, got %d", len(projects))
+		}
+
+		p := projects[0]
+		if p.SessionCount != 1 {
+			t.Errorf("Expected SessionCount 1, got %d", p.SessionCount)
+		}
+		if len(p.Sessions) != 1 {
+			t.Errorf("Expected 1 session in slice, got %d", len(p.Sessions))
+		}
+		if p.Sessions[0].ID != "sess1" {
+			t.Errorf("Expected session ID 'sess1', got '%s'", p.Sessions[0].ID)
+		}
+		if p.Sessions[0].CustomLabel != "bugfix" {
+			t.Errorf("Expected CustomLabel 'bugfix', got '%s'", p.Sessions[0].CustomLabel)
+		}
+		if p.Sessions[0].Status != "running" {
+			t.Errorf("Expected Status 'running', got '%s'", p.Sessions[0].Status)
+		}
+		// Backward compat: Tool and SessionID should be from first session
+		if p.Tool != "claude" {
+			t.Errorf("Expected Tool 'claude', got '%s'", p.Tool)
+		}
+		if p.SessionID != "sess1" {
+			t.Errorf("Expected SessionID 'sess1', got '%s'", p.SessionID)
+		}
+	})
+
+	t.Run("multiple sessions at same path", func(t *testing.T) {
+		sessions := []SessionInfo{
+			{ID: "sess1", ProjectPath: "/projects/api", Tool: "claude", Status: "running", CustomLabel: "bugfix"},
+			{ID: "sess2", ProjectPath: "/projects/api", Tool: "claude", Status: "waiting", CustomLabel: "#2"},
+			{ID: "sess3", ProjectPath: "/projects/api", Tool: "gemini", Status: "running", CustomLabel: "feature"},
+		}
+
+		projects, err := pd.DiscoverProjects(sessions)
+		if err != nil {
+			t.Fatalf("DiscoverProjects failed: %v", err)
+		}
+
+		if len(projects) != 1 {
+			t.Fatalf("Expected 1 project (same path), got %d", len(projects))
+		}
+
+		p := projects[0]
+		if p.SessionCount != 3 {
+			t.Errorf("Expected SessionCount 3, got %d", p.SessionCount)
+		}
+		if len(p.Sessions) != 3 {
+			t.Errorf("Expected 3 sessions in slice, got %d", len(p.Sessions))
+		}
+
+		// Verify all sessions are present
+		sessionIDs := make(map[string]bool)
+		for _, s := range p.Sessions {
+			sessionIDs[s.ID] = true
+		}
+		for _, expectedID := range []string{"sess1", "sess2", "sess3"} {
+			if !sessionIDs[expectedID] {
+				t.Errorf("Expected session '%s' to be in Sessions slice", expectedID)
+			}
+		}
+
+		// Backward compat: first session's data should populate legacy fields
+		if p.HasSession != true {
+			t.Error("Expected HasSession to be true")
+		}
+	})
+
+	t.Run("mixed local and remote sessions at same path", func(t *testing.T) {
+		sessions := []SessionInfo{
+			{ID: "local1", ProjectPath: "/projects/api", Tool: "claude", Status: "running", IsRemote: false},
+			{ID: "remote1", ProjectPath: "/projects/api", Tool: "claude", Status: "waiting", IsRemote: true, RemoteHost: "dev-server", RemoteHostDisplayName: "Dev Server"},
+		}
+
+		projects, err := pd.DiscoverProjects(sessions)
+		if err != nil {
+			t.Fatalf("DiscoverProjects failed: %v", err)
+		}
+
+		if len(projects) != 1 {
+			t.Fatalf("Expected 1 project, got %d", len(projects))
+		}
+
+		p := projects[0]
+		if p.SessionCount != 2 {
+			t.Errorf("Expected SessionCount 2, got %d", p.SessionCount)
+		}
+
+		// Find local and remote sessions
+		var localSession, remoteSession *SessionSummary
+		for i := range p.Sessions {
+			if p.Sessions[i].IsRemote {
+				remoteSession = &p.Sessions[i]
+			} else {
+				localSession = &p.Sessions[i]
+			}
+		}
+
+		if localSession == nil {
+			t.Error("Expected to find local session")
+		} else if localSession.ID != "local1" {
+			t.Errorf("Expected local session ID 'local1', got '%s'", localSession.ID)
+		}
+
+		if remoteSession == nil {
+			t.Error("Expected to find remote session")
+		} else {
+			if remoteSession.ID != "remote1" {
+				t.Errorf("Expected remote session ID 'remote1', got '%s'", remoteSession.ID)
+			}
+			if remoteSession.RemoteHost != "dev-server" {
+				t.Errorf("Expected RemoteHost 'dev-server', got '%s'", remoteSession.RemoteHost)
+			}
+			if remoteSession.RemoteHostDisplayName != "Dev Server" {
+				t.Errorf("Expected RemoteHostDisplayName 'Dev Server', got '%s'", remoteSession.RemoteHostDisplayName)
+			}
+		}
+	})
+
+	t.Run("zero sessions for scanned projects", func(t *testing.T) {
+		// Create a scan path with a project but no sessions
+		scanPath := filepath.Join(tmpDir, "code")
+		os.MkdirAll(scanPath, 0755)
+
+		project := filepath.Join(scanPath, "myproject")
+		os.MkdirAll(project, 0755)
+		os.WriteFile(filepath.Join(project, "go.mod"), []byte("module test"), 0644)
+
+		configPath := filepath.Join(tmpDir, "config-scan.toml")
+		configContent := `
+[project_discovery]
+scan_paths = ["` + scanPath + `"]
+`
+		os.WriteFile(configPath, []byte(configContent), 0644)
+
+		pdWithScan := &ProjectDiscovery{
+			frecencyPath: filepath.Join(tmpDir, "frecency2.json"),
+			frecency:     &FrecencyData{Projects: make(map[string]ProjectUsage)},
+			configPath:   configPath,
+		}
+
+		projects, err := pdWithScan.DiscoverProjects([]SessionInfo{})
+		if err != nil {
+			t.Fatalf("DiscoverProjects failed: %v", err)
+		}
+
+		if len(projects) != 1 {
+			t.Fatalf("Expected 1 project, got %d", len(projects))
+		}
+
+		p := projects[0]
+		if p.SessionCount != 0 {
+			t.Errorf("Expected SessionCount 0 for project without sessions, got %d", p.SessionCount)
+		}
+		if p.HasSession != false {
+			t.Error("Expected HasSession to be false for project without sessions")
+		}
+		if len(p.Sessions) != 0 {
+			t.Errorf("Expected empty Sessions slice, got %d sessions", len(p.Sessions))
+		}
+	})
+
+	t.Run("session status is propagated correctly", func(t *testing.T) {
+		sessions := []SessionInfo{
+			{ID: "s1", ProjectPath: "/test/path", Tool: "claude", Status: "running"},
+			{ID: "s2", ProjectPath: "/test/path", Tool: "claude", Status: "waiting"},
+			{ID: "s3", ProjectPath: "/test/path", Tool: "claude", Status: "stopped"},
+		}
+
+		projects, err := pd.DiscoverProjects(sessions)
+		if err != nil {
+			t.Fatalf("DiscoverProjects failed: %v", err)
+		}
+
+		p := projects[0]
+		statusMap := make(map[string]string)
+		for _, s := range p.Sessions {
+			statusMap[s.ID] = s.Status
+		}
+
+		if statusMap["s1"] != "running" {
+			t.Errorf("Expected s1 status 'running', got '%s'", statusMap["s1"])
+		}
+		if statusMap["s2"] != "waiting" {
+			t.Errorf("Expected s2 status 'waiting', got '%s'", statusMap["s2"])
+		}
+		if statusMap["s3"] != "stopped" {
+			t.Errorf("Expected s3 status 'stopped', got '%s'", statusMap["s3"])
+		}
+	})
+}
