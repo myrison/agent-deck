@@ -559,7 +559,10 @@ const SessionList = forwardRef(function SessionList({
                                                 })()}
                                             </span>
                                         )}
-                                        {session.customLabel || session.title}
+                                        {session.title}
+                                        {session.customLabel && (
+                                            <span className="custom-label-badge">{session.customLabel}</span>
+                                        )}
                                     </div>
                                     <div className="session-list-meta">
                                         {session.gitBranch && (
