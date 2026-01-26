@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"os"
 	"runtime"
@@ -11,14 +12,28 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
 
-// createAppMenu builds a custom menu for macOS that removes the Redo keyboard
-// shortcut (Cmd+Shift+Z). This prevents macOS from intercepting the shortcut
-// before it reaches the app, allowing it to work as a zoom toggle in the terminal.
+// appContext holds the Wails context for menu callbacks.
+// Set during app startup via SetAppContext.
+var appContext context.Context
+
+// SetAppContext stores the Wails context for use in menu callbacks.
+// Called from App.startup().
+func SetAppContext(ctx context.Context) {
+	appContext = ctx
+}
+
+// createAppMenu builds a custom menu for macOS that:
+// 1. Removes the Redo keyboard shortcut (Cmd+Shift+Z) to allow JS zoom toggle
+// 2. Handles Paste via callback to emit clipboard content to JS
+//
+// The standard EditMenu enables macOS clipboard handling, but we need custom
+// callbacks to bridge clipboard content to xterm.js terminal.
 func createAppMenu() *menu.Menu {
 	appMenu := menu.NewMenu()
 
@@ -26,15 +41,37 @@ func createAppMenu() *menu.Menu {
 		// App menu (About, Quit, etc.)
 		appMenu.Append(menu.AppMenu())
 
-		// Custom Edit menu without Redo shortcut
-		// By setting Redo's accelerator to nil, macOS won't intercept Cmd+Shift+Z
+		// Custom Edit menu with callbacks for clipboard operations.
+		// Wails on macOS requires an Edit menu with accelerators for clipboard to work.
+		// We add callbacks that emit events to JavaScript for terminal integration.
 		editMenu := appMenu.AddSubmenu("Edit")
 		editMenu.AddText("Undo", keys.CmdOrCtrl("z"), nil)
-		editMenu.AddText("Redo", nil, nil) // No accelerator - key goes to JS
+		editMenu.AddText("Redo", nil, nil) // No accelerator - Cmd+Shift+Z goes to JS for zoom toggle
 		editMenu.AddSeparator()
 		editMenu.AddText("Cut", keys.CmdOrCtrl("x"), nil)
-		editMenu.AddText("Copy", keys.CmdOrCtrl("c"), nil)
-		editMenu.AddText("Paste", keys.CmdOrCtrl("v"), nil)
+		// Copy with accelerator and callback - emits event for JS to handle terminal selection
+		editMenu.AddText("Copy", keys.CmdOrCtrl("c"), func(cd *menu.CallbackData) {
+			if appContext == nil {
+				return
+			}
+			// Emit event to JS - the frontend will check for terminal selection
+			// and copy it to clipboard if present
+			wailsRuntime.EventsEmit(appContext, "menu:copy")
+		})
+		// Paste with accelerator and callback - reads clipboard and emits to JS
+		editMenu.AddText("Paste", keys.CmdOrCtrl("v"), func(cd *menu.CallbackData) {
+			if appContext == nil {
+				return
+			}
+			// Read clipboard text and emit to JS for terminal input
+			text, err := wailsRuntime.ClipboardGetText(appContext)
+			if err != nil {
+				return
+			}
+			if text != "" {
+				wailsRuntime.EventsEmit(appContext, "menu:paste", text)
+			}
+		})
 		editMenu.AddSeparator()
 		editMenu.AddText("Select All", keys.CmdOrCtrl("a"), nil)
 	}
