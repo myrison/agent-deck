@@ -31,7 +31,31 @@ AGENTDECK_DEBUG=1 go run ./cmd/agent-deck
 
 ## Git & Pull Requests
 
-**IMPORTANT:** This is a fork. Never submit PRs to the upstream repository. When asked to create a PR, always target our fork's `main` branch only.
+**⚠️ CRITICAL - THIS IS A FORK ⚠️**
+
+**NEVER submit PRs to the upstream repository (asheshgoplani/agent-deck).**
+
+This is Jason's personal fork with custom modifications. ALL pull requests must target:
+- **Repository**: `myrison/agent-deck` (the fork)
+- **Base branch**: `main`
+
+### Creating Pull Requests
+
+**USE THE SKILL**: `/create-fork-pr <title>` - This skill has safeguards to prevent upstream submission
+
+**If using `gh` directly**, you MUST explicitly specify the fork:
+```bash
+# ✅ CORRECT - Explicitly targets the fork
+gh pr create --repo myrison/agent-deck --base main --title "..." --body "..."
+
+# ❌ WRONG - Defaults to upstream!
+gh pr create --title "..." --body "..."
+```
+
+**Before creating ANY PR:**
+1. Verify you're targeting `myrison/agent-deck` (NOT `asheshgoplani/agent-deck`)
+2. Verify base branch is `main`
+3. If you accidentally create an upstream PR, close it immediately with an apology
 
 ## Architecture Overview
 
