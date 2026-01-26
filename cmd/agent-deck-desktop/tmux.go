@@ -932,6 +932,7 @@ func (tm *TmuxManager) CreateRemoteSession(hostID, projectPath, title, tool, con
 		Title:            title,
 		CustomLabel:      customLabel,
 		ProjectPath:      projectPath,
+		GroupPath:        "remote", // Remote sessions go under the "remote" group
 		Tool:             tool,
 		Status:           status,
 		TmuxSession:      sessionName,
