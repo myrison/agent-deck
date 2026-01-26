@@ -211,6 +211,20 @@ func (a *App) RecordProjectUsage(projectPath string) error {
 	return a.projectDiscovery.RecordUsage(projectPath)
 }
 
+// BrowseLocalDirectory opens a native directory picker dialog.
+// Returns the selected directory path, or empty string if cancelled.
+func (a *App) BrowseLocalDirectory(defaultDir string) (string, error) {
+	if defaultDir == "" {
+		defaultDir, _ = os.UserHomeDir()
+	}
+	return wailsRuntime.OpenDirectoryDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+		Title:                "Select Project Directory",
+		DefaultDirectory:     defaultDir,
+		CanCreateDirectories: false,
+		ShowHiddenFiles:      false,
+	})
+}
+
 // CreateSession creates a new tmux session and launches the specified AI tool.
 // If configKey is provided, the launch config settings will be applied.
 func (a *App) CreateSession(projectPath, title, tool, configKey string) (SessionInfo, error) {
