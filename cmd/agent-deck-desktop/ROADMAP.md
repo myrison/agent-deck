@@ -2,6 +2,30 @@
 
 ## Bugs / High Priority
 
+### saving grids / panel layouts doesn't seem to save the sessions that were loaded within them
+- every time you choose the launcher to open the same panel, it just opens a 2x2 grid with the
+  item you chose in the launcher vs. opening the last saved layout
+- need an easy way to replace session with another session vs. force close and re-add
+
+### Not able to delete saved layouts
+
+### right clicking a session 'tab' in the sessions view causes whole react app to crash
+
+### Build support for dragging / pasting an image into an ssh'd session (doesn't work by default)
+
+
+## Search improvements
+- Change highlighting on search function to highlight entire rows where term is found with lightly shaded color, and darker shared color highlights specific search term
+- show number of matches found in search modal, and the number yuo're on at the time [ie. (3/4)]
+
+## Label Visibility
+- Labels indicate important work being done where the user has taken the trouble to apply a label
+- add filter to session view that filters only to sessions with labels
+
+## Command Shift Z shortcut doesn't work on sessions page in multi-pane view
+- does not work for zoom in or zoom out
+
+
 ### New terminal session does not work, silently fails
 - This fails when choosing new session, or new remote session
 
