@@ -15,6 +15,7 @@ import { createScrollAccumulator, DEFAULT_SCROLL_SPEED } from './utils/scrollAcc
 import { useTheme } from './context/ThemeContext';
 import { getTerminalTheme } from './themes/terminal';
 import { createMacKeyBindingHandler } from './hooks/useMacKeyBindings';
+import { hasAppModifier } from './utils/platform';
 
 // Connection state constants for remote sessions
 const CONN_STATE = {
@@ -266,6 +267,14 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             // Only handle keydown events (not keyup)
             if (e.type !== 'keydown') {
                 return true; // Let xterm handle it
+            }
+
+            // Let app-level shortcuts pass through to the document handler
+            // These include pane management (Cmd+D, Cmd+Shift+Z, etc.)
+            if (hasAppModifier(e) && (e.shiftKey || e.altKey)) {
+                // App shortcuts with Shift or Alt modifiers should not be consumed by xterm
+                // Examples: Cmd+Shift+Z (zoom), Cmd+Alt+Arrow (navigate panes)
+                return true; // Let event propagate to App's document handler
             }
 
             // Check for macOS navigation shortcuts first (Option+Arrow, Cmd+Arrow)
