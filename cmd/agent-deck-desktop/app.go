@@ -44,6 +44,8 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.terminals.SetContext(ctx)
 	a.terminals.SetSSHBridge(a.sshBridge)
+	// Store context for menu callbacks (paste, copy)
+	SetAppContext(ctx)
 }
 
 // shutdown is called when the app is closing.

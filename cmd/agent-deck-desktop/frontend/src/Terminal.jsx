@@ -10,7 +10,7 @@ import './Terminal.css';
 import { StartTerminal, WriteTerminal, ResizeTerminal, CloseTerminal, StartTmuxSession, StartRemoteTmuxSession, LogFrontendDiagnostic, GetTerminalSettings, RefreshTerminalAfterResize } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE } from './constants/terminal';
-import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
+import { EventsOn, EventsOff, ClipboardSetText, ClipboardGetText } from '../wailsjs/runtime/runtime';
 import { createScrollAccumulator, DEFAULT_SCROLL_SPEED } from './utils/scrollAccumulator';
 import { useTheme } from './context/ThemeContext';
 import { getTerminalTheme } from './themes/terminal';
@@ -116,6 +116,19 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         term.loadAddon(unicode11Addon);
 
         term.open(terminalRef.current);
+
+        // DEBUG: Listen for paste events on the terminal container
+        const pasteHandler = (e) => {
+            LogFrontendDiagnostic('[PASTE EVENT] Paste event fired on terminal container!');
+            if (e.clipboardData) {
+                const text = e.clipboardData.getData('text/plain');
+                LogFrontendDiagnostic('[PASTE EVENT] text length: ' + (text?.length || 0));
+            }
+        };
+        terminalRef.current?.addEventListener('paste', pasteHandler);
+        document.addEventListener('paste', (e) => {
+            LogFrontendDiagnostic('[PASTE EVENT] Document-level paste event fired!');
+        });
 
         // Using DOM renderer (xterm.js v6 default)
         // Note: WebGL addon breaks scroll detection in WKWebView
@@ -249,11 +262,21 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // Similar to Kitty terminal behavior.
         // ============================================================
         const selectionDisposable = term.onSelectionChange(() => {
-            if (!autoCopyOnSelectRef.current) return;
-
             const selection = term.getSelection();
+            LogFrontendDiagnostic('[SELECTION] onSelectionChange fired, autoCopy=' + autoCopyOnSelectRef.current + ' selection="' + (selection || '').substring(0, 30) + '" len=' + (selection?.length || 0));
+
+            if (!autoCopyOnSelectRef.current) {
+                LogFrontendDiagnostic('[SELECTION] Auto-copy disabled, skipping');
+                return;
+            }
+
             if (selection && selection.length > 0) {
-                navigator.clipboard.writeText(selection).catch(err => {
+                // Use Wails clipboard API for better WKWebView compatibility
+                LogFrontendDiagnostic('[SELECTION] Calling ClipboardSetText with ' + selection.length + ' chars...');
+                ClipboardSetText(selection).then((result) => {
+                    LogFrontendDiagnostic('[SELECTION] ClipboardSetText returned: ' + result);
+                }).catch(err => {
+                    LogFrontendDiagnostic('[SELECTION] ClipboardSetText FAILED: ' + err);
                     logger.warn('Failed to auto-copy selection:', err);
                 });
             }
@@ -277,16 +300,53 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 return true; // Let event propagate to App's document handler
             }
 
-            // IMPORTANT: Let browser handle paste shortcuts
-            // xterm.js relies on the browser's native paste event, not the keyboard event.
-            // Returning false allows the browser to trigger the paste event which xterm.js receives.
+            // IMPORTANT: Handle copy/paste shortcuts explicitly
+            // Since we removed native menu accelerators to let keys reach the webview,
+            // we need to handle copy/paste ourselves for xterm.js.
             //
             // Platform-specific behavior:
-            // - macOS: Cmd+V is paste. Ctrl+V passes through to terminal (Claude Code uses it for image paste)
-            // - Windows/Linux: Ctrl+V is paste
+            // - macOS: Cmd+V is paste, Cmd+C is copy. Ctrl+V/C pass through to terminal
+            // - Windows/Linux: Ctrl+V is paste, Ctrl+C is copy (but Ctrl+C also sends SIGINT)
+
+            // DEBUG: Log all key events with modifiers
+            if (e.metaKey || e.ctrlKey) {
+                LogFrontendDiagnostic('[KEY DEBUG] key=' + e.key + ' meta=' + e.metaKey + ' ctrl=' + e.ctrlKey + ' shift=' + e.shiftKey + ' alt=' + e.altKey + ' isMac=' + isMac);
+            }
+
+            // Copy: Cmd+C on macOS, Ctrl+C on Windows/Linux (with selection only)
+            const isCopy = e.key.toLowerCase() === 'c' && !e.shiftKey && !e.altKey &&
+                (isMac ? (e.metaKey && !e.ctrlKey) : (e.ctrlKey && !e.metaKey));
+            if (isCopy) {
+                const selection = term.getSelection();
+                LogFrontendDiagnostic('[COPY DEBUG] isCopy=true selection="' + (selection || '').substring(0, 50) + '" len=' + (selection?.length || 0));
+                if (selection && selection.length > 0) {
+                    // Copy the terminal selection using Wails clipboard API
+                    e.preventDefault();
+                    LogFrontendDiagnostic('[COPY DEBUG] Calling ClipboardSetText...');
+                    ClipboardSetText(selection).then(() => {
+                        LogFrontendDiagnostic('[COPY DEBUG] ClipboardSetText succeeded!');
+                    }).catch(err => {
+                        LogFrontendDiagnostic('[COPY DEBUG] ClipboardSetText FAILED: ' + err);
+                        logger.warn('Failed to copy selection:', err);
+                    });
+                    return false;
+                }
+                // No selection on macOS Cmd+C - let it pass through (no-op in terminal)
+                // On Windows/Linux, Ctrl+C without selection should send SIGINT
+                if (!isMac) {
+                    LogFrontendDiagnostic('[COPY DEBUG] No selection, letting Ctrl+C send SIGINT');
+                    return true; // Let xterm handle Ctrl+C as SIGINT
+                }
+                LogFrontendDiagnostic('[COPY DEBUG] No selection on Mac, returning false (no-op)');
+                return false; // Prevent no-op from reaching terminal
+            }
+
+            // Paste: Cmd+V on macOS, Ctrl+V on Windows/Linux
+            // Returning false allows the browser to trigger the native paste event
             const isPaste = e.key.toLowerCase() === 'v' && !e.shiftKey && !e.altKey &&
                 (isMac ? (e.metaKey && !e.ctrlKey) : (e.ctrlKey && !e.metaKey));
             if (isPaste) {
+                LogFrontendDiagnostic('[PASTE DEBUG] isPaste=true, returning false to let browser handle');
                 return false; // Let browser handle paste
             }
 
@@ -512,6 +572,44 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             logger.debug('[Backend]', payload.data);
         };
         EventsOn('terminal:debug', handleDebug);
+
+        // ============================================================
+        // MENU CLIPBOARD EVENTS (from Go menu callbacks)
+        // ============================================================
+        // These events are emitted by the Go menu callbacks when the user
+        // triggers Cmd+V (paste) or Cmd+C (copy) via the native menu.
+        // This bypasses WKWebView keyboard event issues.
+        // ============================================================
+
+        // Handle paste from menu (Cmd+V triggers Go callback which emits this)
+        const handleMenuPaste = (text) => {
+            if (!xtermRef.current) return;
+            LogFrontendDiagnostic('[MENU:PASTE] Received paste event from Go menu callback, text length: ' + (text?.length || 0));
+            if (text && text.length > 0) {
+                // Write the pasted text to the terminal
+                WriteTerminal(sessionId, text).catch(err => {
+                    LogFrontendDiagnostic('[MENU:PASTE] WriteTerminal failed: ' + err);
+                    console.error('Failed to write paste to terminal:', err);
+                });
+            }
+        };
+        EventsOn('menu:paste', handleMenuPaste);
+
+        // Handle copy from menu (Cmd+C triggers Go callback which emits this)
+        const handleMenuCopy = () => {
+            if (!xtermRef.current) return;
+            const selection = xtermRef.current.getSelection();
+            LogFrontendDiagnostic('[MENU:COPY] Received copy event from Go menu callback, selection length: ' + (selection?.length || 0));
+            if (selection && selection.length > 0) {
+                ClipboardSetText(selection).then(() => {
+                    LogFrontendDiagnostic('[MENU:COPY] ClipboardSetText succeeded');
+                }).catch(err => {
+                    LogFrontendDiagnostic('[MENU:COPY] ClipboardSetText failed: ' + err);
+                    console.error('Failed to copy selection:', err);
+                });
+            }
+        };
+        EventsOn('menu:copy', handleMenuCopy);
 
         // Handle pre-loaded history (initial scrollback from tmux)
         // In polling mode, this contains the full scrollback captured before polling starts
