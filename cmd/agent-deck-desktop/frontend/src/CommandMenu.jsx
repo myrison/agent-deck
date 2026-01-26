@@ -318,11 +318,17 @@ export default function CommandMenu({
     };
 
     // Handle confirming layout deletion
-    const handleConfirmDeleteLayout = () => {
+    const handleConfirmDeleteLayout = async () => {
         if (!deletingLayout) return;
         logger.info('Confirming layout deletion', { layoutId: deletingLayout.layoutId });
-        onDeleteSavedLayout?.(deletingLayout.layoutId);
-        setDeletingLayout(null);
+        try {
+            await onDeleteSavedLayout?.(deletingLayout.layoutId);
+            setDeletingLayout(null);
+            onClose(); // Close command menu after successful deletion
+        } catch (err) {
+            logger.error('Failed to delete layout:', err);
+            // Keep dialog open on error so user can retry or cancel
+        }
     };
 
     // Check if currently selected item is a saved layout (for footer hint)

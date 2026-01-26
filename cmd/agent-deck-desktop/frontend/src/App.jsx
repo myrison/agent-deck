@@ -795,6 +795,7 @@ function App() {
             setSavedLayouts(layouts || []);
         } catch (err) {
             logger.error('Failed to delete layout:', err);
+            throw err; // Re-throw so caller can handle (e.g., keep dialog open)
         }
     }, []);
 
