@@ -431,7 +431,9 @@ export default function CommandMenu({
                     <span className="menu-hint"><kbd>↑↓</kbd> Navigate</span>
                     <span className="menu-hint"><kbd>Enter</kbd> {pinMode ? 'Pin to Quick Launch' : newSessionMode ? 'Launch' : 'Select'}</span>
                     {!pinMode && !newSessionMode && <span className="menu-hint"><kbd>⇧Enter</kbd> Label</span>}
-                    {!pinMode && <span className="menu-hint"><kbd>⌘Enter</kbd> Tool picker</span>}
+                    {!pinMode && results[selectedIndex]?.type === 'project' && (
+                        <span className="menu-hint"><kbd>⌘Enter</kbd> Tool picker</span>
+                    )}
                     {!pinMode && !newSessionMode && <span className="menu-hint"><kbd>⌘P</kbd> Pin</span>}
                     <span className="menu-hint"><kbd>Esc</kbd> Close</span>
                 </div>
