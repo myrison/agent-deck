@@ -1,6 +1,6 @@
 #!/bin/bash
-# Development mode launcher for RevDen
-# Uses wails.dev.json for "RevDen (Dev)" branding
+# Development mode launcher for RevvySwarm
+# Uses wails.dev.json for "RevvySwarm (Dev)" branding
 
 set -e
 
