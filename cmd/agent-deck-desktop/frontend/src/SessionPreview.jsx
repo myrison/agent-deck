@@ -300,8 +300,8 @@ export default function SessionPreview({ session, onAttach, onDelete, fontSize =
                                 {getStatusLabel(session.status)}
                             </span>
                             {session.isRemote && (
-                                <span className="preview-remote-badge" title={`Remote: ${session.remoteHost}`}>
-                                    SSH: {session.remoteHost}
+                                <span className="preview-remote-badge" title={`Remote: ${session.remoteHostDisplayName || session.remoteHost}`}>
+                                    SSH: {session.remoteHostDisplayName || session.remoteHost}
                                 </span>
                             )}
                             {(gitBranch || session.gitBranch) && (

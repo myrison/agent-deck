@@ -549,7 +549,7 @@ const SessionList = forwardRef(function SessionList({
                                             <span className="session-danger-icon" title="Dangerous mode">!</span>
                                         )}
                                         {session.isRemote && (
-                                            <span className="session-remote-indicator" title={`Remote: ${session.remoteHost}`}>
+                                            <span className="session-remote-indicator" title={`Remote: ${session.remoteHostDisplayName || session.remoteHost}`}>
                                                 {(() => {
                                                     const hostStatus = sshHostStatus[session.remoteHost];
                                                     const isDisconnected = hostStatus?.connected === false;

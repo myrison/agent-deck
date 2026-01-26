@@ -19,8 +19,10 @@ export default function StatusBar({ session }) {
         isLoading,
     } = useSessionMetadata(session);
 
-    // Determine display hostname - for remote sessions, use remoteHost
-    const displayHostname = session?.isRemote ? session.remoteHost : hostname;
+    // Determine display hostname - for remote sessions, prefer the friendly display name
+    const displayHostname = session?.isRemote
+        ? (session.remoteHostDisplayName || session.remoteHost)
+        : hostname;
     const isRemote = session?.isRemote || false;
 
     // Shorten the path for display (show last 2-3 segments)
