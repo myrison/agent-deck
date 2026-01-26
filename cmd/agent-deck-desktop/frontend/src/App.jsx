@@ -248,7 +248,8 @@ function App() {
                 logger.info('Palette action: new terminal');
                 setSelectedSession(null);
                 setView('terminal');
-                setShowCommandMenu(true);  // Re-open CommandMenu
+                // Re-open CommandMenu after palette closes (defer to next tick)
+                setTimeout(() => setShowCommandMenu(true), 0);
                 break;
             case 'refresh-sessions':
                 logger.info('Palette action: refresh sessions');
