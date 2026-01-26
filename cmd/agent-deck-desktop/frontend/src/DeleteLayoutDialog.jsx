@@ -13,6 +13,9 @@ export default function DeleteLayoutDialog({ layout, onConfirm, onCancel }) {
     }, []);
 
     const handleKeyDown = (e) => {
+        // Stop propagation to prevent App.jsx and background components from receiving these events
+        e.stopPropagation();
+
         if (e.key === 'Escape') {
             e.preventDefault();
             onCancel();

@@ -38,6 +38,9 @@ export default function SaveLayoutModal({
     };
 
     const handleKeyDown = (e) => {
+        // Stop propagation to prevent App.jsx and background components from receiving these events
+        e.stopPropagation();
+
         if (e.key === 'Escape') {
             e.preventDefault();
             onClose();

@@ -16,6 +16,9 @@ export default function ToolPicker({ projectPath, projectName, onSelect, onSelec
     }, [projectPath, projectName]);
 
     const handleKeyDown = (e) => {
+        // Stop propagation to prevent App.jsx and background components from receiving these events
+        e.stopPropagation();
+
         const withConfig = e.metaKey || e.ctrlKey;
 
         switch (e.key) {

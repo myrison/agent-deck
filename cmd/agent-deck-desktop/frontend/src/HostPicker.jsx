@@ -62,8 +62,12 @@ export default function HostPicker({ onSelect, onCancel }) {
     };
 
     const handleKeyDown = (e) => {
+        // Stop propagation to prevent App.jsx and background components from receiving these events
+        e.stopPropagation();
+
         if (hosts.length === 0) {
             if (e.key === 'Escape') {
+                e.preventDefault();
                 onCancel();
             }
             return;

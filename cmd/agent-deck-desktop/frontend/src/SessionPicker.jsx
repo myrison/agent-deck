@@ -28,6 +28,9 @@ export default function SessionPicker({ projectPath, projectName, sessions, onSe
     }, [showLabelInput]);
 
     const handleKeyDown = (e) => {
+        // Stop propagation to prevent App.jsx and background components from receiving these events
+        e.stopPropagation();
+
         if (showLabelInput) {
             // Handle label input mode
             if (e.key === 'Enter') {

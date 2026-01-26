@@ -185,6 +185,9 @@ export default function CommandMenu({
     }, [selectedIndex]);
 
     const handleKeyDown = (e) => {
+        // Stop propagation to prevent App.jsx and background components from receiving these events
+        e.stopPropagation();
+
         switch (e.key) {
             case 'ArrowDown':
                 e.preventDefault();

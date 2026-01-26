@@ -1383,7 +1383,9 @@ function App() {
     const handleKeyDown = useCallback((e) => {
         // Don't handle shortcuts when modals with input fields or their own handlers are open
         // This includes modals with text input (CommandMenu, RenameDialog, etc) and modal handlers (HelpModal, Settings)
-        if (showHelpModal || showSettings || showCommandMenu || showLabelDialog || showRemotePathInput) {
+        // Also includes picker modals that handle their own keyboard navigation
+        if (showHelpModal || showSettings || showCommandMenu || showLabelDialog || showRemotePathInput ||
+            sessionPickerProject || showToolPicker || showConfigPicker || showHostPicker || showSaveLayoutModal) {
             return;
         }
 
@@ -1681,7 +1683,7 @@ function App() {
             e.preventDefault();
             handleFontSizeReset();
         }
-    }, [view, showSearch, showHelpModal, showSettings, showLabelDialog, showCommandMenu, showRemotePathInput, handleBackToSelector, buildShortcutKey, shortcuts, savedLayoutShortcuts, handleLaunchProject, handleApplySavedLayout, handleCycleStatusFilter, handleOpenHelp, handleNewTerminal, handleOpenSettings, selectedSession, activeTabId, openTabs, handleCloseTab, handleSwitchTab, handleFontSizeChange, handleFontSizeReset, activeTab, handleSplitPane, handleClosePane, handleClearSession, handleNavigatePane, handleCyclicNavigatePane, handleToggleZoom, handleExitZoom, handleBalancePanes, handleApplyPreset, moveMode, handleMoveToPane, handleExitMoveMode]);
+    }, [view, showSearch, showHelpModal, showSettings, showLabelDialog, showCommandMenu, showRemotePathInput, sessionPickerProject, showToolPicker, showConfigPicker, showHostPicker, showSaveLayoutModal, handleBackToSelector, buildShortcutKey, shortcuts, savedLayoutShortcuts, handleLaunchProject, handleApplySavedLayout, handleCycleStatusFilter, handleOpenHelp, handleNewTerminal, handleOpenSettings, selectedSession, activeTabId, openTabs, handleCloseTab, handleSwitchTab, handleFontSizeChange, handleFontSizeReset, activeTab, handleSplitPane, handleClosePane, handleClearSession, handleNavigatePane, handleCyclicNavigatePane, handleToggleZoom, handleExitZoom, handleBalancePanes, handleApplyPreset, moveMode, handleMoveToPane, handleExitMoveMode]);
 
     useEffect(() => {
         // Use capture phase to intercept keys before terminal swallows them

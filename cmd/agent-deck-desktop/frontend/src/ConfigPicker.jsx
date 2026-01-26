@@ -50,6 +50,9 @@ export default function ConfigPicker({ tool, projectPath, projectName, onSelect,
 
     // Handle keyboard navigation
     const handleKeyDown = useCallback((e) => {
+        // Stop propagation to prevent App.jsx and background components from receiving these events
+        e.stopPropagation();
+
         switch (e.key) {
             case 'ArrowDown':
             case 'ArrowRight':
