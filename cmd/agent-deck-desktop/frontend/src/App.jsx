@@ -19,7 +19,7 @@ import MoveModeOverlay from './MoveModeOverlay';
 import SaveLayoutModal from './SaveLayoutModal';
 import HostPicker, { LOCAL_HOST_ID } from './HostPicker';
 import { BranchIcon } from './ToolIcon';
-import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory } from '../wailsjs/go/main/App';
+import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE } from './constants/terminal';
 import { shouldInterceptShortcut, hasAppModifier } from './utils/platform';
@@ -133,6 +133,8 @@ function App() {
     // pendingHostSelection tracks project info from CommandMenu while user selects host
     // { path?: string, name?: string } - existing project info (used as default for folder picker)
     const [pendingHostSelection, setPendingHostSelection] = useState(null);
+    // SSH host display names (hostId -> friendly name like "MacBook" or "Docker")
+    const [sshHostDisplayNames, setSSHHostDisplayNames] = useState({});
 
     // Cycle through status filter modes: all -> active -> idle -> all
     const handleCycleStatusFilter = useCallback(() => {
@@ -232,7 +234,25 @@ function App() {
             }
         };
         loadSavedLayouts();
+
+        // Load SSH host display names for friendly naming in dialogs
+        const loadSSHHostDisplayNames = async () => {
+            try {
+                const names = await GetSSHHostDisplayNames();
+                setSSHHostDisplayNames(names || {});
+                logger.info('Loaded SSH host display names', { names });
+            } catch (err) {
+                logger.error('Failed to load SSH host display names:', err);
+            }
+        };
+        loadSSHHostDisplayNames();
     }, [loadShortcuts]);
+
+    // Helper to get friendly SSH host name with "(via SSH)" suffix
+    const getSSHHostFriendlyName = useCallback((hostId) => {
+        const baseName = sshHostDisplayNames[hostId] || hostId;
+        return `${baseName} (via SSH)`;
+    }, [sshHostDisplayNames]);
 
     const handleCloseSearch = useCallback(() => {
         setShowSearch(false);
@@ -1193,13 +1213,19 @@ function App() {
 
     // Handle remote path input
     const handleRemotePathSubmit = useCallback((path) => {
-        if (!path.trim()) return;
+        console.error('[DEBUG] handleRemotePathSubmit called', { path, selectedRemoteHost });
+        if (!path.trim()) {
+            console.error('[DEBUG] handleRemotePathSubmit: empty path, returning');
+            return;
+        }
         logger.info('Remote path entered', { path, host: selectedRemoteHost });
         setShowRemotePathInput(false);
         setPendingHostSelection(null);
         // Extract project name from path (last component)
         const projectName = path.split('/').pop() || path;
-        setToolPickerProject({ path: path.trim(), name: projectName, isRemote: true, remoteHost: selectedRemoteHost });
+        const toolProject = { path: path.trim(), name: projectName, isRemote: true, remoteHost: selectedRemoteHost };
+        console.error('[DEBUG] Setting toolPickerProject for remote:', toolProject);
+        setToolPickerProject(toolProject);
         setShowToolPicker(true);
     }, [selectedRemoteHost]);
 
@@ -1809,7 +1835,7 @@ function App() {
                 {showRemotePathInput && selectedRemoteHost && (
                     <RenameDialog
                         currentName=""
-                        title={`Project Path on ${selectedRemoteHost}`}
+                        title={`Project Path on ${getSSHHostFriendlyName(selectedRemoteHost)}`}
                         placeholder="/home/user/projects/myproject"
                         onSave={handleRemotePathSubmit}
                         onCancel={handleCancelRemotePathInput}
@@ -2061,7 +2087,7 @@ function App() {
             {showRemotePathInput && selectedRemoteHost && (
                 <RenameDialog
                     currentName=""
-                    title={`Project Path on ${selectedRemoteHost}`}
+                    title={`Project Path on ${getSSHHostFriendlyName(selectedRemoteHost)}`}
                     placeholder="/home/user/projects/myproject"
                     onSave={handleRemotePathSubmit}
                     onCancel={handleCancelRemotePathInput}
