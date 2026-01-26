@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import './SessionPicker.css';
 import { createLogger } from './logger';
 import ToolIcon from './ToolIcon';
+import { withKeyboardIsolation } from './utils/keyboardIsolation';
 
 const logger = createLogger('SessionPicker');
 
@@ -27,7 +28,7 @@ export default function SessionPicker({ projectPath, projectName, sessions, onSe
         }
     }, [showLabelInput]);
 
-    const handleKeyDown = (e) => {
+    const handleKeyDown = withKeyboardIsolation((e) => {
         if (showLabelInput) {
             // Handle label input mode
             if (e.key === 'Enter') {
@@ -93,7 +94,7 @@ export default function SessionPicker({ projectPath, projectName, sessions, onSe
                 }
             }
         }
-    };
+    });
 
     const handleSelect = (session) => {
         logger.info('Session selected', { sessionId: session.id, label: session.customLabel });

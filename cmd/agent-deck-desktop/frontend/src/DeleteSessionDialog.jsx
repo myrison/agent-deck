@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import './DeleteSessionDialog.css';
+import { withKeyboardIsolation } from './utils/keyboardIsolation';
 
 // Confirmation dialog for deleting a session
 export default function DeleteSessionDialog({ session, onConfirm, onCancel }) {
@@ -12,7 +13,7 @@ export default function DeleteSessionDialog({ session, onConfirm, onCancel }) {
         }
     }, []);
 
-    const handleKeyDown = (e) => {
+    const handleKeyDown = withKeyboardIsolation((e) => {
         if (e.key === 'Escape') {
             e.preventDefault();
             onCancel();
@@ -23,7 +24,7 @@ export default function DeleteSessionDialog({ session, onConfirm, onCancel }) {
                 onConfirm();
             }
         }
-    };
+    });
 
     return (
         <div className="delete-dialog-overlay" onClick={onCancel} onKeyDown={handleKeyDown}>

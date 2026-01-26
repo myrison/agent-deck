@@ -7,6 +7,7 @@
 import { useState, useRef, useEffect } from 'react';
 import './SaveLayoutModal.css';
 import { createLogger } from './logger';
+import { withKeyboardIsolation } from './utils/keyboardIsolation';
 
 const logger = createLogger('SaveLayoutModal');
 
@@ -37,12 +38,12 @@ export default function SaveLayoutModal({
         onSave(trimmedName, shortcut.trim() || null);
     };
 
-    const handleKeyDown = (e) => {
+    const handleKeyDown = withKeyboardIsolation((e) => {
         if (e.key === 'Escape') {
             e.preventDefault();
             onClose();
         }
-    };
+    });
 
     return (
         <div className="modal-overlay" onClick={onClose}>
