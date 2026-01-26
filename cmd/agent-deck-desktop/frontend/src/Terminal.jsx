@@ -15,7 +15,7 @@ import { createScrollAccumulator, DEFAULT_SCROLL_SPEED } from './utils/scrollAcc
 import { useTheme } from './context/ThemeContext';
 import { getTerminalTheme } from './themes/terminal';
 import { createMacKeyBindingHandler } from './hooks/useMacKeyBindings';
-import { shouldInterceptShortcut } from './utils/platform';
+import { shouldInterceptShortcut, isMac } from './utils/platform';
 
 // Connection state constants for remote sessions
 const CONN_STATE = {
@@ -275,6 +275,19 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 // App shortcuts with Shift or Alt modifiers should not be consumed by xterm
                 // Examples: Cmd+Shift+Z (zoom), Cmd+Alt+Arrow (navigate panes)
                 return true; // Let event propagate to App's document handler
+            }
+
+            // IMPORTANT: Let browser handle paste shortcuts
+            // xterm.js relies on the browser's native paste event, not the keyboard event.
+            // Returning false allows the browser to trigger the paste event which xterm.js receives.
+            //
+            // Platform-specific behavior:
+            // - macOS: Cmd+V is paste. Ctrl+V passes through to terminal (Claude Code uses it for image paste)
+            // - Windows/Linux: Ctrl+V is paste
+            const isPaste = e.key.toLowerCase() === 'v' && !e.shiftKey && !e.altKey &&
+                (isMac ? (e.metaKey && !e.ctrlKey) : (e.ctrlKey && !e.metaKey));
+            if (isPaste) {
+                return false; // Let browser handle paste
             }
 
             // Check for macOS navigation shortcuts first (Option+Arrow, Cmd+Arrow)
