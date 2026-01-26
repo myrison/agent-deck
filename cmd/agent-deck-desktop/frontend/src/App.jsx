@@ -46,6 +46,21 @@ import { updateSessionLabelInLayout, tabContainsSession } from './utils/tabConte
 
 const logger = createLogger('App');
 
+// Helper to get effective config key - fetches default if none provided
+const getEffectiveConfigKey = async (configKey, tool) => {
+    if (configKey) return configKey;
+    try {
+        const defaultConfig = await GetDefaultLaunchConfig(tool);
+        if (defaultConfig?.key) {
+            logger.info('Using default config', { tool, configKey: defaultConfig.key });
+            return defaultConfig.key;
+        }
+    } catch (err) {
+        logger.warn('Failed to get default config:', err);
+    }
+    return '';
+};
+
 function App() {
     const searchAddonRef = useRef(null);
     const [showSearch, setShowSearch] = useState(false);
@@ -819,18 +834,7 @@ function App() {
     const handleLaunchProject = useCallback(async (projectPath, projectName, tool, configKey = '', customLabel = '') => {
         try {
             // Auto-fetch default config if none provided
-            let effectiveConfigKey = configKey;
-            if (!effectiveConfigKey) {
-                try {
-                    const defaultConfig = await GetDefaultLaunchConfig(tool);
-                    if (defaultConfig?.key) {
-                        effectiveConfigKey = defaultConfig.key;
-                        logger.info('Using default config', { tool, configKey: effectiveConfigKey });
-                    }
-                } catch (err) {
-                    logger.warn('Failed to get default config:', err);
-                }
-            }
+            const effectiveConfigKey = await getEffectiveConfigKey(configKey, tool);
 
             logger.info('Launching project', { projectPath, projectName, tool, configKey: effectiveConfigKey, customLabel });
 
@@ -888,18 +892,7 @@ function App() {
     const handleLaunchRemoteProject = useCallback(async (hostId, projectPath, projectName, tool, configKey = '') => {
         try {
             // Auto-fetch default config if none provided
-            let effectiveConfigKey = configKey;
-            if (!effectiveConfigKey) {
-                try {
-                    const defaultConfig = await GetDefaultLaunchConfig(tool);
-                    if (defaultConfig?.key) {
-                        effectiveConfigKey = defaultConfig.key;
-                        logger.info('Using default config for remote', { tool, configKey: effectiveConfigKey });
-                    }
-                } catch (err) {
-                    logger.warn('Failed to get default config:', err);
-                }
-            }
+            const effectiveConfigKey = await getEffectiveConfigKey(configKey, tool);
 
             logger.info('Launching remote project', { hostId, projectPath, projectName, tool, configKey: effectiveConfigKey });
 
