@@ -98,6 +98,7 @@ type instanceJSON struct {
 	CreatedAt        time.Time `json:"created_at"`
 	LastAccessedAt   time.Time `json:"last_accessed_at,omitempty"`
 	RemoteHost       string    `json:"remote_host,omitempty"`
+	RemoteTmuxName   string    `json:"remote_tmux_name,omitempty"`
 	LaunchConfigName string    `json:"launch_config_name,omitempty"`
 	LoadedMCPNames   []string  `json:"loaded_mcp_names,omitempty"`
 	DangerousMode    bool      `json:"dangerous_mode,omitempty"`
@@ -266,6 +267,14 @@ func (tm *TmuxManager) PersistSession(s SessionInfo) error {
 
 	// Create new instance entry using typed struct (provides compile-time safety)
 	now := time.Now()
+	// For remote sessions, the tmux session name is also the remote tmux name
+	// (the desktop creates the tmux session on the remote host with this name).
+	// The TUI uses RemoteTmuxName for discovery matching.
+	remoteTmuxName := ""
+	if s.IsRemote {
+		remoteTmuxName = s.TmuxSession
+	}
+
 	newInstance := instanceJSON{
 		ID:               s.ID,
 		Title:            s.Title,
@@ -278,6 +287,7 @@ func (tm *TmuxManager) PersistSession(s SessionInfo) error {
 		CreatedAt:        now,
 		LastAccessedAt:   now,
 		RemoteHost:       s.RemoteHost,
+		RemoteTmuxName:   remoteTmuxName,
 		LaunchConfigName: s.LaunchConfigName,
 		LoadedMCPNames:   s.LoadedMCPs,
 		DangerousMode:    s.DangerousMode,

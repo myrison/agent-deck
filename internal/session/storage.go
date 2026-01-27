@@ -561,6 +561,26 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			groupPath = extractGroupPath(instData.ProjectPath)
 		}
 
+		// Migrate remote sessions with flat group prefix (e.g., "remote") to hierarchical path
+		// (e.g., "remote/Jeeves"). Desktop app commit 911bdce persisted flat "remote" GroupPath;
+		// fixed for new sessions in 6b94e96, but existing sessions need this migration.
+		if instData.RemoteHost != "" && groupPath != "" {
+			rdSettings := GetRemoteDiscoverySettings()
+			prefix := rdSettings.GroupPrefix
+			if prefix == "" {
+				prefix = "remote"
+			}
+			// Only migrate if the path is exactly the prefix without a hostname segment
+			if groupPath == prefix {
+				groupName := instData.RemoteHost
+				if hostDef := GetSSHHostDef(instData.RemoteHost); hostDef != nil {
+					groupName = hostDef.GetGroupName(instData.RemoteHost)
+				}
+				groupPath = TransformRemoteGroupPath("", prefix, groupName)
+				log.Printf("Migration: Remote session %s group path '%s' -> '%s'", instData.ID, prefix, groupPath)
+			}
+		}
+
 		// Expand tilde in project path (handles paths like ~/project saved from UI)
 		projectPath := expandTilde(instData.ProjectPath)
 
