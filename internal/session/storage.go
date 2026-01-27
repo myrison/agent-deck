@@ -579,6 +579,27 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 				groupPath = TransformRemoteGroupPath("", prefix, groupName)
 				log.Printf("Migration: Remote session %s group path '%s' -> '%s'", instData.ID, prefix, groupPath)
 			}
+
+			// Migrate remote sessions stuck in default group to their host's root group.
+			// This happens when RemoteTmuxName was empty, preventing discovery from
+			// updating the group path. Move them to the host's base group so they
+			// at least appear under the correct remote host hierarchy.
+			if groupPath == DefaultGroupPath {
+				groupName := instData.RemoteHost
+				if hostDef := GetSSHHostDef(instData.RemoteHost); hostDef != nil {
+					groupName = hostDef.GetGroupName(instData.RemoteHost)
+				}
+				groupPath = TransformRemoteGroupPath("", prefix, groupName)
+				log.Printf("Migration: Remote session %s group path '%s' -> '%s'", instData.ID, DefaultGroupPath, groupPath)
+			}
+		}
+
+		// Backfill RemoteTmuxName from TmuxSession for remote sessions.
+		// Early versions of discovery did not always persist RemoteTmuxName,
+		// causing sessions to be unrecognizable on subsequent discovery cycles.
+		if instData.RemoteHost != "" && instData.RemoteTmuxName == "" && instData.TmuxSession != "" {
+			instData.RemoteTmuxName = instData.TmuxSession
+			log.Printf("Migration: Backfilled RemoteTmuxName for %s: %s", instData.ID, instData.TmuxSession)
 		}
 
 		// Expand tilde in project path (handles paths like ~/project saved from UI)

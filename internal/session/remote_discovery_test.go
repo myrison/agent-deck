@@ -2,6 +2,8 @@ package session
 
 import (
 	"testing"
+
+	"github.com/asheshgoplani/agent-deck/internal/tmux"
 )
 
 func TestTransformRemoteGroupPath(t *testing.T) {
@@ -231,5 +233,95 @@ func TestParseTitleFromTmuxName(t *testing.T) {
 				t.Errorf("ParseTitleFromTmuxName(%q) = %q, want %q", tt.tmuxName, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestEffectiveRemoteTmuxName(t *testing.T) {
+	tests := []struct {
+		name           string
+		remoteTmuxName string
+		tmuxSession    *tmux.Session
+		expected       string
+	}{
+		{
+			name:           "prefers RemoteTmuxName when set",
+			remoteTmuxName: "agentdeck_jarvis_4e581bb4",
+			tmuxSession:    &tmux.Session{Name: "agentdeck_jarvis_4e581bb4"},
+			expected:       "agentdeck_jarvis_4e581bb4",
+		},
+		{
+			name:           "falls back to tmux session name",
+			remoteTmuxName: "",
+			tmuxSession:    &tmux.Session{Name: "agentdeck_sebastian_c8e76716"},
+			expected:       "agentdeck_sebastian_c8e76716",
+		},
+		{
+			name:           "returns empty when both empty",
+			remoteTmuxName: "",
+			tmuxSession:    nil,
+			expected:       "",
+		},
+		{
+			name:           "returns empty when tmux session has empty name",
+			remoteTmuxName: "",
+			tmuxSession:    &tmux.Session{Name: ""},
+			expected:       "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inst := &Instance{
+				RemoteTmuxName: tt.remoteTmuxName,
+				tmuxSession:    tt.tmuxSession,
+			}
+			result := effectiveRemoteTmuxName(inst)
+			if result != tt.expected {
+				t.Errorf("effectiveRemoteTmuxName() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFindStaleRemoteSessions_UsesTmuxSessionFallback(t *testing.T) {
+	// Instance with RemoteTmuxName empty but TmuxSession set.
+	// The stale check should still find it via the fallback.
+	inst := &Instance{
+		ID:             "remote-abc123",
+		RemoteHost:     "host197",
+		RemoteTmuxName: "", // empty - the bug scenario
+		tmuxSession:    &tmux.Session{Name: "agentdeck_heimdall_9e2e692c"},
+	}
+
+	// Remote tmux still has this session running
+	running := []RemoteTmuxSession{
+		{Name: "agentdeck_heimdall_9e2e692c"},
+	}
+
+	stale := FindStaleRemoteSessionsWithSnapshot([]*Instance{inst}, "host197", running, nil)
+	if len(stale) != 0 {
+		t.Errorf("expected 0 stale (session is running), got %d: %v", len(stale), stale)
+	}
+
+	// Now test that it IS marked stale when not running
+	stale = FindStaleRemoteSessionsWithSnapshot([]*Instance{inst}, "host197", nil, nil)
+	if len(stale) != 1 {
+		t.Errorf("expected 1 stale (session not running), got %d", len(stale))
+	}
+}
+
+func TestFindStaleRemoteSessions_SkipsWithoutTmuxName(t *testing.T) {
+	// Instance with both RemoteTmuxName and TmuxSession empty.
+	// Should not be marked stale (can't determine if it's running).
+	inst := &Instance{
+		ID:             "remote-noname",
+		RemoteHost:     "host197",
+		RemoteTmuxName: "",
+		tmuxSession:    nil,
+	}
+
+	stale := FindStaleRemoteSessionsWithSnapshot([]*Instance{inst}, "host197", nil, nil)
+	if len(stale) != 0 {
+		t.Errorf("expected 0 stale (no tmux name to check), got %d", len(stale))
 	}
 }
