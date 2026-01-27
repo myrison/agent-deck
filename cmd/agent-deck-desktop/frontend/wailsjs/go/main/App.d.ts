@@ -72,6 +72,8 @@ export function GetVersion():Promise<string>;
 
 export function GetWindowNumber():Promise<number>;
 
+export function HandleFileDrop(arg1:string,arg2:string,arg3:Array<string>):Promise<main.ImagePasteResult>;
+
 export function HandleRemoteImagePaste(arg1:string,arg2:string):Promise<main.ImagePasteResult>;
 
 export function IsGitWorktree(arg1:string):Promise<boolean>;

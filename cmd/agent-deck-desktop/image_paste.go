@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"sync"
 	"time"
 
@@ -88,25 +89,93 @@ func readClipboardImage() ([]byte, error) {
 }
 
 // validateImageData performs validation on image data before transfer.
-// Returns an error if the image is too large or invalid.
+// Accepts PNG, JPEG, GIF, and WebP formats via magic bytes detection.
+// Returns an error if the image is too large or has an unrecognized format.
 func validateImageData(data []byte) error {
 	if len(data) > MaxImageSize {
 		return fmt.Errorf("image too large: %d bytes (max %d bytes / 10MB)", len(data), MaxImageSize)
 	}
 
-	// Validate PNG header (native reader converts to PNG)
-	pngHeader := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
-	if !bytes.HasPrefix(data, pngHeader) {
-		return fmt.Errorf("invalid image format: expected PNG")
+	if detectImageFormat(data) == "" {
+		return fmt.Errorf("invalid image format: expected PNG, JPEG, GIF, or WebP")
 	}
 
 	return nil
 }
 
-// generateRemotePath creates a unique remote path for the image file
-// Uses nanosecond timestamp + random suffix for uniqueness
+// detectImageFormat identifies an image format from magic bytes.
+// Returns the format name ("png", "jpeg", "gif", "webp") or "" if unrecognized.
+func detectImageFormat(data []byte) string {
+	if len(data) < 12 {
+		return ""
+	}
+
+	// PNG: \x89PNG\r\n\x1a\n
+	if bytes.HasPrefix(data, []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}) {
+		return "png"
+	}
+
+	// JPEG: \xFF\xD8\xFF
+	if bytes.HasPrefix(data, []byte{0xFF, 0xD8, 0xFF}) {
+		return "jpeg"
+	}
+
+	// GIF: GIF87a or GIF89a
+	if bytes.HasPrefix(data, []byte("GIF87a")) || bytes.HasPrefix(data, []byte("GIF89a")) {
+		return "gif"
+	}
+
+	// WebP: RIFF....WEBP (bytes 0-3 = "RIFF", bytes 8-11 = "WEBP")
+	if bytes.HasPrefix(data, []byte("RIFF")) && bytes.Equal(data[8:12], []byte("WEBP")) {
+		return "webp"
+	}
+
+	return ""
+}
+
+// imageExtensionForFormat returns the file extension (with dot) for a format name.
+func imageExtensionForFormat(format string) string {
+	switch format {
+	case "png":
+		return ".png"
+	case "jpeg":
+		return ".jpg"
+	case "gif":
+		return ".gif"
+	case "webp":
+		return ".webp"
+	default:
+		return ".png"
+	}
+}
+
+// isImageFile checks if a file path points to an image based on magic bytes.
+// Reads the first 12 bytes of the file for format detection.
+func isImageFile(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	header := make([]byte, 12)
+	n, err := f.Read(header)
+	if err != nil || n < 12 {
+		return false
+	}
+
+	return detectImageFormat(header) != ""
+}
+
+// generateRemotePath creates a unique remote path for a PNG image file.
+// Uses nanosecond timestamp + random suffix for uniqueness.
 func generateRemotePath() string {
-	return fmt.Sprintf("/tmp/revden_img_%d_%d.png", time.Now().UnixNano(), rand.Intn(10000))
+	return generateRemotePathWithExt(".png")
+}
+
+// generateRemotePathWithExt creates a unique remote path with the given extension.
+func generateRemotePathWithExt(ext string) string {
+	return fmt.Sprintf("/tmp/revden_img_%d_%d%s", time.Now().UnixNano(), rand.Intn(10000), ext)
 }
 
 // StreamToRemoteFile streams data to a file on the remote host using SSH.
@@ -143,6 +212,32 @@ func emitToast(ctx context.Context, message, toastType string) {
 	})
 }
 
+// uploadImageDataToRemote uploads validated image data to a remote host via SSH.
+// Detects format, shows a toast for large uploads, generates a unique remote path,
+// streams the data, and tracks the file for cleanup.
+// Returns the remote path on success.
+func uploadImageDataToRemote(conn *ssh.Connection, data []byte, sessionId, hostId string, appCtx context.Context) (string, error) {
+	format := detectImageFormat(data)
+	if format == "" {
+		return "", fmt.Errorf("invalid image format")
+	}
+
+	sizeMB := float64(len(data)) / (1024 * 1024)
+	if sizeMB > 0.5 {
+		emitToast(appCtx, fmt.Sprintf("Uploading image (%.1f MB)...", sizeMB), "info")
+	}
+
+	ext := imageExtensionForFormat(format)
+	remotePath := generateRemotePathWithExt(ext)
+
+	if err := StreamToRemoteFile(conn, data, remotePath); err != nil {
+		return "", fmt.Errorf("transfer failed: %w", err)
+	}
+
+	trackUploadedFile(sessionId, hostId, remotePath)
+	return remotePath, nil
+}
+
 // HandleRemoteImagePaste handles Ctrl+V image paste for remote SSH sessions.
 // It reads the clipboard image, transfers it to the remote host, and returns
 // the path wrapped in bracketed paste sequences for injection into the terminal.
@@ -167,7 +262,7 @@ func (a *App) HandleRemoteImagePaste(sessionId, hostId string) ImagePasteResult 
 		return ImagePasteResult{NoImage: true}
 	}
 
-	// 2. Validate image
+	// 2. Validate image (size + format)
 	if err := validateImageData(imgData); err != nil {
 		log.Printf("[image-paste] validation failed: %v", err)
 		emitToast(a.ctx, err.Error(), "error")
@@ -182,27 +277,18 @@ func (a *App) HandleRemoteImagePaste(sessionId, hostId string) ImagePasteResult 
 		return ImagePasteResult{Error: fmt.Sprintf("SSH connection failed: %v", err)}
 	}
 
-	// 4. Show uploading toast (for larger images)
-	sizeMB := float64(len(imgData)) / (1024 * 1024)
-	if sizeMB > 0.5 {
-		emitToast(a.ctx, fmt.Sprintf("Uploading image (%.1f MB)...", sizeMB), "info")
-	}
-
-	// 5. Generate remote path and transfer
-	remotePath := generateRemotePath()
-	if err := StreamToRemoteFile(conn, imgData, remotePath); err != nil {
-		log.Printf("[image-paste] transfer to %s failed: %v", hostId, err)
+	// 4. Upload image to remote
+	remotePath, err := uploadImageDataToRemote(conn, imgData, sessionId, hostId, a.ctx)
+	if err != nil {
+		log.Printf("[image-paste] upload to %s failed: %v", hostId, err)
 		emitToast(a.ctx, "Image upload failed", "error")
-		return ImagePasteResult{Error: fmt.Sprintf("transfer failed: %v", err)}
+		return ImagePasteResult{Error: err.Error()}
 	}
 
-	// 6. Track file for cleanup when session closes
-	trackUploadedFile(sessionId, hostId, remotePath)
-
-	// 7. Show success toast
+	// 5. Show success toast
 	emitToast(a.ctx, "Image uploaded to remote", "success")
 
-	// 8. Return success with bracketed paste text
+	// 6. Return success with bracketed paste text
 	// Claude Code recognizes raw file paths as image references (no @ prefix needed)
 	// See: https://github.com/anthropics/claude-code/issues/5277
 	injectText := formatBracketedPaste(remotePath)

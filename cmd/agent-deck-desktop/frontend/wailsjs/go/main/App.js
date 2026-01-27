@@ -142,6 +142,10 @@ export function GetWindowNumber() {
   return window['go']['main']['App']['GetWindowNumber']();
 }
 
+export function HandleFileDrop(arg1, arg2, arg3) {
+  return window['go']['main']['App']['HandleFileDrop'](arg1, arg2, arg3);
+}
+
 export function HandleRemoteImagePaste(arg1, arg2) {
   return window['go']['main']['App']['HandleRemoteImagePaste'](arg1, arg2);
 }

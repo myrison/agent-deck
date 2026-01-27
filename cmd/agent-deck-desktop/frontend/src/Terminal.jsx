@@ -7,7 +7,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 // import { WebglAddon } from '@xterm/addon-webgl'; // Disabled - breaks scroll detection
 import '@xterm/xterm/css/xterm.css';
 import './Terminal.css';
-import { StartTerminal, WriteTerminal, ResizeTerminal, CloseTerminal, StartTmuxSession, StartRemoteTmuxSession, LogFrontendDiagnostic, GetTerminalSettings, RefreshTerminalAfterResize, HandleRemoteImagePaste } from '../wailsjs/go/main/App';
+import { StartTerminal, WriteTerminal, ResizeTerminal, CloseTerminal, StartTmuxSession, StartRemoteTmuxSession, LogFrontendDiagnostic, GetTerminalSettings, RefreshTerminalAfterResize, HandleRemoteImagePaste, HandleFileDrop } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE } from './constants/terminal';
 import { EventsOn, ClipboardSetText } from '../wailsjs/runtime/runtime';
@@ -710,6 +710,45 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         };
         const cancelConnFailed = EventsOn('terminal:connection-failed', handleConnectionFailed);
 
+        // ============================================================
+        // FILE DROP HANDLER (drag-and-drop image support)
+        // ============================================================
+        // Wails emits 'files:dropped' with {x, y, paths} when files are
+        // dropped onto the window. We use elementFromPoint with Retina
+        // coordinate normalization to determine if this terminal pane
+        // is the drop target, then call the Go backend to process images.
+        // ============================================================
+        const handleFileDrop = (data) => {
+            if (!data || !data.paths || data.paths.length === 0) return;
+
+            // Retina/HiDPI coordinate normalization:
+            // Wails reports physical pixels; DOM uses logical (CSS) pixels
+            const dpr = window.devicePixelRatio || 1;
+            const logicalX = data.x / dpr;
+            const logicalY = data.y / dpr;
+
+            // Use elementFromPoint for robust pane detection (handles z-index, overlays)
+            const targetEl = document.elementFromPoint(logicalX, logicalY);
+            const isMyTerminal = targetEl && terminalRef.current?.contains(targetEl);
+            if (!isMyTerminal) return;
+
+            logger.info('[FILE-DROP] Files dropped on this pane:', data.paths.length, 'file(s)');
+
+            HandleFileDrop(sessionId, session?.remoteHost || '', data.paths)
+                .then(result => {
+                    if (result.success) {
+                        logger.info('[FILE-DROP] Injecting', result.injectText?.length || 0, 'chars');
+                        WriteTerminal(sessionId, result.injectText).catch(console.error);
+                    } else if (result.error) {
+                        logger.error('[FILE-DROP] Failed:', result.error);
+                    }
+                })
+                .catch(err => {
+                    logger.error('[FILE-DROP] HandleFileDrop error:', err);
+                });
+        };
+        const cancelFileDrop = EventsOn('files:dropped', handleFileDrop);
+
         // Track last sent dimensions to avoid duplicate calls
         let lastCols = term.cols;
         let lastRows = term.rows;
@@ -848,6 +887,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 logger.error('Failed to close terminal:', err);
             });
 
+            if (cancelFileDrop) cancelFileDrop();
             if (scrollbackRefreshTimer) {
                 clearTimeout(scrollbackRefreshTimer);
             }
@@ -925,7 +965,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
     };
 
     return (
-        <div style={{ position: 'relative', width: '100%', height: '100%' }} className={isAltScreen ? 'terminal-alt-screen' : ''}>
+        <div style={{ position: 'relative', width: '100%', height: '100%', '--wails-drop-target': 'drop' }} className={isAltScreen ? 'terminal-alt-screen' : ''}>
             <div
                 ref={terminalRef}
                 data-testid="terminal"

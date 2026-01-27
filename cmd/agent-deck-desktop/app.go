@@ -58,6 +58,17 @@ func (a *App) startup(ctx context.Context) {
 	a.terminals.SetSSHBridge(a.sshBridge)
 	// Store context for menu callbacks (paste, copy)
 	SetAppContext(ctx)
+
+	// Register file drop handler for drag-and-drop image support.
+	// Wails provides native file paths on drop; we emit an event
+	// to the frontend which determines the target terminal pane.
+	wailsRuntime.OnFileDrop(a.ctx, func(x, y int, paths []string) {
+		wailsRuntime.EventsEmit(a.ctx, "files:dropped", map[string]interface{}{
+			"x":     x,
+			"y":     y,
+			"paths": paths,
+		})
+	})
 }
 
 // shutdown is called when the app is closing.
