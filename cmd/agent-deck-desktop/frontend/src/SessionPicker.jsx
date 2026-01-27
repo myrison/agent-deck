@@ -138,7 +138,7 @@ export default function SessionPicker({ projectPath, projectName, sessions, onSe
 
     const getHostBadge = (session) => {
         if (session.isRemote) {
-            return session.remoteHostDisplayName || session.remoteHost || 'remote';
+            return (session.remoteHostDisplayName || session.remoteHost || 'remote').toLowerCase();
         }
         return 'local';
     };

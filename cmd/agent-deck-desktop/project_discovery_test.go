@@ -524,7 +524,7 @@ func TestMultiSessionDiscovery(t *testing.T) {
 		}
 	})
 
-	t.Run("mixed local and remote sessions at same path", func(t *testing.T) {
+	t.Run("mixed local and remote sessions at same path become separate projects", func(t *testing.T) {
 		sessions := []SessionInfo{
 			{ID: "local1", ProjectPath: "/projects/api", Tool: "claude", Status: "running", IsRemote: false},
 			{ID: "remote1", ProjectPath: "/projects/api", Tool: "claude", Status: "waiting", IsRemote: true, RemoteHost: "dev-server", RemoteHostDisplayName: "Dev Server"},
@@ -535,43 +535,225 @@ func TestMultiSessionDiscovery(t *testing.T) {
 			t.Fatalf("DiscoverProjects failed: %v", err)
 		}
 
+		if len(projects) != 2 {
+			t.Fatalf("Expected 2 projects (local + remote), got %d", len(projects))
+		}
+
+		// Find local and remote projects
+		var localProject, remoteProject *ProjectInfo
+		for i := range projects {
+			if projects[i].IsRemote {
+				remoteProject = &projects[i]
+			} else {
+				localProject = &projects[i]
+			}
+		}
+
+		if localProject == nil {
+			t.Fatal("Expected to find local project")
+		}
+		if localProject.SessionCount != 1 {
+			t.Errorf("Expected local project SessionCount 1, got %d", localProject.SessionCount)
+		}
+		if localProject.Sessions[0].ID != "local1" {
+			t.Errorf("Expected local session ID 'local1', got '%s'", localProject.Sessions[0].ID)
+		}
+		if localProject.IsRemote {
+			t.Error("Expected local project IsRemote=false")
+		}
+
+		if remoteProject == nil {
+			t.Fatal("Expected to find remote project")
+		}
+		if remoteProject.SessionCount != 1 {
+			t.Errorf("Expected remote project SessionCount 1, got %d", remoteProject.SessionCount)
+		}
+		if remoteProject.Sessions[0].ID != "remote1" {
+			t.Errorf("Expected remote session ID 'remote1', got '%s'", remoteProject.Sessions[0].ID)
+		}
+		if !remoteProject.IsRemote {
+			t.Error("Expected remote project IsRemote=true")
+		}
+		if remoteProject.RemoteHost != "dev-server" {
+			t.Errorf("Expected RemoteHost 'dev-server', got '%s'", remoteProject.RemoteHost)
+		}
+		if remoteProject.RemoteHostDisplayName != "Dev Server" {
+			t.Errorf("Expected RemoteHostDisplayName 'Dev Server', got '%s'", remoteProject.RemoteHostDisplayName)
+		}
+	})
+
+	t.Run("same path on different remote hosts become separate projects", func(t *testing.T) {
+		sessions := []SessionInfo{
+			{ID: "docker1", ProjectPath: "/app", Tool: "claude", Status: "running", IsRemote: true, RemoteHost: "docker-dev", RemoteHostDisplayName: "Docker"},
+			{ID: "mac1", ProjectPath: "/app", Tool: "claude", Status: "waiting", IsRemote: true, RemoteHost: "macbook", RemoteHostDisplayName: "MacBook"},
+		}
+
+		projects, err := pd.DiscoverProjects(sessions)
+		if err != nil {
+			t.Fatalf("DiscoverProjects failed: %v", err)
+		}
+
+		if len(projects) != 2 {
+			t.Fatalf("Expected 2 projects (different hosts), got %d", len(projects))
+		}
+
+		// Find projects by host
+		hostToProject := make(map[string]*ProjectInfo)
+		for i := range projects {
+			hostToProject[projects[i].RemoteHost] = &projects[i]
+		}
+
+		dockerProject := hostToProject["docker-dev"]
+		if dockerProject == nil {
+			t.Fatal("Expected to find docker-dev project")
+		}
+		if dockerProject.SessionCount != 1 {
+			t.Errorf("Expected docker SessionCount 1, got %d", dockerProject.SessionCount)
+		}
+		if dockerProject.Sessions[0].ID != "docker1" {
+			t.Errorf("Expected docker session ID 'docker1', got '%s'", dockerProject.Sessions[0].ID)
+		}
+
+		macProject := hostToProject["macbook"]
+		if macProject == nil {
+			t.Fatal("Expected to find macbook project")
+		}
+		if macProject.SessionCount != 1 {
+			t.Errorf("Expected macbook SessionCount 1, got %d", macProject.SessionCount)
+		}
+		if macProject.Sessions[0].ID != "mac1" {
+			t.Errorf("Expected macbook session ID 'mac1', got '%s'", macProject.Sessions[0].ID)
+		}
+	})
+
+	t.Run("multiple remote sessions on same host stay grouped", func(t *testing.T) {
+		sessions := []SessionInfo{
+			{ID: "r1", ProjectPath: "/app", Tool: "claude", Status: "running", IsRemote: true, RemoteHost: "docker-dev", RemoteHostDisplayName: "Docker"},
+			{ID: "r2", ProjectPath: "/app", Tool: "claude", Status: "waiting", IsRemote: true, RemoteHost: "docker-dev", RemoteHostDisplayName: "Docker"},
+			{ID: "r3", ProjectPath: "/app", Tool: "gemini", Status: "running", IsRemote: true, RemoteHost: "docker-dev", RemoteHostDisplayName: "Docker"},
+		}
+
+		projects, err := pd.DiscoverProjects(sessions)
+		if err != nil {
+			t.Fatalf("DiscoverProjects failed: %v", err)
+		}
+
 		if len(projects) != 1 {
-			t.Fatalf("Expected 1 project, got %d", len(projects))
+			t.Fatalf("Expected 1 project (same host), got %d", len(projects))
 		}
 
 		p := projects[0]
-		if p.SessionCount != 2 {
-			t.Errorf("Expected SessionCount 2, got %d", p.SessionCount)
+		if p.SessionCount != 3 {
+			t.Errorf("Expected SessionCount 3, got %d", p.SessionCount)
+		}
+		if !p.IsRemote {
+			t.Error("Expected IsRemote=true")
+		}
+		if p.RemoteHost != "docker-dev" {
+			t.Errorf("Expected RemoteHost 'docker-dev', got '%s'", p.RemoteHost)
 		}
 
-		// Find local and remote sessions
-		var localSession, remoteSession *SessionSummary
-		for i := range p.Sessions {
-			if p.Sessions[i].IsRemote {
-				remoteSession = &p.Sessions[i]
+		sessionIDs := make(map[string]bool)
+		for _, s := range p.Sessions {
+			sessionIDs[s.ID] = true
+		}
+		for _, expectedID := range []string{"r1", "r2", "r3"} {
+			if !sessionIDs[expectedID] {
+				t.Errorf("Expected session '%s' in group", expectedID)
+			}
+		}
+	})
+
+	t.Run("scanned local project and remote session at same path coexist", func(t *testing.T) {
+		// Create a real directory that the scanner will find
+		scanPath := filepath.Join(tmpDir, "scan-coexist")
+		os.MkdirAll(scanPath, 0755)
+
+		projectDir := filepath.Join(scanPath, "api")
+		os.MkdirAll(projectDir, 0755)
+		os.WriteFile(filepath.Join(projectDir, "go.mod"), []byte("module api"), 0644)
+
+		configPath := filepath.Join(tmpDir, "config-coexist.toml")
+		configContent := `
+[project_discovery]
+scan_paths = ["` + scanPath + `"]
+`
+		os.WriteFile(configPath, []byte(configContent), 0644)
+
+		pdCoexist := &ProjectDiscovery{
+			frecencyPath: filepath.Join(tmpDir, "frecency-coexist.json"),
+			frecency:     &FrecencyData{Projects: make(map[string]ProjectUsage)},
+			configPath:   configPath,
+		}
+
+		// Remote session at the same path the scanner will find
+		sessions := []SessionInfo{
+			{ID: "remote1", ProjectPath: projectDir, Tool: "claude", Status: "running", IsRemote: true, RemoteHost: "docker-dev", RemoteHostDisplayName: "Docker"},
+		}
+
+		projects, err := pdCoexist.DiscoverProjects(sessions)
+		if err != nil {
+			t.Fatalf("DiscoverProjects failed: %v", err)
+		}
+
+		// Log all projects for diagnostics before asserting count
+		for _, p := range projects {
+			t.Logf("  path=%s isRemote=%v remoteHost=%s sessionCount=%d", p.Path, p.IsRemote, p.RemoteHost, p.SessionCount)
+		}
+
+		// Should find 2 entries: one from the remote session group and one from the scanner
+		if len(projects) != 2 {
+			t.Fatalf("Expected 2 projects (scanned local + remote session), got %d", len(projects))
+		}
+
+		var localProject, remoteProject *ProjectInfo
+		for i := range projects {
+			if projects[i].IsRemote {
+				remoteProject = &projects[i]
 			} else {
-				localSession = &p.Sessions[i]
+				localProject = &projects[i]
 			}
 		}
 
-		if localSession == nil {
-			t.Error("Expected to find local session")
-		} else if localSession.ID != "local1" {
-			t.Errorf("Expected local session ID 'local1', got '%s'", localSession.ID)
+		// Verify local (scanned) project
+		if localProject == nil {
+			t.Fatal("Expected scanned local project entry")
+		}
+		if localProject.Path != projectDir {
+			t.Errorf("Local project path should be %s, got %s", projectDir, localProject.Path)
+		}
+		if localProject.IsRemote {
+			t.Error("Scanned local project should have IsRemote=false")
+		}
+		if localProject.HasSession {
+			t.Error("Scanned local project should have HasSession=false")
+		}
+		if localProject.SessionCount != 0 {
+			t.Errorf("Scanned local project should have SessionCount 0, got %d", localProject.SessionCount)
 		}
 
-		if remoteSession == nil {
-			t.Error("Expected to find remote session")
-		} else {
-			if remoteSession.ID != "remote1" {
-				t.Errorf("Expected remote session ID 'remote1', got '%s'", remoteSession.ID)
-			}
-			if remoteSession.RemoteHost != "dev-server" {
-				t.Errorf("Expected RemoteHost 'dev-server', got '%s'", remoteSession.RemoteHost)
-			}
-			if remoteSession.RemoteHostDisplayName != "Dev Server" {
-				t.Errorf("Expected RemoteHostDisplayName 'Dev Server', got '%s'", remoteSession.RemoteHostDisplayName)
-			}
+		// Verify remote (session-based) project
+		if remoteProject == nil {
+			t.Fatal("Expected remote session project entry")
+		}
+		if remoteProject.Path != projectDir {
+			t.Errorf("Remote project path should be %s, got %s", projectDir, remoteProject.Path)
+		}
+		if !remoteProject.HasSession {
+			t.Error("Remote project should have HasSession=true")
+		}
+		if remoteProject.SessionCount != 1 {
+			t.Errorf("Remote project should have SessionCount 1, got %d", remoteProject.SessionCount)
+		}
+		if remoteProject.RemoteHost != "docker-dev" {
+			t.Errorf("Remote project should have RemoteHost 'docker-dev', got '%s'", remoteProject.RemoteHost)
+		}
+		// Verify the remote project's session data is correct
+		if len(remoteProject.Sessions) != 1 {
+			t.Fatalf("Remote project should have 1 session summary, got %d", len(remoteProject.Sessions))
+		}
+		if remoteProject.Sessions[0].ID != "remote1" {
+			t.Errorf("Remote session ID should be 'remote1', got '%s'", remoteProject.Sessions[0].ID)
 		}
 	})
 
