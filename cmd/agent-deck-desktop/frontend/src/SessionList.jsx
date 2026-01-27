@@ -84,6 +84,20 @@ const SessionList = forwardRef(function SessionList({
         });
     }, []);
 
+    // Poll session list every 10 seconds to pick up new/removed sessions
+    useEffect(() => {
+        const interval = setInterval(async () => {
+            try {
+                const result = await ListSessionsWithGroups();
+                setSessions(result?.sessions || []);
+                setGroups(result?.groups || []);
+            } catch (err) {
+                logger.warn('Session poll failed:', err);
+            }
+        }, 10000);
+        return () => clearInterval(interval);
+    }, []);
+
     const loadExpandedGroups = useCallback(async () => {
         try {
             const overrides = await GetExpandedGroups();
