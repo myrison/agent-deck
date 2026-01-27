@@ -8,8 +8,8 @@
  *
  * Fixes applied:
  * - Capture cancel functions from all EventsOn calls and invoke them in useEffect cleanup
- * - Add e.preventDefault() to the paste key handler
- * - Add focus guard so menu:paste only writes to the focused terminal
+ * - Route paste via window.__activeTerminalSessionId (set on user interaction / focus)
+ * - Graceful fallback: if no terminal is active, allow paste (single-pane case)
  * - Add 100ms dedup as defense-in-depth
  *
  * Testing approach: We test the behavioral logic patterns extracted from Terminal.jsx,
@@ -72,31 +72,52 @@ function createEventBus() {
 }
 
 // ============================================================================
+// Active Terminal Tracker (simulates window.__activeTerminalSessionId)
+// ============================================================================
+
+/**
+ * Simulates the window-level active terminal tracker from Terminal.jsx.
+ * In the real code, window.__activeTerminalSessionId is set on user interaction
+ * (onData, textarea focus) and read by handleMenuPaste to route paste to the
+ * correct pane. When no terminal has been active yet (null), paste is allowed
+ * through as a graceful fallback for the single-pane case.
+ */
+function createActiveTracker() {
+    let activeSessionId = null;
+    return {
+        set(sessionId) { activeSessionId = sessionId; },
+        get() { return activeSessionId; },
+        clear() { activeSessionId = null; },
+    };
+}
+
+// ============================================================================
 // Terminal Paste Handler Simulator
 // ============================================================================
 
 /**
  * Simulates the menu:paste handler logic from Terminal.jsx.
- * Returns what would be written to the terminal.
+ * Uses an active-terminal tracker instead of a boolean focus flag.
  */
-function createPasteHandler() {
-    let isFocused = false;
+function createPasteHandler(sessionId, activeTracker) {
     let lastPaste = { text: '', time: 0 };
     const writes = [];
 
     return {
-        setFocused(focused) {
-            isFocused = focused;
+        /** Simulate user interaction that marks this terminal as active */
+        activate() {
+            activeTracker.set(sessionId);
         },
 
         /**
-         * Handles a menu:paste event, applying focus guard and dedup.
+         * Handles a menu:paste event, applying active-terminal guard and dedup.
          * Mirrors the handleMenuPaste function in Terminal.jsx.
          */
         handleMenuPaste(text, now = Date.now()) {
             // Guard: terminal must exist (simulated as always true here)
-            // Guard: terminal must be focused
-            if (!isFocused) return;
+            // Guard: only paste in the active terminal (fallback: allow if none active)
+            const activeId = activeTracker.get();
+            if (activeId && activeId !== sessionId) return;
 
             if (text && text.length > 0) {
                 // Dedup: skip if identical text pasted within 100ms
@@ -215,19 +236,19 @@ describe('EventsOn listener cleanup (root cause #1)', () => {
 });
 
 // ============================================================================
-// Tests: Focus Guard for Multi-Pane Paste Isolation
+// Tests: Active Terminal Guard for Multi-Pane Paste Isolation
 // ============================================================================
 
-describe('Focus guard for paste events (root cause #3)', () => {
-    it('paste writes to the focused terminal only', () => {
-        const terminalA = createPasteHandler();
-        const terminalB = createPasteHandler();
+describe('Active terminal guard for paste events (root cause #3)', () => {
+    it('paste writes to the active terminal only', () => {
+        const tracker = createActiveTracker();
+        const terminalA = createPasteHandler('session-a', tracker);
+        const terminalB = createPasteHandler('session-b', tracker);
 
-        // Terminal A is focused, Terminal B is not
-        terminalA.setFocused(true);
-        terminalB.setFocused(false);
+        // Terminal A is active (user last typed there)
+        terminalA.activate();
 
-        // Global menu:paste fires to both
+        // Global menu:paste fires to both handlers
         terminalA.handleMenuPaste('hello world');
         terminalB.handleMenuPaste('hello world');
 
@@ -235,33 +256,31 @@ describe('Focus guard for paste events (root cause #3)', () => {
         expect(terminalB.getWrites()).toEqual([]);
     });
 
-    it('paste writes to neither terminal when none is focused', () => {
-        const terminalA = createPasteHandler();
-        const terminalB = createPasteHandler();
+    it('paste writes to ALL terminals when none has been active (graceful fallback)', () => {
+        const tracker = createActiveTracker();
+        const terminalA = createPasteHandler('session-a', tracker);
+        const terminalB = createPasteHandler('session-b', tracker);
 
-        terminalA.setFocused(false);
-        terminalB.setFocused(false);
-
+        // No terminal has been activated — both should accept paste
         terminalA.handleMenuPaste('hello world');
         terminalB.handleMenuPaste('hello world');
 
-        expect(terminalA.getWrites()).toEqual([]);
-        expect(terminalB.getWrites()).toEqual([]);
+        expect(terminalA.getWrites()).toEqual(['hello world']);
+        expect(terminalB.getWrites()).toEqual(['hello world']);
     });
 
-    it('switching focus changes which terminal receives paste', () => {
-        const terminalA = createPasteHandler();
-        const terminalB = createPasteHandler();
+    it('switching active terminal changes which receives paste', () => {
+        const tracker = createActiveTracker();
+        const terminalA = createPasteHandler('session-a', tracker);
+        const terminalB = createPasteHandler('session-b', tracker);
 
-        // First paste: A is focused
-        terminalA.setFocused(true);
-        terminalB.setFocused(false);
+        // First paste: A is active
+        terminalA.activate();
         terminalA.handleMenuPaste('first paste');
         terminalB.handleMenuPaste('first paste');
 
-        // Switch focus to B
-        terminalA.setFocused(false);
-        terminalB.setFocused(true);
+        // Switch active to B
+        terminalB.activate();
         terminalA.handleMenuPaste('second paste');
         terminalB.handleMenuPaste('second paste');
 
@@ -269,9 +288,10 @@ describe('Focus guard for paste events (root cause #3)', () => {
         expect(terminalB.getWrites()).toEqual(['second paste']);
     });
 
-    it('ignores empty or null paste text regardless of focus', () => {
-        const terminal = createPasteHandler();
-        terminal.setFocused(true);
+    it('ignores empty or null paste text regardless of active state', () => {
+        const tracker = createActiveTracker();
+        const terminal = createPasteHandler('session-a', tracker);
+        terminal.activate();
 
         terminal.handleMenuPaste('');
         terminal.handleMenuPaste(null);
@@ -287,8 +307,9 @@ describe('Focus guard for paste events (root cause #3)', () => {
 
 describe('Paste dedup mechanism (defense-in-depth)', () => {
     it('blocks identical text pasted within 100ms', () => {
-        const terminal = createPasteHandler();
-        terminal.setFocused(true);
+        const tracker = createActiveTracker();
+        const terminal = createPasteHandler('session-a', tracker);
+        terminal.activate();
 
         const baseTime = 1000000;
         terminal.handleMenuPaste('hello', baseTime);
@@ -298,8 +319,9 @@ describe('Paste dedup mechanism (defense-in-depth)', () => {
     });
 
     it('allows identical text pasted after 100ms', () => {
-        const terminal = createPasteHandler();
-        terminal.setFocused(true);
+        const tracker = createActiveTracker();
+        const terminal = createPasteHandler('session-a', tracker);
+        terminal.activate();
 
         const baseTime = 1000000;
         terminal.handleMenuPaste('hello', baseTime);
@@ -309,8 +331,9 @@ describe('Paste dedup mechanism (defense-in-depth)', () => {
     });
 
     it('allows different text pasted within 100ms', () => {
-        const terminal = createPasteHandler();
-        terminal.setFocused(true);
+        const tracker = createActiveTracker();
+        const terminal = createPasteHandler('session-a', tracker);
+        terminal.activate();
 
         const baseTime = 1000000;
         terminal.handleMenuPaste('hello', baseTime);
@@ -320,8 +343,9 @@ describe('Paste dedup mechanism (defense-in-depth)', () => {
     });
 
     it('resets dedup timer after each successful paste', () => {
-        const terminal = createPasteHandler();
-        terminal.setFocused(true);
+        const tracker = createActiveTracker();
+        const terminal = createPasteHandler('session-a', tracker);
+        terminal.activate();
 
         const baseTime = 1000000;
         terminal.handleMenuPaste('hello', baseTime);             // written
@@ -334,8 +358,9 @@ describe('Paste dedup mechanism (defense-in-depth)', () => {
     });
 
     it('handles rapid multi-line paste content correctly', () => {
-        const terminal = createPasteHandler();
-        terminal.setFocused(true);
+        const tracker = createActiveTracker();
+        const terminal = createPasteHandler('session-a', tracker);
+        terminal.activate();
 
         const multilineText = 'line1\nline2\nline3\nline4\nline5';
         const baseTime = 1000000;
@@ -356,13 +381,12 @@ describe('Paste dedup mechanism (defense-in-depth)', () => {
 // Tests: preventDefault in Paste Key Handler
 // ============================================================================
 
-describe('Paste key handler preventDefault (root cause #2)', () => {
+describe('Paste key handler (root cause #2)', () => {
     /**
      * Simulates the paste key detection logic from Terminal.jsx.
-     * Before the fix, Cmd+V would both:
-     *   1. Fire the browser paste event (which xterm.js would process)
-     *   2. Fire via Wails menu:paste
-     * The fix adds e.preventDefault() to block path #1.
+     * The handler returns false to prevent xterm from processing the key,
+     * but does NOT call preventDefault — the dedup guard handles any
+     * double-paste from browser + menu:paste paths.
      */
     function simulatePasteKeyHandler(e, isMac) {
         if (e.type !== 'keydown') return true;
@@ -371,8 +395,7 @@ describe('Paste key handler preventDefault (root cause #2)', () => {
             (isMac ? (e.metaKey && !e.ctrlKey) : (e.ctrlKey && !e.metaKey));
 
         if (isPaste) {
-            e.preventDefault(); // The fix: prevent browser paste
-            return false;
+            return false; // Let browser/menu handle paste
         }
 
         return true;
@@ -392,23 +415,23 @@ describe('Paste key handler preventDefault (root cause #2)', () => {
         };
     }
 
-    it('Cmd+V on macOS calls preventDefault and returns false', () => {
+    it('Cmd+V on macOS returns false without preventDefault', () => {
         const event = createKeyEvent('v', { metaKey: true });
         const result = simulatePasteKeyHandler(event, true);
 
         expect(result).toBe(false);
-        expect(event.defaultPrevented).toBe(true);
+        expect(event.defaultPrevented).toBe(false);
     });
 
-    it('Ctrl+V on Windows/Linux calls preventDefault and returns false', () => {
+    it('Ctrl+V on Windows/Linux returns false without preventDefault', () => {
         const event = createKeyEvent('v', { ctrlKey: true });
         const result = simulatePasteKeyHandler(event, false);
 
         expect(result).toBe(false);
-        expect(event.defaultPrevented).toBe(true);
+        expect(event.defaultPrevented).toBe(false);
     });
 
-    it('Ctrl+V on macOS does NOT preventDefault (used for image paste)', () => {
+    it('Ctrl+V on macOS does not intercept (used for image paste)', () => {
         const event = createKeyEvent('v', { ctrlKey: true });
         const result = simulatePasteKeyHandler(event, true);
 
@@ -473,21 +496,20 @@ describe('End-to-end paste scenarios', () => {
         expect(writes[0]).toBe('multi-line\ncontent\nhere');
     });
 
-    it('simulates multi-pane scenario: only focused pane receives paste', () => {
+    it('simulates multi-pane scenario: only active pane receives paste', () => {
         const bus = createEventBus();
-        const paneA = createPasteHandler();
-        const paneB = createPasteHandler();
-        const paneC = createPasteHandler();
+        const tracker = createActiveTracker();
+        const paneA = createPasteHandler('session-a', tracker);
+        const paneB = createPasteHandler('session-b', tracker);
+        const paneC = createPasteHandler('session-c', tracker);
 
         // Each pane registers its own paste listener
         bus.EventsOn('menu:paste', (text) => paneA.handleMenuPaste(text));
         bus.EventsOn('menu:paste', (text) => paneB.handleMenuPaste(text));
         bus.EventsOn('menu:paste', (text) => paneC.handleMenuPaste(text));
 
-        // Pane B is focused
-        paneA.setFocused(false);
-        paneB.setFocused(true);
-        paneC.setFocused(false);
+        // Pane B is active (user last typed there)
+        paneB.activate();
 
         // Global menu:paste fires
         bus.emit('menu:paste', 'paste content');
@@ -498,10 +520,11 @@ describe('End-to-end paste scenarios', () => {
         expect(paneC.getWrites()).toEqual([]);
     });
 
-    it('simulates the combined fix: cleanup + focus guard + dedup', () => {
+    it('simulates the combined fix: cleanup + active guard + dedup', () => {
         const bus = createEventBus();
-        const paneA = createPasteHandler();
-        const paneB = createPasteHandler();
+        const tracker = createActiveTracker();
+        const paneA = createPasteHandler('session-a', tracker);
+        const paneB = createPasteHandler('session-b', tracker);
         const baseTime = 1000000;
 
         // Mount cycle 1
@@ -514,16 +537,15 @@ describe('End-to-end paste scenarios', () => {
         let cancelA2 = bus.EventsOn('menu:paste', (text) => paneA.handleMenuPaste(text, baseTime));
         let cancelB2 = bus.EventsOn('menu:paste', (text) => paneB.handleMenuPaste(text, baseTime));
 
-        // Only pane A focused
-        paneA.setFocused(true);
-        paneB.setFocused(false);
+        // Only pane A active
+        paneA.activate();
 
         // Fire paste — only pane A should receive, exactly once
         bus.emit('menu:paste', 'test paste');
 
         expect(paneA.getWrites()).toEqual(['test paste']);
         expect(paneB.getWrites()).toEqual([]);
-        expect(bus.listenerCount('menu:paste')).toBe(2); // Both registered, focus guard filters
+        expect(bus.listenerCount('menu:paste')).toBe(2); // Both registered, active guard filters
 
         // Cleanup
         cancelA2();

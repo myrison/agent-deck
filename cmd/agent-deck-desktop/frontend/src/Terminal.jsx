@@ -64,7 +64,6 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
     const searchAddonRef = useRef(null);
     const initRef = useRef(false);
     const isAtBottomRef = useRef(true);
-    const isFocusedRef = useRef(false);
     const lastPasteRef = useRef({ text: '', time: 0 });
     const [showScrollIndicator, setShowScrollIndicator] = useState(false);
     const [isAltScreen, setIsAltScreen] = useState(false);
@@ -203,6 +202,9 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // Handle data from terminal (user input) - send to PTY
         const dataDisposable = term.onData((data) => {
             WriteTerminal(sessionId, data).catch(console.error);
+            // Track this as the active terminal for paste routing (reliable in WKWebView,
+            // unlike textarea focus/blur events which are unreliable with native menus)
+            window.__activeTerminalSessionId = sessionId;
             // Notify parent that this pane received input (for focus tracking)
             if (onFocus) {
                 onFocus();
@@ -341,8 +343,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             const isPaste = e.key.toLowerCase() === 'v' && !e.shiftKey && !e.altKey &&
                 (isMac ? (e.metaKey && !e.ctrlKey) : (e.ctrlKey && !e.metaKey));
             if (isPaste) {
-                e.preventDefault(); // Prevent browser paste event — Wails menu:paste handles it
-                return false;
+                return false; // Let browser/menu handle paste
             }
 
             // Check for macOS navigation shortcuts first (Option+Arrow, Cmd+Arrow)
@@ -576,19 +577,22 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // This bypasses WKWebView keyboard event issues.
         // ============================================================
 
-        // Track terminal focus for multi-pane paste filtering
-        // xterm.js v6 removed onFocus/onBlur — use native DOM events on the textarea
-        const handleTermFocus = () => { isFocusedRef.current = true; };
-        const handleTermBlur = () => { isFocusedRef.current = false; };
+        // Track active terminal on focus (click into pane) for multi-pane paste routing.
+        // Uses window.__activeTerminalSessionId (also set by onData above) instead of
+        // isFocusedRef, because WKWebView textarea focus/blur events are unreliable
+        // when macOS native menu accelerators fire.
+        const handleTermFocus = () => { window.__activeTerminalSessionId = sessionId; };
         if (term.textarea) {
             term.textarea.addEventListener('focus', handleTermFocus);
-            term.textarea.addEventListener('blur', handleTermBlur);
         }
 
         // Handle paste from menu (Cmd+V triggers Go callback which emits this)
         const handleMenuPaste = (text) => {
             if (!xtermRef.current) return;
-            if (!isFocusedRef.current) return; // Only paste in focused terminal
+            // Multi-pane filter: only paste in the last-active terminal.
+            // If no terminal has been active yet, allow paste (single-pane graceful fallback).
+            const activeId = window.__activeTerminalSessionId;
+            if (activeId && activeId !== sessionId) return;
             if (text && text.length > 0) {
                 // Dedup: skip if identical text pasted within 100ms (defense-in-depth)
                 const now = Date.now();
@@ -902,7 +906,6 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             selectionDisposable.dispose();
             if (term.textarea) {
                 term.textarea.removeEventListener('focus', handleTermFocus);
-                term.textarea.removeEventListener('blur', handleTermBlur);
             }
             if (customKeyHandler) customKeyHandler.dispose();
             // Clean up mouse mode parser handlers
