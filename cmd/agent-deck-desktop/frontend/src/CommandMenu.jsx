@@ -46,6 +46,8 @@ export default function CommandMenu({
     onPinToQuickLaunch, // (projectPath, projectName) => void - for Cmd+P
     onLayoutAction, // (actionId) => void - for layout actions
     onDeleteSavedLayout, // (layoutId) => void - for Cmd+Backspace on saved layouts
+    activeSession = null, // Currently focused session (for label management in terminal view)
+    onUpdateLabel, // (newLabel) => void - update active session label (empty string = delete)
     sessions = [],
     projects = [],
     favorites = [], // Quick launch favorites for shortcut hints
@@ -58,6 +60,7 @@ export default function CommandMenu({
     const [query, setQuery] = useState('');
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [labelingProject, setLabelingProject] = useState(null); // { path, name } - for Shift+Enter
+    const [labelingSession, setLabelingSession] = useState(null); // { id, customLabel } - for label editing
     const [deletingLayout, setDeletingLayout] = useState(null); // saved-layout item for deletion confirmation
     const inputRef = useRef(null);
     const listRef = useRef(null);
@@ -114,11 +117,26 @@ export default function CommandMenu({
         }));
     }, [savedLayouts]);
 
+    // Build dynamic label actions based on active session
+    const labelActions = useMemo(() => {
+        if (!activeSession) return [];
+        if (activeSession.customLabel) {
+            return [
+                { id: 'edit-label', type: 'label', title: 'Edit Custom Label', description: `Edit: "${activeSession.customLabel}"` },
+                { id: 'delete-label', type: 'label', title: 'Delete Custom Label', description: `Remove: "${activeSession.customLabel}"` },
+            ];
+        }
+        return [
+            { id: 'add-label', type: 'label', title: 'Add Custom Label', description: 'Add a custom label to this session' },
+        ];
+    }, [activeSession]);
+
     // Build list of all actions including layout actions if enabled
     const allActions = useMemo(() => {
-        if (!showLayoutActions) return QUICK_ACTIONS;
-        return [...QUICK_ACTIONS, ...LAYOUT_ACTIONS, ...savedLayoutItems];
-    }, [showLayoutActions, savedLayoutItems]);
+        const base = [...QUICK_ACTIONS, ...labelActions];
+        if (!showLayoutActions) return base;
+        return [...base, ...LAYOUT_ACTIONS, ...savedLayoutItems];
+    }, [showLayoutActions, savedLayoutItems, labelActions]);
 
     // Fuse.js configuration for fuzzy search
     const fuse = useMemo(() => new Fuse([...sessions, ...projectItems, ...allActions], {
@@ -275,7 +293,18 @@ export default function CommandMenu({
             return;
         }
 
-        if (item.type === 'action') {
+        if (item.type === 'label') {
+            if (item.id === 'delete-label') {
+                logger.info('Deleting session label', { sessionId: activeSession?.id });
+                onUpdateLabel?.('');
+                onClose();
+                return;
+            }
+            // add-label or edit-label → show RenameDialog
+            logger.info('Opening label dialog', { action: item.id, sessionId: activeSession?.id });
+            setLabelingSession({ id: activeSession?.id, customLabel: activeSession?.customLabel || '' });
+            return;
+        } else if (item.type === 'action') {
             logger.info('Executing action', { actionId: item.id });
             onAction?.(item.id);
         } else if (item.type === 'layout' || item.type === 'saved-layout') {
@@ -332,6 +361,15 @@ export default function CommandMenu({
         logger.info('Launching project with custom label', { path: labelingProject.path, customLabel });
         onLaunchProject?.(labelingProject.path, labelingProject.name, 'claude', '', customLabel);
         setLabelingProject(null);
+        onClose();
+    };
+
+    // Handle saving session custom label from label dialog
+    const handleSaveSessionLabel = (newLabel) => {
+        if (!labelingSession) return;
+        logger.info('Saving session label', { sessionId: labelingSession.id, newLabel });
+        onUpdateLabel?.(newLabel);
+        setLabelingSession(null);
         onClose();
     };
 
@@ -414,6 +452,14 @@ export default function CommandMenu({
                                             <span className="menu-shortcut-hint">{item.shortcutHint}</span>
                                         )}
                                     </>
+                                ) : item.type === 'label' ? (
+                                    <>
+                                        <span className="menu-action-icon">{'✎'}</span>
+                                        <div className="menu-item-info">
+                                            <div className="menu-item-title">{item.title}</div>
+                                            <div className="menu-item-subtitle">{item.description}</div>
+                                        </div>
+                                    </>
                                 ) : item.type === 'project' ? (
                                     <>
                                         <span className={`menu-project-icon ${item.sessionCount > 0 ? 'has-sessions' : ''}`}>
@@ -494,6 +540,16 @@ export default function CommandMenu({
                     placeholder="Enter label..."
                     onSave={handleSaveProjectLabel}
                     onCancel={() => setLabelingProject(null)}
+                />
+            )}
+
+            {labelingSession && (
+                <RenameDialog
+                    currentName={labelingSession.customLabel || ''}
+                    title={labelingSession.customLabel ? 'Edit Custom Label' : 'Add Custom Label'}
+                    placeholder="Enter label..."
+                    onSave={handleSaveSessionLabel}
+                    onCancel={() => setLabelingSession(null)}
                 />
             )}
 
