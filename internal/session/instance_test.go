@@ -1509,3 +1509,91 @@ func TestSessionHasConversationData(t *testing.T) {
 		}
 	})
 }
+
+// TestParseClaudeSessionData tests the parseClaudeSessionData function
+func TestParseClaudeSessionData(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		wantLabel  string
+		wantPrompt string
+	}{
+		{
+			name: "extracts both label and prompt",
+			input: `{"type":"summary","summary":"Test Label"}
+{"message":{"role":"user","content":"Hello world"}}`,
+			wantLabel:  "Test Label",
+			wantPrompt: "Hello world",
+		},
+		{
+			name: "multiple summaries takes last",
+			input: `{"type":"summary","summary":"First"}
+{"type":"summary","summary":"Updated Label"}`,
+			wantLabel:  "Updated Label",
+			wantPrompt: "",
+		},
+		{
+			name: "no summary entries",
+			input: `{"message":{"role":"user","content":"Just a prompt"}}
+{"message":{"role":"assistant","content":"Response"}}`,
+			wantLabel:  "",
+			wantPrompt: "Just a prompt",
+		},
+		{
+			name: "malformed JSON skipped",
+			input: `bad json
+{"type":"summary","summary":"Valid Label"}`,
+			wantLabel:  "Valid Label",
+			wantPrompt: "",
+		},
+		{
+			name:       "empty input",
+			input:      "",
+			wantLabel:  "",
+			wantPrompt: "",
+		},
+		{
+			name: "content as array of blocks",
+			input: `{"message":{"role":"user","content":[{"type":"text","text":"Hello from blocks"}]}}
+{"type":"summary","summary":"Block Test"}`,
+			wantLabel:  "Block Test",
+			wantPrompt: "Hello from blocks",
+		},
+		{
+			name: "multiline content sanitized",
+			input: `{"message":{"role":"user","content":"Line1\nLine2\n  Line3"}}`,
+			wantLabel:  "",
+			wantPrompt: "Line1 Line2 Line3",
+		},
+		{
+			name: "multiple user messages takes last",
+			input: `{"message":{"role":"user","content":"First message"}}
+{"message":{"role":"assistant","content":"Response"}}
+{"message":{"role":"user","content":"Second message"}}`,
+			wantLabel:  "",
+			wantPrompt: "Second message",
+		},
+		{
+			name: "summary without type field ignored",
+			input: `{"summary":"No type field"}
+{"type":"summary","summary":"With type field"}`,
+			wantLabel:  "With type field",
+			wantPrompt: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseClaudeSessionData([]byte(tt.input))
+			if err != nil {
+				t.Fatalf("parseClaudeSessionData() error = %v", err)
+			}
+			if result.SessionLabel != tt.wantLabel {
+				t.Errorf("SessionLabel = %q, want %q", result.SessionLabel, tt.wantLabel)
+			}
+			if result.LatestPrompt != tt.wantPrompt {
+				t.Errorf("LatestPrompt = %q, want %q", result.LatestPrompt, tt.wantPrompt)
+			}
+		})
+	}
+}

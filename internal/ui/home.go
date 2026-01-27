@@ -5727,10 +5727,40 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 		yoloBadge = yoloStyle.Render(" [YOLO]")
 	}
 
-	// Build row: [baseIndent][selection][tree][status] [title] [tool] [yolo]
+	// Session label badge for Claude sessions
+	labelBadge := ""
+	if inst.Tool == "claude" && inst.SessionLabel != "" {
+		labelStyle := TagStyle
+		if selected {
+			labelStyle = SessionStatusSelStyle
+		}
+
+		// Calculate available width for label dynamically
+		// Fixed elements: indent + selection(1) + tree(2) + status(1) + spaces + title + tool(~8)
+		fixedWidth := lipgloss.Width(baseIndent) + 1 + 3 + 1 + 1 +
+			runewidth.StringWidth(inst.Title) + 1 +
+			runewidth.StringWidth(inst.Tool) + 2
+		if inst.Tool == "gemini" && inst.GeminiYoloMode != nil && *inst.GeminiYoloMode {
+			fixedWidth += 7 // " [YOLO]"
+		}
+
+		// Calculate max label width (leave some padding)
+		maxLabelWidth := h.width - fixedWidth - 4 // 4 for TagStyle padding + margin
+		if maxLabelWidth < 10 {
+			maxLabelWidth = 10 // Minimum useful width
+		}
+
+		displayLabel := inst.SessionLabel
+		if runewidth.StringWidth(displayLabel) > maxLabelWidth {
+			displayLabel = runewidth.Truncate(displayLabel, maxLabelWidth, "...")
+		}
+		labelBadge = " " + labelStyle.Render(displayLabel)
+	}
+
+	// Build row: [baseIndent][selection][tree][status] [title] [label] [tool] [yolo]
 	// Format: " ├─ ● session-name tool" or "▶└─ ● session-name tool"
 	// Sub-sessions get extra indent: "   ├─◐ sub-session tool"
-	row := fmt.Sprintf("%s%s%s %s %s%s%s", baseIndent, selectionPrefix, treeStyle.Render(treeConnector), status, title, tool, yoloBadge)
+	row := fmt.Sprintf("%s%s%s %s %s%s%s%s", baseIndent, selectionPrefix, treeStyle.Render(treeConnector), status, title, labelBadge, tool, yoloBadge)
 	b.WriteString(row)
 	b.WriteString("\n")
 }
