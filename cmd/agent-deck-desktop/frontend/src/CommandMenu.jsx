@@ -13,6 +13,7 @@ const logger = createLogger('CommandMenu');
 // Quick actions available in the menu
 const QUICK_ACTIONS = [
     { id: 'new-terminal', type: 'action', title: 'New Terminal', description: 'Start a new shell session' },
+    { id: 'new-window', type: 'action', title: 'New Window', description: 'Open a new app window (⌘⇧N)' },
     { id: 'refresh-sessions', type: 'action', title: 'Refresh Sessions', description: 'Reload session list' },
     { id: 'toggle-quick-launch', type: 'action', title: 'Toggle Quick Launch Bar', description: 'Show/hide quick launch bar' },
     { id: 'toggle-theme', type: 'action', title: 'Toggle Theme', description: 'Switch between light and dark mode' },

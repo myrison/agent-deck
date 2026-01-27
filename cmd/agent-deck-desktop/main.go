@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"fmt"
 	"os"
 	"runtime"
 
@@ -31,6 +32,7 @@ func SetAppContext(ctx context.Context) {
 // createAppMenu builds a custom menu for macOS that:
 // 1. Removes the Redo keyboard shortcut (Cmd+Shift+Z) to allow JS zoom toggle
 // 2. Handles Paste via callback to emit clipboard content to JS
+// 3. Adds File menu with New Window command (Cmd+Shift+N)
 //
 // The standard EditMenu enables macOS clipboard handling, but we need custom
 // callbacks to bridge clipboard content to xterm.js terminal.
@@ -40,6 +42,16 @@ func createAppMenu() *menu.Menu {
 	if runtime.GOOS == "darwin" {
 		// App menu (About, Quit, etc.)
 		appMenu.Append(menu.AppMenu())
+
+		// File menu with New Window
+		fileMenu := appMenu.AddSubmenu("File")
+		fileMenu.AddText("New Window", keys.Combo("n", keys.CmdOrCtrlKey, keys.ShiftKey), func(cd *menu.CallbackData) {
+			if appContext == nil {
+				return
+			}
+			// Emit event to JS - frontend will call OpenNewWindow
+			wailsRuntime.EventsEmit(appContext, "menu:newWindow")
+		})
 
 		// Custom Edit menu with callbacks for clipboard operations.
 		// Wails on macOS requires an Edit menu with accelerators for clipboard to work.
@@ -92,10 +104,18 @@ func main() {
 		logLevel = logger.DEBUG
 	}
 
-	// Set app title based on mode
+	// Set app title based on mode and window number
 	appTitle := "RevvySwarm"
 	if isDev {
 		appTitle = "RevvySwarm (Dev)"
+	} else {
+		// Check env var for window number (set by parent when spawning)
+		if numStr := os.Getenv("REVDEN_WINDOW_NUM"); numStr != "" {
+			var windowNum int
+			if _, err := fmt.Sscanf(numStr, "%d", &windowNum); err == nil && windowNum > 1 {
+				appTitle = fmt.Sprintf("RevvySwarm (%d)", windowNum)
+			}
+		}
 	}
 
 	// Create application with options

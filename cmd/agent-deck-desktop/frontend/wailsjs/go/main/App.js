@@ -138,8 +138,16 @@ export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
 }
 
+export function GetWindowNumber() {
+  return window['go']['main']['App']['GetWindowNumber']();
+}
+
 export function IsGitWorktree(arg1) {
   return window['go']['main']['App']['IsGitWorktree'](arg1);
+}
+
+export function IsPrimaryWindow() {
+  return window['go']['main']['App']['IsPrimaryWindow']();
 }
 
 export function ListSSHHosts() {
@@ -160,6 +168,10 @@ export function LogFrontendDiagnostic(arg1) {
 
 export function MarkSessionAccessed(arg1) {
   return window['go']['main']['App']['MarkSessionAccessed'](arg1);
+}
+
+export function OpenNewWindow() {
+  return window['go']['main']['App']['OpenNewWindow']();
 }
 
 export function RecordProjectUsage(arg1) {

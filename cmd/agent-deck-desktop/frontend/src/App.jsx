@@ -20,7 +20,7 @@ import SaveLayoutModal from './SaveLayoutModal';
 import HostPicker, { LOCAL_HOST_ID } from './HostPicker';
 import DeleteSessionDialog from './DeleteSessionDialog';
 import { BranchIcon } from './ToolIcon';
-import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames, DeleteSession } from '../wailsjs/go/main/App';
+import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames, DeleteSession, OpenNewWindow } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE } from './constants/terminal';
 import { shouldInterceptShortcut, hasAppModifier } from './utils/platform';
@@ -44,6 +44,7 @@ import {
     applySavedLayout,
 } from './layoutUtils';
 import { updateSessionLabelInLayout, tabContainsSession } from './utils/tabContextMenu';
+import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
 
 const logger = createLogger('App');
 
@@ -250,6 +251,19 @@ function App() {
         loadSSHHostDisplayNames();
     }, [loadShortcuts]);
 
+    // Listen for menu:newWindow event (File > New Window)
+    useEffect(() => {
+        const handleNewWindow = () => {
+            logger.info('Menu: New Window triggered');
+            OpenNewWindow().catch(err => {
+                logger.error('Failed to open new window:', err);
+            });
+        };
+
+        EventsOn('menu:newWindow', handleNewWindow);
+        return () => EventsOff('menu:newWindow', handleNewWindow);
+    }, []);
+
     // Helper to get friendly SSH host name with "(via SSH)" suffix
     const getSSHHostFriendlyName = useCallback((hostId) => {
         const baseName = sshHostDisplayNames[hostId] || hostId;
@@ -295,6 +309,12 @@ function App() {
                 setView('terminal');
                 // Re-open CommandMenu after palette closes (defer to next tick)
                 setTimeout(() => setShowCommandMenu(true), 0);
+                break;
+            case 'new-window':
+                logger.info('Palette action: new window');
+                OpenNewWindow().catch(err => {
+                    logger.error('Failed to open new window:', err);
+                });
                 break;
             case 'refresh-sessions':
                 logger.info('Palette action: refresh sessions');
@@ -1533,8 +1553,18 @@ function App() {
             handleOpenHelp();
             return;
         }
+        // Cmd+Shift+N - Open new window (production only)
+        if (hasAppModifier(e) && e.shiftKey && (e.key === 'N' || e.key === 'n')) {
+            e.preventDefault();
+            e.stopPropagation();
+            logger.info('Cmd+Shift+N pressed - opening new window');
+            OpenNewWindow().catch(err => {
+                logger.error('Failed to open new window:', err);
+            });
+            return;
+        }
         // Cmd+N - New session mode (shows only projects for launching new sessions)
-        if (hasAppModifier(e) && e.key === 'n') {
+        if (hasAppModifier(e) && !e.shiftKey && e.key === 'n') {
             e.preventDefault();
             logger.info('Cmd+N pressed - opening command menu for new session');
             setPaletteNewSessionMode(true);
