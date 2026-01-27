@@ -102,6 +102,17 @@ func FetchRemoteStorageSnapshot(sshExec *tmux.SSHExecutor) *RemoteStorageSnapsho
 	}
 }
 
+// resolveRemoteHostGroupPath resolves the local group path for a remote host.
+// It looks up the SSH host definition for a friendly group name, falling back
+// to the raw hostID, then applies TransformRemoteGroupPath.
+func resolveRemoteHostGroupPath(remoteHost, prefix string) string {
+	groupName := remoteHost
+	if hostDef := GetSSHHostDef(remoteHost); hostDef != nil {
+		groupName = hostDef.GetGroupName(remoteHost)
+	}
+	return TransformRemoteGroupPath("", prefix, groupName)
+}
+
 // TransformRemoteGroupPath converts a remote group path to local path
 // Example: "jeeves/workers" with prefix="remote" and hostname="jeeves" -> "remote/jeeves/jeeves/workers"
 // Empty remote path maps to just "{prefix}/{hostname}"
@@ -241,8 +252,12 @@ func DiscoverRemoteSessionsForHost(hostID string, existing []*Instance) ([]*Inst
 	// Build lookup map of existing instances by their deterministic remote ID
 	existingByRemoteID := make(map[string]*Instance)
 	for _, inst := range existing {
-		if inst.RemoteHost == hostID && inst.RemoteTmuxName != "" {
-			remoteID := GenerateRemoteInstanceID(hostID, inst.RemoteTmuxName)
+		if inst.RemoteHost != hostID {
+			continue
+		}
+		tmuxName := effectiveRemoteTmuxName(inst)
+		if tmuxName != "" {
+			remoteID := GenerateRemoteInstanceID(hostID, tmuxName)
 			existingByRemoteID[remoteID] = inst
 		}
 	}
@@ -286,6 +301,14 @@ func DiscoverRemoteSessionsForHost(hostID string, existing []*Instance) ([]*Inst
 
 		// Check if this session already exists locally
 		if existingInst, exists := existingByRemoteID[remoteID]; exists {
+			// Backfill RemoteTmuxName if it was matched via TmuxSession fallback.
+			// Also backfilled at storage load time in convertToInstances;
+			// this handles in-memory sessions not yet reloaded from disk.
+			if existingInst.RemoteTmuxName == "" {
+				existingInst.RemoteTmuxName = rs.Name
+				log.Printf("[REMOTE-DISCOVERY] Backfilled RemoteTmuxName: %s on %s", rs.Name, hostID)
+			}
+
 			// Session exists - check if group path or tool needs updating based on remote's current state
 			if remoteSnapshot != nil {
 				remoteGroupPath := remoteSnapshot.SessionGroupPaths[rs.Name]
@@ -478,6 +501,19 @@ func toTitleCase(s string) string {
 	return strings.Join(words, " ")
 }
 
+// effectiveRemoteTmuxName returns the tmux session name to use for remote ID matching.
+// Prefers RemoteTmuxName, but falls back to the tmux session object's Name field.
+// This handles sessions that were persisted before RemoteTmuxName was populated.
+func effectiveRemoteTmuxName(inst *Instance) string {
+	if inst.RemoteTmuxName != "" {
+		return inst.RemoteTmuxName
+	}
+	if ts := inst.GetTmuxSession(); ts != nil && ts.Name != "" {
+		return ts.Name
+	}
+	return ""
+}
+
 // FindByRemoteSession finds an existing instance by host ID and tmux session name
 func FindByRemoteSession(instances []*Instance, hostID, tmuxName string) *Instance {
 	targetID := GenerateRemoteInstanceID(hostID, tmuxName)
@@ -524,14 +560,15 @@ func FindStaleRemoteSessionsWithSnapshot(instances []*Instance, hostID string, c
 		}
 
 		// A session is stale only if it's not in running tmux AND not in sessions.json
-		if inst.RemoteTmuxName != "" {
-			inTmux := runningTmux[inst.RemoteTmuxName]
-			inStorage := inSessionsJSON[inst.RemoteTmuxName]
+		tmuxName := effectiveRemoteTmuxName(inst)
+		if tmuxName != "" {
+			inTmux := runningTmux[tmuxName]
+			inStorage := inSessionsJSON[tmuxName]
 
 			// Only stale if missing from both
 			if !inTmux && !inStorage {
 				staleIDs = append(staleIDs, inst.ID)
-				log.Printf("[REMOTE-DISCOVERY] Stale session: %s (%s) on %s (not in tmux or sessions.json)", inst.Title, inst.RemoteTmuxName, hostID)
+				log.Printf("[REMOTE-DISCOVERY] Stale session: %s (%s) on %s (not in tmux or sessions.json)", inst.Title, tmuxName, hostID)
 			}
 		}
 	}

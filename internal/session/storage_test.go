@@ -427,3 +427,214 @@ func TestStorageRemoteGroupPathMigrationFallbackToHostID(t *testing.T) {
 		t.Errorf("GroupPath migration with no config: got %q, want %q", loaded[0].GroupPath, "remote/my-server")
 	}
 }
+
+// TestStorageRemoteTmuxNameBackfill verifies that loading a remote session with
+// empty RemoteTmuxName but non-empty TmuxSession backfills RemoteTmuxName.
+// This prevents sessions from being unrecognizable on subsequent discovery cycles.
+func TestStorageRemoteTmuxNameBackfill(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	configDir := filepath.Join(tmpHome, ".agent-deck")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("Failed to create config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("# empty\n"), 0600); err != nil {
+		t.Fatalf("Failed to write config.toml: %v", err)
+	}
+	if _, err := ReloadUserConfig(); err != nil {
+		t.Fatalf("ReloadUserConfig failed: %v", err)
+	}
+	defer ReloadUserConfig()
+
+	storageDir := filepath.Join(tmpHome, "test-storage")
+	if err := os.MkdirAll(storageDir, 0700); err != nil {
+		t.Fatalf("Failed to create storage dir: %v", err)
+	}
+	storagePath := filepath.Join(storageDir, "sessions.json")
+
+	sessionsData := StorageData{
+		Instances: []*InstanceData{
+			{
+				ID:             "remote-backfill1",
+				Title:          "Sebastian",
+				ProjectPath:    "/home/jason/workers/sebastian",
+				GroupPath:      "remote/Docker",
+				Tool:           "claude",
+				Status:         StatusWaiting,
+				CreatedAt:      time.Now(),
+				TmuxSession:    "agentdeck_sebastian_c8e76716", // Has tmux name
+				RemoteHost:     "host197",
+				RemoteTmuxName: "", // Empty — should be backfilled
+			},
+		},
+		UpdatedAt: time.Now(),
+	}
+
+	jsonData, err := json.MarshalIndent(sessionsData, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal sessions data: %v", err)
+	}
+	if err := os.WriteFile(storagePath, jsonData, 0600); err != nil {
+		t.Fatalf("Failed to write sessions.json: %v", err)
+	}
+
+	s := &Storage{path: storagePath, profile: "_test"}
+	loaded, _, err := s.LoadWithGroups()
+	if err != nil {
+		t.Fatalf("LoadWithGroups failed: %v", err)
+	}
+
+	if len(loaded) != 1 {
+		t.Fatalf("Expected 1 instance, got %d", len(loaded))
+	}
+
+	if loaded[0].RemoteTmuxName != "agentdeck_sebastian_c8e76716" {
+		t.Errorf("RemoteTmuxName backfill failed: got %q, want %q",
+			loaded[0].RemoteTmuxName, "agentdeck_sebastian_c8e76716")
+	}
+}
+
+// TestStorageRemoteDefaultGroupPathMigration verifies that remote sessions stuck
+// in the default "my-sessions" group get migrated to the host's root group.
+func TestStorageRemoteDefaultGroupPathMigration(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	configDir := filepath.Join(tmpHome, ".agent-deck")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("Failed to create config dir: %v", err)
+	}
+	configTOML := `
+[ssh_hosts.host197]
+host = "192.168.1.197"
+group_name = "Docker"
+auto_discover = true
+`
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(configTOML), 0600); err != nil {
+		t.Fatalf("Failed to write config.toml: %v", err)
+	}
+	if _, err := ReloadUserConfig(); err != nil {
+		t.Fatalf("ReloadUserConfig failed: %v", err)
+	}
+	defer ReloadUserConfig()
+
+	storageDir := filepath.Join(tmpHome, "test-storage")
+	if err := os.MkdirAll(storageDir, 0700); err != nil {
+		t.Fatalf("Failed to create storage dir: %v", err)
+	}
+	storagePath := filepath.Join(storageDir, "sessions.json")
+
+	sessionsData := StorageData{
+		Instances: []*InstanceData{
+			{
+				ID:             "remote-defaultgrp",
+				Title:          "Heimdall",
+				ProjectPath:    "/home/jason/workers/heimdall",
+				GroupPath:      "my-sessions", // Stuck in default — should migrate
+				Tool:           "claude",
+				Status:         StatusWaiting,
+				CreatedAt:      time.Now(),
+				TmuxSession:    "agentdeck_heimdall_9e2e692c",
+				RemoteHost:     "host197",
+				RemoteTmuxName: "agentdeck_heimdall_9e2e692c",
+			},
+		},
+		UpdatedAt: time.Now(),
+	}
+
+	jsonData, err := json.MarshalIndent(sessionsData, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal sessions data: %v", err)
+	}
+	if err := os.WriteFile(storagePath, jsonData, 0600); err != nil {
+		t.Fatalf("Failed to write sessions.json: %v", err)
+	}
+
+	s := &Storage{path: storagePath, profile: "_test"}
+	loaded, _, err := s.LoadWithGroups()
+	if err != nil {
+		t.Fatalf("LoadWithGroups failed: %v", err)
+	}
+
+	if len(loaded) != 1 {
+		t.Fatalf("Expected 1 instance, got %d", len(loaded))
+	}
+
+	// Should migrate from "my-sessions" to "remote/Docker"
+	if loaded[0].GroupPath != "remote/Docker" {
+		t.Errorf("GroupPath default migration failed: got %q, want %q",
+			loaded[0].GroupPath, "remote/Docker")
+	}
+}
+
+// TestStorageLocalSessionNotMigratedFromDefault verifies that LOCAL sessions
+// in the default group are NOT affected by the remote-only migration.
+func TestStorageLocalSessionNotMigratedFromDefault(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	configDir := filepath.Join(tmpHome, ".agent-deck")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("Failed to create config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("# empty\n"), 0600); err != nil {
+		t.Fatalf("Failed to write config.toml: %v", err)
+	}
+	if _, err := ReloadUserConfig(); err != nil {
+		t.Fatalf("ReloadUserConfig failed: %v", err)
+	}
+	defer ReloadUserConfig()
+
+	storageDir := filepath.Join(tmpHome, "test-storage")
+	if err := os.MkdirAll(storageDir, 0700); err != nil {
+		t.Fatalf("Failed to create storage dir: %v", err)
+	}
+	storagePath := filepath.Join(storageDir, "sessions.json")
+
+	sessionsData := StorageData{
+		Instances: []*InstanceData{
+			{
+				ID:          "local-session-1",
+				Title:       "Local Test",
+				ProjectPath: "/tmp/project",
+				GroupPath:   "my-sessions", // Default group for a local session
+				Tool:        "claude",
+				Status:      StatusIdle,
+				CreatedAt:   time.Now(),
+				// RemoteHost is empty — this is a LOCAL session
+			},
+		},
+		UpdatedAt: time.Now(),
+	}
+
+	jsonData, err := json.MarshalIndent(sessionsData, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal sessions data: %v", err)
+	}
+	if err := os.WriteFile(storagePath, jsonData, 0600); err != nil {
+		t.Fatalf("Failed to write sessions.json: %v", err)
+	}
+
+	s := &Storage{path: storagePath, profile: "_test"}
+	loaded, _, err := s.LoadWithGroups()
+	if err != nil {
+		t.Fatalf("LoadWithGroups failed: %v", err)
+	}
+
+	if len(loaded) != 1 {
+		t.Fatalf("Expected 1 instance, got %d", len(loaded))
+	}
+
+	// Local session should stay in "my-sessions"
+	if loaded[0].GroupPath != "my-sessions" {
+		t.Errorf("Local session group path incorrectly changed: got %q, want %q",
+			loaded[0].GroupPath, "my-sessions")
+	}
+}
