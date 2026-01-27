@@ -5736,13 +5736,10 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 		}
 
 		// Calculate available width for label dynamically
-		// Fixed elements: indent + selection(1) + tree(2) + status(1) + spaces + title + tool(~8)
+		// fixedWidth accounts for: indent + " "(1) + icon(3) + " "(1) + space(1) + title + " "(1) + tool + brackets(2)
 		fixedWidth := lipgloss.Width(baseIndent) + 1 + 3 + 1 + 1 +
 			runewidth.StringWidth(inst.Title) + 1 +
 			runewidth.StringWidth(inst.Tool) + 2
-		if inst.Tool == "gemini" && inst.GeminiYoloMode != nil && *inst.GeminiYoloMode {
-			fixedWidth += 7 // " [YOLO]"
-		}
 
 		// Calculate max label width (leave some padding)
 		maxLabelWidth := h.width - fixedWidth - 4 // 4 for TagStyle padding + margin
