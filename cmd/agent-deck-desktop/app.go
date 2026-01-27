@@ -46,6 +46,10 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
+	// Ensure tmux server is running so session listing and creation work immediately.
+	// Without this, tmux list-sessions fails and all local sessions are hidden from the UI.
+	ensureTmuxRunning()
+
 	// Register this window and get assigned number
 	windowNum, err := registerWindow()
 	if err != nil {

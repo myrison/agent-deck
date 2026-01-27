@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -129,6 +130,16 @@ func findTmuxPath() string {
 
 	// Fallback to bare "tmux" and hope for the best
 	return "tmux"
+}
+
+// ensureTmuxRunning starts the tmux server if it isn't already running.
+// This is called at app startup so that session listing works immediately.
+// If tmux is already running, start-server is a no-op.
+func ensureTmuxRunning() {
+	cmd := exec.Command(tmuxBinaryPath, "start-server")
+	if err := cmd.Run(); err != nil {
+		log.Printf("warning: failed to start tmux server: %v", err)
+	}
 }
 
 // TmuxManager handles tmux session operations.
@@ -549,12 +560,16 @@ func (tm *TmuxManager) getGitInfo(projectPath string) GitInfo {
 func (tm *TmuxManager) getRunningTmuxSessions() map[string]bool {
 	result := make(map[string]bool)
 
+	// Ensure tmux server is available before querying sessions.
+	// This handles the case where tmux stopped after app launch (crash, manual kill).
+	ensureTmuxRunning()
+
 	// Run: tmux list-sessions -F "#{session_name}"
 	// Use resolved tmux path for GUI app compatibility
 	cmd := exec.Command(tmuxBinaryPath, "list-sessions", "-F", "#{session_name}")
 	output, err := cmd.Output()
 	if err != nil {
-		// tmux might not be running or no sessions exist
+		// No sessions exist or tmux still unavailable
 		return result
 	}
 
