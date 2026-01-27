@@ -64,6 +64,8 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
     const searchAddonRef = useRef(null);
     const initRef = useRef(false);
     const isAtBottomRef = useRef(true);
+    const isFocusedRef = useRef(false);
+    const lastPasteRef = useRef({ text: '', time: 0 });
     const [showScrollIndicator, setShowScrollIndicator] = useState(false);
     const [isAltScreen, setIsAltScreen] = useState(false);
     const [connectionState, setConnectionState] = useState(CONN_STATE.CONNECTED);
@@ -164,7 +166,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             console.log(`%c[ALT-SCREEN] Changed to: ${isInAltScreen}`, 'color: magenta; font-weight: bold');
             LogFrontendDiagnostic(`[ALT-SCREEN] Changed to: ${isInAltScreen}`);
         };
-        EventsOn('terminal:altscreen', handleAltScreenChange);
+        const cancelAltScreen = EventsOn('terminal:altscreen', handleAltScreenChange);
 
         // ============================================================
         // MOUSE MODE TRACKING (parser hooks - may not work in polling mode)
@@ -247,7 +249,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             autoCopyOnSelectRef.current = enabled;
             logger.info('Auto-copy on select setting changed:', enabled);
         };
-        EventsOn('settings:autoCopyOnSelect', handleAutoCopySettingChange);
+        const cancelAutoCopy = EventsOn('settings:autoCopyOnSelect', handleAutoCopySettingChange);
 
         // ============================================================
         // AUTO-COPY ON SELECT
@@ -339,7 +341,8 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             const isPaste = e.key.toLowerCase() === 'v' && !e.shiftKey && !e.altKey &&
                 (isMac ? (e.metaKey && !e.ctrlKey) : (e.ctrlKey && !e.metaKey));
             if (isPaste) {
-                return false; // Let browser/menu handle paste
+                e.preventDefault(); // Prevent browser paste event — Wails menu:paste handles it
+                return false;
             }
 
             // Check for macOS navigation shortcuts first (Option+Arrow, Cmd+Arrow)
@@ -563,7 +566,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             if (payload?.sessionId !== sessionId) return;
             logger.debug('[Backend]', payload.data);
         };
-        EventsOn('terminal:debug', handleDebug);
+        const cancelDebug = EventsOn('terminal:debug', handleDebug);
 
         // ============================================================
         // MENU CLIPBOARD EVENTS (from Go menu callbacks)
@@ -573,16 +576,28 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // This bypasses WKWebView keyboard event issues.
         // ============================================================
 
+        // Track terminal focus for multi-pane paste filtering
+        const focusDisposable = term.onFocus(() => { isFocusedRef.current = true; });
+        const blurDisposable = term.onBlur(() => { isFocusedRef.current = false; });
+
         // Handle paste from menu (Cmd+V triggers Go callback which emits this)
         const handleMenuPaste = (text) => {
             if (!xtermRef.current) return;
+            if (!isFocusedRef.current) return; // Only paste in focused terminal
             if (text && text.length > 0) {
+                // Dedup: skip if identical text pasted within 100ms (defense-in-depth)
+                const now = Date.now();
+                if (text === lastPasteRef.current.text && now - lastPasteRef.current.time < 100) {
+                    return;
+                }
+                lastPasteRef.current = { text, time: now };
+
                 WriteTerminal(sessionId, text).catch(err => {
                     logger.error('Failed to write paste to terminal:', err);
                 });
             }
         };
-        EventsOn('menu:paste', handleMenuPaste);
+        const cancelPaste = EventsOn('menu:paste', handleMenuPaste);
 
         // Handle copy from menu (Cmd+C triggers Go callback which emits this)
         const handleMenuCopy = () => {
@@ -594,7 +609,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 });
             }
         };
-        EventsOn('menu:copy', handleMenuCopy);
+        const cancelCopy = EventsOn('menu:copy', handleMenuCopy);
 
         // Handle pre-loaded history (initial scrollback from tmux)
         // In polling mode, this contains the full scrollback captured before polling starts
@@ -618,7 +633,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 }, 100);
             }
         };
-        EventsOn('terminal:history', handleTerminalHistory);
+        const cancelHistory = EventsOn('terminal:history', handleTerminalHistory);
 
         // Listen for data from backend (polling mode - history gaps and viewport diffs)
         // In polling mode, this receives:
@@ -633,7 +648,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 xtermRef.current.write(payload.data);
             }
         };
-        EventsOn('terminal:data', handleTerminalData);
+        const cancelData = EventsOn('terminal:data', handleTerminalData);
 
         // Listen for terminal exit
         // Filter by sessionId for multi-pane support
@@ -645,7 +660,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 xtermRef.current.write(`\r\n\x1b[31m[Terminal exited: ${payload.data}]\x1b[0m\r\n`);
             }
         };
-        EventsOn('terminal:exit', handleTerminalExit);
+        const cancelExit = EventsOn('terminal:exit', handleTerminalExit);
 
         // ============================================================
         // CONNECTION STATUS HANDLERS (for remote sessions)
@@ -664,7 +679,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 error: data.error,
             });
         };
-        EventsOn('terminal:connection-lost', handleConnectionLost);
+        const cancelConnLost = EventsOn('terminal:connection-lost', handleConnectionLost);
 
         const handleReconnecting = (data) => {
             if (data?.sessionId !== sessionId) return;  // Multi-pane filter
@@ -675,7 +690,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 maxAttempts: data.maxAttempts,
             });
         };
-        EventsOn('terminal:reconnecting', handleReconnecting);
+        const cancelReconnecting = EventsOn('terminal:reconnecting', handleReconnecting);
 
         const handleConnectionRestored = (data) => {
             if (data?.sessionId !== sessionId) return;  // Multi-pane filter
@@ -683,7 +698,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             setConnectionState(CONN_STATE.CONNECTED);
             setConnectionInfo(null);
         };
-        EventsOn('terminal:connection-restored', handleConnectionRestored);
+        const cancelConnRestored = EventsOn('terminal:connection-restored', handleConnectionRestored);
 
         const handleConnectionFailed = (data) => {
             if (data?.sessionId !== sessionId) return;  // Multi-pane filter
@@ -693,7 +708,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 hostId: data.hostId,
             });
         };
-        EventsOn('terminal:connection-failed', handleConnectionFailed);
+        const cancelConnFailed = EventsOn('terminal:connection-failed', handleConnectionFailed);
 
         // Track last sent dimensions to avoid duplicate calls
         let lastCols = term.cols;
@@ -813,15 +828,25 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         return () => {
             logger.info('Cleaning up terminal, sessionId:', sessionId);
 
+            // Cancel all Wails event listeners for this component instance.
+            // Uses per-listener cancel functions (NOT EventsOff which is global).
+            cancelAltScreen();
+            cancelAutoCopy();
+            cancelDebug();
+            cancelPaste();
+            cancelCopy();
+            cancelHistory();
+            cancelData();
+            cancelExit();
+            cancelConnLost();
+            cancelReconnecting();
+            cancelConnRestored();
+            cancelConnFailed();
+
             // Close the PTY backend for this session
             CloseTerminal(sessionId).catch((err) => {
                 logger.error('Failed to close terminal:', err);
             });
-
-            // NOTE: We intentionally do NOT call EventsOff() here.
-            // EventsOff removes ALL listeners globally, which breaks multi-pane mode
-            // when one pane unmounts. Our event handlers already filter by sessionId
-            // and check xtermRef.current, so stale listeners safely no-op.
 
             if (scrollbackRefreshTimer) {
                 clearTimeout(scrollbackRefreshTimer);
@@ -830,6 +855,8 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             scrollDisposable.dispose();
             dataDisposable.dispose();
             selectionDisposable.dispose();
+            focusDisposable.dispose();
+            blurDisposable.dispose();
             if (customKeyHandler) customKeyHandler.dispose();
             // Clean up mouse mode parser handlers
             if (enableHandler) enableHandler.dispose();
