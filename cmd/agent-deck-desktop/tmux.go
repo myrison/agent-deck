@@ -975,13 +975,26 @@ func (tm *TmuxManager) CreateRemoteSession(hostID, projectPath, title, tool, con
 		status = "idle" // Tool didn't start, session is just an empty shell
 	}
 
+	// Build proper hierarchical group path (e.g., "remote/Docker" instead of just "remote")
+	rdSettings := session.GetRemoteDiscoverySettings()
+	groupPrefix := rdSettings.GroupPrefix
+	if groupPrefix == "" {
+		groupPrefix = "remote"
+	}
+	sshHosts := session.GetAvailableSSHHosts()
+	groupName := hostID
+	if hostDef, ok := sshHosts[hostID]; ok {
+		groupName = hostDef.GetGroupName(hostID)
+	}
+	groupPath := session.TransformRemoteGroupPath("", groupPrefix, groupName)
+
 	// Build session info with remote fields set
 	sessionInfo := SessionInfo{
 		ID:               sessionID,
 		Title:            title,
 		CustomLabel:      customLabel,
 		ProjectPath:      projectPath,
-		GroupPath:        "remote", // Remote sessions go under the "remote" group
+		GroupPath:        groupPath,
 		Tool:             tool,
 		Status:           status,
 		TmuxSession:      sessionName,

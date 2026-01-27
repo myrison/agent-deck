@@ -40,7 +40,7 @@ export default function CommandMenu({
     onSelectSession,
     onAction,
     onLaunchProject, // (projectPath, projectName, tool, configKey?, customLabel?) => void
-    onShowToolPicker, // (projectPath, projectName) => void - for Cmd+Enter
+    onShowToolPicker, // (projectPath, projectName, isRemote, remoteHost) => void - for Cmd+Enter
     onShowSessionPicker, // (projectPath, projectName, sessions) => void - for projects with multiple sessions
     onShowHostPicker, // (projectPath, projectName) => void - for host-first flow in newSessionMode
     onPinToQuickLaunch, // (projectPath, projectName) => void - for Cmd+P
@@ -59,7 +59,7 @@ export default function CommandMenu({
 }) {
     const [query, setQuery] = useState('');
     const [selectedIndex, setSelectedIndex] = useState(0);
-    const [labelingProject, setLabelingProject] = useState(null); // { path, name } - for Shift+Enter
+    const [labelingProject, setLabelingProject] = useState(null); // { path, name, isRemote, remoteHost } - for Shift+Enter
     const [labelingSession, setLabelingSession] = useState(null); // { id, customLabel } - for label editing
     const [deletingLayout, setDeletingLayout] = useState(null); // saved-layout item for deletion confirmation
     const inputRef = useRef(null);
@@ -244,13 +244,13 @@ export default function CommandMenu({
                     const item = results[selectedIndex];
                     // Cmd+Enter on project shows tool picker
                     if ((e.metaKey || e.ctrlKey) && item.type === 'project') {
-                        logger.info('Cmd+Enter on project, showing tool picker', { path: item.projectPath });
-                        onShowToolPicker?.(item.projectPath, item.title);
+                        logger.info('Cmd+Enter on project, showing tool picker', { path: item.projectPath, isRemote: item.isRemote });
+                        onShowToolPicker?.(item.projectPath, item.title, item.isRemote, item.remoteHost);
                         onClose();
                     } else if (e.shiftKey && item.type === 'project') {
                         // Shift+Enter on project prompts for custom label
-                        logger.info('Shift+Enter on project, prompting for label', { path: item.projectPath });
-                        setLabelingProject({ path: item.projectPath, name: item.title });
+                        logger.info('Shift+Enter on project, prompting for label', { path: item.projectPath, isRemote: item.isRemote });
+                        setLabelingProject({ path: item.projectPath, name: item.title, isRemote: item.isRemote, remoteHost: item.remoteHost });
                     } else {
                         logger.info('Enter pressed, selecting item', { index: selectedIndex });
                         handleSelect(item);
@@ -342,9 +342,16 @@ export default function CommandMenu({
                 logger.info('Project has single session, attaching', { path: item.projectPath, sessionId: item.sessions[0].id });
                 onSelectSession?.({ ...item.sessions[0], title: item.title, projectPath: item.projectPath });
             } else {
-                // No sessions - launch new project with default tool (Claude)
-                logger.info('Launching project with default tool', { path: item.projectPath, tool: 'claude' });
-                onLaunchProject?.(item.projectPath, item.title, 'claude');
+                // No sessions - launch new project
+                if (item.isRemote && item.remoteHost) {
+                    // Remote project: route through tool picker to preserve remote context
+                    logger.info('Remote project with no sessions, showing tool picker', { path: item.projectPath, host: item.remoteHost });
+                    onShowToolPicker?.(item.projectPath, item.title, item.isRemote, item.remoteHost);
+                } else {
+                    // Local project: launch with default tool (Claude)
+                    logger.info('Launching project with default tool', { path: item.projectPath, tool: 'claude' });
+                    onLaunchProject?.(item.projectPath, item.title, 'claude');
+                }
             }
         } else {
             logger.info('Navigating to session', { sessionId: item.id, title: item.title });
@@ -366,8 +373,14 @@ export default function CommandMenu({
     // Handle saving custom label and launching project
     const handleSaveProjectLabel = (customLabel) => {
         if (!labelingProject) return;
-        logger.info('Launching project with custom label', { path: labelingProject.path, customLabel });
-        onLaunchProject?.(labelingProject.path, labelingProject.name, 'claude', '', customLabel);
+        if (labelingProject.isRemote && labelingProject.remoteHost) {
+            // Remote projects: route through tool picker (labels not yet supported for remote launch)
+            logger.info('Remote project with label, showing tool picker', { path: labelingProject.path, host: labelingProject.remoteHost });
+            onShowToolPicker?.(labelingProject.path, labelingProject.name, true, labelingProject.remoteHost);
+        } else {
+            logger.info('Launching project with custom label', { path: labelingProject.path, customLabel });
+            onLaunchProject?.(labelingProject.path, labelingProject.name, 'claude', '', customLabel);
+        }
         setLabelingProject(null);
         onClose();
     };

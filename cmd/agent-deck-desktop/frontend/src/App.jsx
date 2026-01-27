@@ -1002,9 +1002,9 @@ function App() {
     }, [handleOpenTab]);
 
     // Show tool picker for a project
-    const handleShowToolPicker = useCallback((projectPath, projectName) => {
-        logger.info('Showing tool picker', { projectPath, projectName });
-        setToolPickerProject({ path: projectPath, name: projectName });
+    const handleShowToolPicker = useCallback((projectPath, projectName, isRemote, remoteHost) => {
+        logger.info('Showing tool picker', { projectPath, projectName, isRemote, remoteHost });
+        setToolPickerProject({ path: projectPath, name: projectName, isRemote: !!isRemote, remoteHost: remoteHost || null });
         setShowToolPicker(true);
     }, []);
 
