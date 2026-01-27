@@ -102,6 +102,17 @@ func FetchRemoteStorageSnapshot(sshExec *tmux.SSHExecutor) *RemoteStorageSnapsho
 	}
 }
 
+// resolveRemoteHostGroupPath resolves the local group path for a remote host.
+// It looks up the SSH host definition for a friendly group name, falling back
+// to the raw hostID, then applies TransformRemoteGroupPath.
+func resolveRemoteHostGroupPath(remoteHost, prefix string) string {
+	groupName := remoteHost
+	if hostDef := GetSSHHostDef(remoteHost); hostDef != nil {
+		groupName = hostDef.GetGroupName(remoteHost)
+	}
+	return TransformRemoteGroupPath("", prefix, groupName)
+}
+
 // TransformRemoteGroupPath converts a remote group path to local path
 // Example: "jeeves/workers" with prefix="remote" and hostname="jeeves" -> "remote/jeeves/jeeves/workers"
 // Empty remote path maps to just "{prefix}/{hostname}"
@@ -290,7 +301,9 @@ func DiscoverRemoteSessionsForHost(hostID string, existing []*Instance) ([]*Inst
 
 		// Check if this session already exists locally
 		if existingInst, exists := existingByRemoteID[remoteID]; exists {
-			// Backfill RemoteTmuxName if it was matched via TmuxSession fallback
+			// Backfill RemoteTmuxName if it was matched via TmuxSession fallback.
+			// Also backfilled at storage load time in convertToInstances;
+			// this handles in-memory sessions not yet reloaded from disk.
 			if existingInst.RemoteTmuxName == "" {
 				existingInst.RemoteTmuxName = rs.Name
 				log.Printf("[REMOTE-DISCOVERY] Backfilled RemoteTmuxName: %s on %s", rs.Name, hostID)

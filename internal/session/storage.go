@@ -572,12 +572,9 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			}
 			// Only migrate if the path is exactly the prefix without a hostname segment
 			if groupPath == prefix {
-				groupName := instData.RemoteHost
-				if hostDef := GetSSHHostDef(instData.RemoteHost); hostDef != nil {
-					groupName = hostDef.GetGroupName(instData.RemoteHost)
-				}
-				groupPath = TransformRemoteGroupPath("", prefix, groupName)
-				log.Printf("Migration: Remote session %s group path '%s' -> '%s'", instData.ID, prefix, groupPath)
+				newPath := resolveRemoteHostGroupPath(instData.RemoteHost, prefix)
+				log.Printf("Migration: Remote session %s group path '%s' -> '%s'", instData.ID, prefix, newPath)
+				groupPath = newPath
 			}
 
 			// Migrate remote sessions stuck in default group to their host's root group.
@@ -585,18 +582,17 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			// updating the group path. Move them to the host's base group so they
 			// at least appear under the correct remote host hierarchy.
 			if groupPath == DefaultGroupPath {
-				groupName := instData.RemoteHost
-				if hostDef := GetSSHHostDef(instData.RemoteHost); hostDef != nil {
-					groupName = hostDef.GetGroupName(instData.RemoteHost)
-				}
-				groupPath = TransformRemoteGroupPath("", prefix, groupName)
-				log.Printf("Migration: Remote session %s group path '%s' -> '%s'", instData.ID, DefaultGroupPath, groupPath)
+				newPath := resolveRemoteHostGroupPath(instData.RemoteHost, prefix)
+				log.Printf("Migration: Remote session %s group path '%s' -> '%s'", instData.ID, DefaultGroupPath, newPath)
+				groupPath = newPath
 			}
 		}
 
 		// Backfill RemoteTmuxName from TmuxSession for remote sessions.
 		// Early versions of discovery did not always persist RemoteTmuxName,
 		// causing sessions to be unrecognizable on subsequent discovery cycles.
+		// Also backfilled at discovery time in DiscoverRemoteSessionsForHost;
+		// this handles sessions loaded from disk before discovery runs.
 		if instData.RemoteHost != "" && instData.RemoteTmuxName == "" && instData.TmuxSession != "" {
 			instData.RemoteTmuxName = instData.TmuxSession
 			log.Printf("Migration: Backfilled RemoteTmuxName for %s: %s", instData.ID, instData.TmuxSession)
