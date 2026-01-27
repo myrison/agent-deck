@@ -21,7 +21,7 @@ import HostPicker, { LOCAL_HOST_ID } from './HostPicker';
 import DeleteSessionDialog from './DeleteSessionDialog';
 import Toast from './Toast';
 import { BranchIcon } from './ToolIcon';
-import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames, DeleteSession, OpenNewWindow } from '../wailsjs/go/main/App';
+import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames, DeleteSession, OpenNewWindow, GetOpenTabState, SaveOpenTabState } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE } from './constants/terminal';
 import { shouldInterceptShortcut, hasAppModifier } from './utils/platform';
@@ -42,7 +42,9 @@ import {
     getFirstPaneId,
     swapPaneSessions,
     layoutToSaveFormat,
+    layoutToTabSaveFormat,
     applySavedLayout,
+    restoreTabLayout,
 } from './layoutUtils';
 import { updateSessionLabelInLayout, tabContainsSession } from './utils/tabContextMenu';
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
@@ -123,6 +125,7 @@ function App() {
     const sessionSelectorRef = useRef(null);
     const terminalRefs = useRef({});
     const searchRefs = useRef({});
+    const tabsRestoredRef = useRef(false);
 
     // Tooltip for back button
     const { show: showBackTooltip, hide: hideBackTooltip, Tooltip: BackTooltip } = useTooltip();
@@ -250,7 +253,99 @@ function App() {
             }
         };
         loadSSHHostDisplayNames();
+
+        // Restore open tabs from previous session
+        const restoreOpenTabs = async () => {
+            try {
+                const [allSessions, savedState] = await Promise.all([
+                    ListSessions(),
+                    GetOpenTabState(),
+                ]);
+
+                if (!savedState || !savedState.tabs || savedState.tabs.length === 0) {
+                    logger.info('No saved tab state to restore');
+                    return;
+                }
+
+                const sessions = allSessions || [];
+                const assignedIds = new Set();
+                const restoredTabs = [];
+
+                for (const savedTab of savedState.tabs) {
+                    if (!savedTab.layout) continue;
+
+                    const layout = restoreTabLayout(savedTab.layout, sessions, assignedIds);
+                    const activePaneId = findPane(layout, savedTab.activePaneId)
+                        ? savedTab.activePaneId
+                        : getFirstPaneId(layout);
+
+                    restoredTabs.push({
+                        id: savedTab.id,
+                        name: savedTab.name,
+                        layout,
+                        activePaneId,
+                        openedAt: savedTab.openedAt || Date.now(),
+                        zoomedPaneId: null,
+                    });
+                }
+
+                if (restoredTabs.length > 0) {
+                    setOpenTabs(restoredTabs);
+
+                    // Restore active tab — fall back to first tab if saved ID is missing
+                    const restoredActiveId = restoredTabs.find(t => t.id === savedState.activeTabId)
+                        ? savedState.activeTabId
+                        : restoredTabs[0].id;
+                    setActiveTabId(restoredActiveId);
+
+                    // Set view to terminal and select the first session from the active tab
+                    const activeTab = restoredTabs.find(t => t.id === restoredActiveId);
+                    if (activeTab) {
+                        const panes = getPaneList(activeTab.layout);
+                        const firstBound = panes.find(p => p.session);
+                        if (firstBound) {
+                            setSelectedSession(firstBound.session);
+                        }
+                        setView('terminal');
+                    }
+
+                    logger.info('Restored tab state', {
+                        tabCount: restoredTabs.length,
+                        activeTabId: restoredActiveId,
+                    });
+                }
+            } catch (err) {
+                logger.error('Failed to restore tab state:', err);
+            } finally {
+                tabsRestoredRef.current = true;
+            }
+        };
+        restoreOpenTabs();
     }, [loadShortcuts]);
+
+    // Debounced save of open tab state whenever tabs change
+    useEffect(() => {
+        if (!tabsRestoredRef.current) return; // Don't save before restore completes
+
+        const timer = setTimeout(() => {
+            const tabs = openTabs.map(tab => ({
+                id: tab.id,
+                name: tab.name,
+                layout: layoutToTabSaveFormat(tab.layout),
+                activePaneId: tab.activePaneId,
+                openedAt: tab.openedAt || 0,
+            }));
+
+            SaveOpenTabState({
+                activeTabId: activeTabId || '',
+                tabs,
+            }).catch(err => {
+                logger.error('Failed to save tab state:', err);
+            });
+        }, 1000);
+
+        return () => clearTimeout(timer);
+    }, [openTabs, activeTabId]);
 
     // Listen for menu:newWindow event (File > New Window)
     useEffect(() => {
