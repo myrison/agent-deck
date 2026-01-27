@@ -664,6 +664,99 @@ func TestMultiSessionDiscovery(t *testing.T) {
 		}
 	})
 
+	t.Run("scanned local project and remote session at same path coexist", func(t *testing.T) {
+		// Create a real directory that the scanner will find
+		scanPath := filepath.Join(tmpDir, "scan-coexist")
+		os.MkdirAll(scanPath, 0755)
+
+		projectDir := filepath.Join(scanPath, "api")
+		os.MkdirAll(projectDir, 0755)
+		os.WriteFile(filepath.Join(projectDir, "go.mod"), []byte("module api"), 0644)
+
+		configPath := filepath.Join(tmpDir, "config-coexist.toml")
+		configContent := `
+[project_discovery]
+scan_paths = ["` + scanPath + `"]
+`
+		os.WriteFile(configPath, []byte(configContent), 0644)
+
+		pdCoexist := &ProjectDiscovery{
+			frecencyPath: filepath.Join(tmpDir, "frecency-coexist.json"),
+			frecency:     &FrecencyData{Projects: make(map[string]ProjectUsage)},
+			configPath:   configPath,
+		}
+
+		// Remote session at the same path the scanner will find
+		sessions := []SessionInfo{
+			{ID: "remote1", ProjectPath: projectDir, Tool: "claude", Status: "running", IsRemote: true, RemoteHost: "docker-dev", RemoteHostDisplayName: "Docker"},
+		}
+
+		projects, err := pdCoexist.DiscoverProjects(sessions)
+		if err != nil {
+			t.Fatalf("DiscoverProjects failed: %v", err)
+		}
+
+		// Log all projects for diagnostics before asserting count
+		for _, p := range projects {
+			t.Logf("  path=%s isRemote=%v remoteHost=%s sessionCount=%d", p.Path, p.IsRemote, p.RemoteHost, p.SessionCount)
+		}
+
+		// Should find 2 entries: one from the remote session group and one from the scanner
+		if len(projects) != 2 {
+			t.Fatalf("Expected 2 projects (scanned local + remote session), got %d", len(projects))
+		}
+
+		var localProject, remoteProject *ProjectInfo
+		for i := range projects {
+			if projects[i].IsRemote {
+				remoteProject = &projects[i]
+			} else {
+				localProject = &projects[i]
+			}
+		}
+
+		// Verify local (scanned) project
+		if localProject == nil {
+			t.Fatal("Expected scanned local project entry")
+		}
+		if localProject.Path != projectDir {
+			t.Errorf("Local project path should be %s, got %s", projectDir, localProject.Path)
+		}
+		if localProject.IsRemote {
+			t.Error("Scanned local project should have IsRemote=false")
+		}
+		if localProject.HasSession {
+			t.Error("Scanned local project should have HasSession=false")
+		}
+		if localProject.SessionCount != 0 {
+			t.Errorf("Scanned local project should have SessionCount 0, got %d", localProject.SessionCount)
+		}
+
+		// Verify remote (session-based) project
+		if remoteProject == nil {
+			t.Fatal("Expected remote session project entry")
+		}
+		if remoteProject.Path != projectDir {
+			t.Errorf("Remote project path should be %s, got %s", projectDir, remoteProject.Path)
+		}
+		if !remoteProject.HasSession {
+			t.Error("Remote project should have HasSession=true")
+		}
+		if remoteProject.SessionCount != 1 {
+			t.Errorf("Remote project should have SessionCount 1, got %d", remoteProject.SessionCount)
+		}
+		if remoteProject.RemoteHost != "docker-dev" {
+			t.Errorf("Remote project should have RemoteHost 'docker-dev', got '%s'", remoteProject.RemoteHost)
+		}
+		// Verify the remote project's session data is correct
+		if len(remoteProject.Sessions) != 1 {
+			t.Fatalf("Remote project should have 1 session summary, got %d", len(remoteProject.Sessions))
+		}
+		if remoteProject.Sessions[0].ID != "remote1" {
+			t.Errorf("Remote session ID should be 'remote1', got '%s'", remoteProject.Sessions[0].ID)
+		}
+	})
+
 	t.Run("zero sessions for scanned projects", func(t *testing.T) {
 		// Create a scan path with a project but no sessions
 		scanPath := filepath.Join(tmpDir, "code")
