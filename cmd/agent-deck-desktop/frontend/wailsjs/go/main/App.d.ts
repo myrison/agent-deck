@@ -70,7 +70,11 @@ export function GetTerminalSettings():Promise<Record<string, any>>;
 
 export function GetVersion():Promise<string>;
 
+export function GetWindowNumber():Promise<number>;
+
 export function IsGitWorktree(arg1:string):Promise<boolean>;
+
+export function IsPrimaryWindow():Promise<boolean>;
 
 export function ListSSHHosts():Promise<Array<string>>;
 
@@ -81,6 +85,8 @@ export function ListSessionsWithGroups():Promise<main.SessionsWithGroups>;
 export function LogFrontendDiagnostic(arg1:string):Promise<void>;
 
 export function MarkSessionAccessed(arg1:string):Promise<void>;
+
+export function OpenNewWindow():Promise<void>;
 
 export function RecordProjectUsage(arg1:string):Promise<void>;
 

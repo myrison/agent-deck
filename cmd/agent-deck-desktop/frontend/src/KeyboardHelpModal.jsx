@@ -204,6 +204,10 @@ export default function KeyboardHelpModal({ onClose }) {
                         <div className="help-section">
                             <h3>General</h3>
                             <div className="help-row">
+                                <kbd>{modKey}⇧N</kbd>
+                                <span>New window</span>
+                            </div>
+                            <div className="help-row">
                                 <kbd>⇧5</kbd>
                                 <span>Cycle filter</span>
                             </div>

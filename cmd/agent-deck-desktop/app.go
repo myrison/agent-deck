@@ -25,6 +25,7 @@ type App struct {
 	desktopSettings  *DesktopSettingsManager
 	savedLayouts     *SavedLayoutsManager
 	sshBridge        *SSHBridge
+	windowNumber     int // 1 for primary window, 2+ for secondary windows
 }
 
 // NewApp creates a new App application struct.
@@ -44,6 +45,15 @@ func NewApp() *App {
 // startup is called when the app starts.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	// Register this window and get assigned number
+	windowNum, err := registerWindow()
+	if err != nil {
+		// Log error but continue with default (primary)
+		windowNum = 1
+	}
+	a.windowNumber = windowNum
+
 	a.terminals.SetContext(ctx)
 	a.terminals.SetSSHBridge(a.sshBridge)
 	// Store context for menu callbacks (paste, copy)
@@ -52,6 +62,9 @@ func (a *App) startup(ctx context.Context) {
 
 // shutdown is called when the app is closing.
 func (a *App) shutdown(ctx context.Context) {
+	// Unregister this window from active windows
+	unregisterWindow(a.windowNumber)
+
 	// Clean up SSH connections
 	if a.sshBridge != nil {
 		a.sshBridge.CloseAll()
@@ -573,4 +586,53 @@ func (a *App) GetSavedLayoutByID(id string) (*SavedLayout, error) {
 // If configKey is provided, the launch config settings will be applied.
 func (a *App) CreateRemoteSession(hostID, projectPath, title, tool, configKey string) (SessionInfo, error) {
 	return a.tmux.CreateRemoteSession(hostID, projectPath, title, tool, configKey, a.sshBridge)
+}
+
+// ==================== Multi-Window Support ====================
+
+// OpenNewWindow launches a new application instance.
+// Returns error in dev mode or if launch fails.
+func (a *App) OpenNewWindow() error {
+	// Block in dev mode - Wails dev server doesn't support multiple instances
+	if os.Getenv("WAILS_DEV") != "" || Version == "0.1.0-dev" {
+		return fmt.Errorf("new window not supported in development mode")
+	}
+
+	// Get path to running executable
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+
+	// Resolve symlinks to get actual binary
+	execPath, err = filepath.EvalSymlinks(execPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve executable path: %w", err)
+	}
+
+	// Allocate next window number (file-locked, cross-process safe)
+	nextNum, err := allocateNextWindowNumber()
+	if err != nil {
+		return fmt.Errorf("failed to allocate window number: %w", err)
+	}
+
+	// Launch new instance with window number env var
+	cmd := exec.Command(execPath)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("REVDEN_WINDOW_NUM=%d", nextNum))
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to launch new window: %w", err)
+	}
+
+	return nil
+}
+
+// GetWindowNumber returns this window's number (1 for primary, 2+ for secondary).
+func (a *App) GetWindowNumber() int {
+	return a.windowNumber
+}
+
+// IsPrimaryWindow returns true if this is the primary (first) window.
+func (a *App) IsPrimaryWindow() bool {
+	return a.windowNumber == 1
 }
