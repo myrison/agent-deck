@@ -125,16 +125,28 @@ func (m *TabStateManager) writeTabState(fn func(state *TabStateFile) error) erro
 		return err
 	}
 
-	// Write back state
-	if err := f.Truncate(0); err != nil {
-		return fmt.Errorf("failed to truncate tab state: %w", err)
+	// Write back state atomically via temp file + rename
+	tmpPath := m.filePath + ".tmp"
+	tmpFile, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return fmt.Errorf("failed to create temp tab state: %w", err)
 	}
-	if _, err := f.Seek(0, 0); err != nil {
-		return fmt.Errorf("failed to seek tab state: %w", err)
-	}
-	encoder := json.NewEncoder(f)
+	encoder := json.NewEncoder(tmpFile)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(state)
+	if err := encoder.Encode(state); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to encode tab state: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to flush tab state: %w", err)
+	}
+	if err := os.Rename(tmpPath, m.filePath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to finalize tab state: %w", err)
+	}
+	return nil
 }
 
 // GetTabState returns the saved tab state for a given window number.
