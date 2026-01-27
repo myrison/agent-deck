@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -194,5 +195,235 @@ func TestStorageSessionLabelEmptyDoesNotCorrupt(t *testing.T) {
 
 	if loaded[0].SessionLabel != "" {
 		t.Errorf("Expected empty SessionLabel, got %q", loaded[0].SessionLabel)
+	}
+}
+
+// TestStorageRemoteGroupPathMigration verifies that loading a remote session
+// with a flat "remote" GroupPath (from desktop commit 911bdce) gets migrated to
+// the hierarchical "remote/<hostname>" format during convertToInstances.
+// This is the core migration behavior introduced in PR #69.
+func TestStorageRemoteGroupPathMigration(t *testing.T) {
+	// SETUP: redirect HOME so LoadUserConfig reads our test config
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	// Write a config.toml with an SSH host that has a group_name
+	configDir := filepath.Join(tmpHome, ".agent-deck")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("Failed to create config dir: %v", err)
+	}
+	configTOML := `
+[ssh_hosts.jeeves]
+host = "192.168.1.100"
+group_name = "Jeeves"
+auto_discover = true
+`
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(configTOML), 0600); err != nil {
+		t.Fatalf("Failed to write config.toml: %v", err)
+	}
+
+	// Force config reload so the test picks up our SSH host definition
+	if _, err := ReloadUserConfig(); err != nil {
+		t.Fatalf("ReloadUserConfig failed: %v", err)
+	}
+	defer ReloadUserConfig() // Reset cache after test
+
+	// Write sessions.json with a remote session that has the flat "remote" GroupPath
+	// (the pre-fix state from desktop commit 911bdce)
+	storageDir := filepath.Join(tmpHome, "test-storage")
+	if err := os.MkdirAll(storageDir, 0700); err != nil {
+		t.Fatalf("Failed to create storage dir: %v", err)
+	}
+	storagePath := filepath.Join(storageDir, "sessions.json")
+
+	sessionsData := StorageData{
+		Instances: []*InstanceData{
+			{
+				ID:             "remote-abc123",
+				Title:          "Agent Deck",
+				ProjectPath:    "/home/jason/agent-deck",
+				GroupPath:      "remote", // Flat path — should be migrated
+				Tool:           "claude",
+				Status:         StatusIdle,
+				CreatedAt:      time.Now(),
+				RemoteHost:     "jeeves",         // Matches SSH host config
+				RemoteTmuxName: "agentdeck_test1",
+			},
+		},
+		UpdatedAt: time.Now(),
+	}
+
+	jsonData, err := json.MarshalIndent(sessionsData, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal sessions data: %v", err)
+	}
+	if err := os.WriteFile(storagePath, jsonData, 0600); err != nil {
+		t.Fatalf("Failed to write sessions.json: %v", err)
+	}
+
+	s := &Storage{path: storagePath, profile: "_test"}
+
+	// EXECUTE: Load sessions — migration should happen during convertToInstances
+	loaded, _, err := s.LoadWithGroups()
+	if err != nil {
+		t.Fatalf("LoadWithGroups failed: %v", err)
+	}
+
+	// VERIFY: The flat "remote" path should now be "remote/Jeeves"
+	if len(loaded) != 1 {
+		t.Fatalf("Expected 1 instance, got %d", len(loaded))
+	}
+
+	if loaded[0].GroupPath != "remote/Jeeves" {
+		t.Errorf("GroupPath migration failed: got %q, want %q", loaded[0].GroupPath, "remote/Jeeves")
+	}
+}
+
+// TestStorageRemoteGroupPathNoMigrationWhenCorrect verifies that a remote session
+// with an already-correct hierarchical GroupPath (e.g., "remote/Jeeves") is NOT
+// modified during loading — only flat paths matching exactly the prefix get migrated.
+func TestStorageRemoteGroupPathNoMigrationWhenCorrect(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	configDir := filepath.Join(tmpHome, ".agent-deck")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("Failed to create config dir: %v", err)
+	}
+	configTOML := `
+[ssh_hosts.jeeves]
+host = "192.168.1.100"
+group_name = "Jeeves"
+auto_discover = true
+`
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(configTOML), 0600); err != nil {
+		t.Fatalf("Failed to write config.toml: %v", err)
+	}
+	if _, err := ReloadUserConfig(); err != nil {
+		t.Fatalf("ReloadUserConfig failed: %v", err)
+	}
+	defer ReloadUserConfig()
+
+	storageDir := filepath.Join(tmpHome, "test-storage")
+	if err := os.MkdirAll(storageDir, 0700); err != nil {
+		t.Fatalf("Failed to create storage dir: %v", err)
+	}
+	storagePath := filepath.Join(storageDir, "sessions.json")
+
+	sessionsData := StorageData{
+		Instances: []*InstanceData{
+			{
+				ID:             "remote-def456",
+				Title:          "Another Session",
+				ProjectPath:    "/home/jason/project",
+				GroupPath:      "remote/Jeeves", // Already correct — should NOT change
+				Tool:           "claude",
+				Status:         StatusIdle,
+				CreatedAt:      time.Now(),
+				RemoteHost:     "jeeves",
+				RemoteTmuxName: "agentdeck_test2",
+			},
+		},
+		UpdatedAt: time.Now(),
+	}
+
+	jsonData, err := json.MarshalIndent(sessionsData, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal sessions data: %v", err)
+	}
+	if err := os.WriteFile(storagePath, jsonData, 0600); err != nil {
+		t.Fatalf("Failed to write sessions.json: %v", err)
+	}
+
+	s := &Storage{path: storagePath, profile: "_test"}
+
+	loaded, _, err := s.LoadWithGroups()
+	if err != nil {
+		t.Fatalf("LoadWithGroups failed: %v", err)
+	}
+
+	if len(loaded) != 1 {
+		t.Fatalf("Expected 1 instance, got %d", len(loaded))
+	}
+
+	// Already-correct path should be preserved
+	if loaded[0].GroupPath != "remote/Jeeves" {
+		t.Errorf("GroupPath incorrectly modified: got %q, want %q", loaded[0].GroupPath, "remote/Jeeves")
+	}
+}
+
+// TestStorageRemoteGroupPathMigrationFallbackToHostID verifies that when no SSH
+// host config exists (no group_name defined), the migration falls back to using
+// the raw hostID as the group name (e.g., "remote/my-server" instead of "remote/Jeeves").
+func TestStorageRemoteGroupPathMigrationFallbackToHostID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	// Write config without any SSH host definitions
+	configDir := filepath.Join(tmpHome, ".agent-deck")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("Failed to create config dir: %v", err)
+	}
+	configTOML := `# empty config — no SSH hosts defined
+`
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(configTOML), 0600); err != nil {
+		t.Fatalf("Failed to write config.toml: %v", err)
+	}
+	if _, err := ReloadUserConfig(); err != nil {
+		t.Fatalf("ReloadUserConfig failed: %v", err)
+	}
+	defer ReloadUserConfig()
+
+	storageDir := filepath.Join(tmpHome, "test-storage")
+	if err := os.MkdirAll(storageDir, 0700); err != nil {
+		t.Fatalf("Failed to create storage dir: %v", err)
+	}
+	storagePath := filepath.Join(storageDir, "sessions.json")
+
+	sessionsData := StorageData{
+		Instances: []*InstanceData{
+			{
+				ID:             "remote-ghi789",
+				Title:          "Unknown Host Session",
+				ProjectPath:    "/home/user/project",
+				GroupPath:      "remote", // Flat — should migrate using raw hostID
+				Tool:           "claude",
+				Status:         StatusIdle,
+				CreatedAt:      time.Now(),
+				RemoteHost:     "my-server",
+				RemoteTmuxName: "agentdeck_test3",
+			},
+		},
+		UpdatedAt: time.Now(),
+	}
+
+	jsonData, err := json.MarshalIndent(sessionsData, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal sessions data: %v", err)
+	}
+	if err := os.WriteFile(storagePath, jsonData, 0600); err != nil {
+		t.Fatalf("Failed to write sessions.json: %v", err)
+	}
+
+	s := &Storage{path: storagePath, profile: "_test"}
+
+	loaded, _, err := s.LoadWithGroups()
+	if err != nil {
+		t.Fatalf("LoadWithGroups failed: %v", err)
+	}
+
+	if len(loaded) != 1 {
+		t.Fatalf("Expected 1 instance, got %d", len(loaded))
+	}
+
+	// Without SSH host config, should fall back to raw hostID
+	if loaded[0].GroupPath != "remote/my-server" {
+		t.Errorf("GroupPath migration with no config: got %q, want %q", loaded[0].GroupPath, "remote/my-server")
 	}
 }

@@ -1605,6 +1605,15 @@ func (h *Home) runRemoteDiscovery() {
 		h.instancesMu.Unlock()
 	}
 
+	// Sync groupTree with current instances after all mutations (adds, removes, path changes).
+	// Without this, newly discovered sessions exist in h.instances but not in groupTree,
+	// so rebuildFlatItems() (which calls groupTree.Flatten()) won't include them.
+	if needsSave && h.groupTree != nil {
+		h.instancesMu.RLock()
+		h.groupTree.SyncWithInstances(h.instances)
+		h.instancesMu.RUnlock()
+	}
+
 	// Update status for remote sessions (batch with discovery SSH calls while connection is warm)
 	// This leverages the ControlMaster connection established during discovery
 	h.instancesMu.RLock()
