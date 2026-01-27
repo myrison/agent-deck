@@ -582,13 +582,15 @@ function extractBindingFromSession(session) {
 /**
  * Convert a layout to a saveable format (strip session data, keep structure and bindings)
  * @param {Object} layout - Layout node with sessions
+ * @param {Object} [options] - Options
+ * @param {boolean} [options.preserveIds=false] - If true, keep existing pane IDs instead of generating new ones
  * @returns {Object} Layout structure with bindings (for saving as template)
  */
-export function layoutToSaveFormat(layout) {
+export function layoutToSaveFormat(layout, { preserveIds = false } = {}) {
     if (layout.type === 'pane') {
         const result = {
             type: 'pane',
-            id: generatePaneId(), // Generate new IDs for the template
+            id: preserveIds ? layout.id : generatePaneId(),
         };
 
         // Extract binding from the session if present
@@ -605,44 +607,21 @@ export function layoutToSaveFormat(layout) {
         direction: layout.direction,
         ratio: layout.ratio,
         children: [
-            layoutToSaveFormat(layout.children[0]),
-            layoutToSaveFormat(layout.children[1]),
+            layoutToSaveFormat(layout.children[0], { preserveIds }),
+            layoutToSaveFormat(layout.children[1], { preserveIds }),
         ],
     };
 }
 
 /**
  * Convert a layout to save format for tab state persistence.
- * Unlike layoutToSaveFormat (which generates new IDs for templates), this preserves
- * existing pane IDs so activePaneId references remain valid on restore.
+ * Preserves existing pane IDs so activePaneId references remain valid on restore.
  *
  * @param {Object} layout - Layout node with sessions
  * @returns {Object} Layout structure with bindings and preserved pane IDs
  */
 export function layoutToTabSaveFormat(layout) {
-    if (layout.type === 'pane') {
-        const result = {
-            type: 'pane',
-            id: layout.id, // Preserve existing pane ID
-        };
-
-        const binding = extractBindingFromSession(layout.session);
-        if (binding) {
-            result.binding = binding;
-        }
-
-        return result;
-    }
-
-    return {
-        type: 'split',
-        direction: layout.direction,
-        ratio: layout.ratio,
-        children: [
-            layoutToTabSaveFormat(layout.children[0]),
-            layoutToTabSaveFormat(layout.children[1]),
-        ],
-    };
+    return layoutToSaveFormat(layout, { preserveIds: true });
 }
 
 /**

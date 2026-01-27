@@ -3,8 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -42,70 +45,82 @@ func NewTabStateManager() *TabStateManager {
 	}
 }
 
-// load reads the tab state file from disk.
-func (m *TabStateManager) load() (*TabStateFile, error) {
-	data, err := os.ReadFile(m.filePath)
+// withTabFileLock executes fn while holding an exclusive lock on the tab state file.
+// This ensures cross-process safety when multiple windows manipulate tab state.
+func (m *TabStateManager) withTabFileLock(fn func(state *TabStateFile) error) error {
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(m.filePath), 0700); err != nil {
+		return fmt.Errorf("failed to create tab state directory: %w", err)
+	}
+
+	// Open or create file
+	f, err := os.OpenFile(m.filePath, os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return &TabStateFile{Windows: map[string]WindowTabState{}}, nil
+		return fmt.Errorf("failed to open tab state: %w", err)
+	}
+	defer f.Close()
+
+	// Acquire exclusive lock (blocks until available)
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("failed to lock tab state: %w", err)
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+
+	// Read current state
+	state := &TabStateFile{
+		Windows: map[string]WindowTabState{},
+	}
+
+	decoder := json.NewDecoder(f)
+	if err := decoder.Decode(state); err != nil {
+		if err != io.EOF {
+			log.Printf("warning: failed to parse tab state, using defaults: %v", err)
 		}
-		return nil, err
 	}
 
-	var file TabStateFile
-	if err := json.Unmarshal(data, &file); err != nil {
-		// Corrupt file — return empty state (same pattern as SavedLayoutsManager)
-		return &TabStateFile{Windows: map[string]WindowTabState{}}, nil
+	if state.Windows == nil {
+		state.Windows = map[string]WindowTabState{}
 	}
 
-	if file.Windows == nil {
-		file.Windows = map[string]WindowTabState{}
-	}
-
-	return &file, nil
-}
-
-// save writes the tab state file to disk.
-func (m *TabStateManager) save(file *TabStateFile) error {
-	dir := filepath.Dir(m.filePath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	// Execute the callback
+	if err := fn(state); err != nil {
 		return err
 	}
 
-	data, err := json.MarshalIndent(file, "", "  ")
-	if err != nil {
-		return err
+	// Write back state
+	if err := f.Truncate(0); err != nil {
+		return fmt.Errorf("failed to truncate tab state: %w", err)
 	}
-
-	return os.WriteFile(m.filePath, data, 0600)
+	if _, err := f.Seek(0, 0); err != nil {
+		return fmt.Errorf("failed to seek tab state: %w", err)
+	}
+	encoder := json.NewEncoder(f)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(state)
 }
 
 // GetTabState returns the saved tab state for a given window number.
 // Returns nil (not an error) when no state has been saved.
 func (m *TabStateManager) GetTabState(windowNum int) (*WindowTabState, error) {
-	file, err := m.load()
-	if err != nil {
-		return nil, err
-	}
+	var result *WindowTabState
 
-	key := fmt.Sprintf("%d", windowNum)
-	state, ok := file.Windows[key]
-	if !ok {
-		return nil, nil
-	}
-	return &state, nil
+	err := m.withTabFileLock(func(state *TabStateFile) error {
+		key := fmt.Sprintf("%d", windowNum)
+		if ws, ok := state.Windows[key]; ok {
+			result = &ws
+		}
+		return nil
+	})
+
+	return result, err
 }
 
 // SaveTabState persists the tab state for a given window number.
 func (m *TabStateManager) SaveTabState(windowNum int, state WindowTabState) error {
-	file, err := m.load()
-	if err != nil {
-		return err
-	}
-
-	state.SavedAt = time.Now().Unix()
-	key := fmt.Sprintf("%d", windowNum)
-	file.Windows[key] = state
-
-	return m.save(file)
+	return m.withTabFileLock(func(file *TabStateFile) error {
+		state.SavedAt = time.Now().Unix()
+		key := fmt.Sprintf("%d", windowNum)
+		file.Windows[key] = state
+		return nil
+	})
 }
