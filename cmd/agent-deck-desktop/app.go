@@ -170,7 +170,21 @@ func (a *App) AttachSession(sessionID, tmuxSession string, cols, rows int) error
 // The sessionID is used to identify which pane/terminal this belongs to.
 func (a *App) StartTmuxSession(sessionID, tmuxSession string, cols, rows int) error {
 	t := a.terminals.GetOrCreate(sessionID)
-	return t.StartTmuxSession(tmuxSession, cols, rows)
+	if err := t.StartTmuxSession(tmuxSession, cols, rows); err != nil {
+		return err
+	}
+
+	// Persist "running" status so TUI picks it up via StorageWatcher
+	if err := a.tmux.UpdateSessionStatus(sessionID, "running"); err != nil {
+		// Log but don't fail - session is usable
+		fmt.Printf("Warning: failed to update session status: %v\n", err)
+	}
+	// Emit event for immediate frontend update
+	wailsRuntime.EventsEmit(a.ctx, "session:statusUpdate", map[string]string{
+		"sessionId": sessionID,
+		"status":    "running",
+	})
+	return nil
 }
 
 // StartRemoteTmuxSession connects to a tmux session on a remote host via SSH.
@@ -186,7 +200,20 @@ func (a *App) StartTmuxSession(sessionID, tmuxSession string, cols, rows int) er
 //   - cols, rows: initial terminal dimensions
 func (a *App) StartRemoteTmuxSession(sessionID, hostID, tmuxSession, projectPath, tool string, cols, rows int) error {
 	t := a.terminals.GetOrCreate(sessionID)
-	return t.StartRemoteTmuxSession(hostID, tmuxSession, projectPath, tool, cols, rows, a.tmux, a.sshBridge)
+	if err := t.StartRemoteTmuxSession(hostID, tmuxSession, projectPath, tool, cols, rows, a.tmux, a.sshBridge); err != nil {
+		return err
+	}
+
+	// Persist "running" status so TUI picks it up via StorageWatcher
+	if err := a.tmux.UpdateSessionStatus(sessionID, "running"); err != nil {
+		fmt.Printf("Warning: failed to update session status: %v\n", err)
+	}
+	// Emit event for immediate frontend update
+	wailsRuntime.EventsEmit(a.ctx, "session:statusUpdate", map[string]string{
+		"sessionId": sessionID,
+		"status":    "running",
+	})
+	return nil
 }
 
 // GetScrollback returns the scrollback buffer for a tmux session.
@@ -298,6 +325,12 @@ func (a *App) UpdateQuickLaunchFavoriteName(path, name string) error {
 // Call this when a user selects/opens a session to keep the list sorted by recency.
 func (a *App) MarkSessionAccessed(sessionID string) error {
 	return a.tmux.MarkSessionAccessed(sessionID)
+}
+
+// UpdateSessionStatus updates the status field for a session in sessions.json.
+// Used by the terminal to persist status changes (e.g., "running" on successful attach).
+func (a *App) UpdateSessionStatus(sessionID, status string) error {
+	return a.tmux.UpdateSessionStatus(sessionID, status)
 }
 
 // UpdateSessionCustomLabel updates the custom label for a session.

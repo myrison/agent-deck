@@ -1081,6 +1081,67 @@ func (tm *TmuxManager) MarkSessionAccessed(sessionID string) error {
 	return nil
 }
 
+// UpdateSessionStatus updates the status field for a session in sessions.json.
+// Follows the same atomic write pattern as MarkSessionAccessed.
+// The TUI's StorageWatcher (fsnotify) will detect the write and reload.
+func (tm *TmuxManager) UpdateSessionStatus(sessionID, status string) error {
+	sessionsPath, err := tm.getSessionsPath()
+	if err != nil {
+		return err
+	}
+
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		return err
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	var instances []map[string]interface{}
+	if err := json.Unmarshal(raw["instances"], &instances); err != nil {
+		return err
+	}
+
+	found := false
+	for i, inst := range instances {
+		if id, ok := inst["id"].(string); ok && id == sessionID {
+			instances[i]["status"] = status
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	instancesData, err := json.Marshal(instances)
+	if err != nil {
+		return err
+	}
+	raw["instances"] = instancesData
+
+	output, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	tmpPath := sessionsPath + ".tmp"
+	if err := os.WriteFile(tmpPath, output, 0600); err != nil {
+		return fmt.Errorf("failed to write temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, sessionsPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to finalize save: %w", err)
+	}
+
+	return nil
+}
+
 // DeleteSession removes a session from sessions.json and kills its tmux session.
 // If the session is remote, it will attempt to kill the tmux session via SSH.
 func (tm *TmuxManager) DeleteSession(sessionID string, sshBridge *SSHBridge) error {

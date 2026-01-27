@@ -1034,6 +1034,11 @@ func (i *Instance) sendMessageWhenReady(message string) error {
 // instead of every 500ms tick, dramatically reducing subprocess spawns
 const errorRecheckInterval = 30 * time.Second
 
+// remoteErrorRecheckInterval - shorter interval for remote sessions.
+// Remote sessions use SSH with ControlMaster (5-50ms per call), so
+// 5s allows faster recovery from transient SSH failures.
+const remoteErrorRecheckInterval = 5 * time.Second
+
 // UpdateStatus updates the session status by checking tmux
 func (i *Instance) UpdateStatus() error {
 	// Short grace period for tmux initialization (not Claude startup)
@@ -1063,8 +1068,13 @@ func (i *Instance) UpdateStatus() error {
 	// Optimization: Skip expensive Exists() check for sessions already in error status
 	// Ghost sessions (in JSON but not in tmux) only get rechecked every 30 seconds
 	// This reduces subprocess spawns from 74/sec to ~5/sec for 28 ghost sessions
+	// Remote sessions use a shorter interval (5s) for faster recovery from transient SSH failures
+	recheckInterval := errorRecheckInterval
+	if i.IsRemote() {
+		recheckInterval = remoteErrorRecheckInterval
+	}
 	if i.Status == StatusError && !i.lastErrorCheck.IsZero() &&
-		time.Since(i.lastErrorCheck) < errorRecheckInterval {
+		time.Since(i.lastErrorCheck) < recheckInterval {
 		return nil // Skip - still in error, checked recently
 	}
 
@@ -1149,6 +1159,14 @@ func (i *Instance) UpdateStatus() error {
 	}
 
 	return nil
+}
+
+// ClearErrorLockout resets the error recheck timestamp, allowing the next
+// UpdateStatus call to perform a fresh check regardless of when the last
+// error was recorded. Use this after events that are known to change session
+// state (e.g., remote discovery refresh, successful attach).
+func (i *Instance) ClearErrorLockout() {
+	i.lastErrorCheck = time.Time{}
 }
 
 // UpdateClaudeSession updates the Claude session ID from tmux environment.
