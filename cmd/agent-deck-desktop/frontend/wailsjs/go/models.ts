@@ -24,6 +24,28 @@ export namespace main {
 	        this.expanded = source["expanded"];
 	    }
 	}
+	export class ImagePasteResult {
+	    success: boolean;
+	    noImage?: boolean;
+	    error?: string;
+	    remotePath?: string;
+	    injectText?: string;
+	    byteCount?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImagePasteResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.noImage = source["noImage"];
+	        this.error = source["error"];
+	        this.remotePath = source["remotePath"];
+	        this.injectText = source["injectText"];
+	        this.byteCount = source["byteCount"];
+	    }
+	}
 	export class LaunchConfigInfo {
 	    key: string;
 	    name: string;
