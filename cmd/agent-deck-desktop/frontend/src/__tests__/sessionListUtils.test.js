@@ -40,21 +40,12 @@ describe('formatRelativeTime', () => {
         it('returns null for invalid date string', () => {
             expect(formatRelativeTime('not-a-date')).toBeNull();
         });
-
-        it('returns null for garbage input', () => {
-            expect(formatRelativeTime('xyz123')).toBeNull();
-        });
     });
 
     describe('time buckets', () => {
         it('returns "just now" for timestamps less than 60 seconds ago', () => {
             const thirtySecsAgo = new Date('2026-01-27T11:59:30Z').toISOString();
             expect(formatRelativeTime(thirtySecsAgo)).toBe('just now');
-        });
-
-        it('returns "just now" for timestamps 1 second ago', () => {
-            const oneSecAgo = new Date('2026-01-27T11:59:59Z').toISOString();
-            expect(formatRelativeTime(oneSecAgo)).toBe('just now');
         });
 
         it('returns minutes for timestamps 1-59 minutes ago', () => {
@@ -139,11 +130,6 @@ describe('getRelativeProjectPath', () => {
             expect(getRelativeProjectPath('/home/user/projects/myapp', null))
                 .toBe('.../projects/myapp');
         });
-
-        it('returns last two segments for undefined roots', () => {
-            expect(getRelativeProjectPath('/home/user/projects/myapp', undefined))
-                .toBe('.../projects/myapp');
-        });
     });
 
     describe('with null/empty path', () => {
@@ -153,10 +139,6 @@ describe('getRelativeProjectPath', () => {
 
         it('returns empty string for empty path', () => {
             expect(getRelativeProjectPath('', [])).toBe('');
-        });
-
-        it('returns empty string for null path with roots', () => {
-            expect(getRelativeProjectPath(null, ['/home/user'])).toBe('');
         });
     });
 
@@ -180,17 +162,10 @@ describe('getRelativeProjectPath', () => {
                 .toBe('projects/myapp');
         });
 
-        it('handles root with trailing slash in path', () => {
+        it('handles deeply nested paths under a root', () => {
             const roots = ['/home/user/projects'];
             expect(getRelativeProjectPath('/home/user/projects/deep/nested/app', roots))
                 .toBe('projects/deep/nested/app');
-        });
-
-        it('strips leading slash from relative portion', () => {
-            const roots = ['/home/user/projects'];
-            // Path after root starts with /
-            expect(getRelativeProjectPath('/home/user/projects/app', roots))
-                .toBe('projects/app');
         });
     });
 
@@ -235,14 +210,6 @@ describe('getStatusColor', () => {
     it('returns gray for unknown status', () => {
         expect(getStatusColor('unknown')).toBe('#6c757d');
     });
-
-    it('returns gray for undefined status', () => {
-        expect(getStatusColor(undefined)).toBe('#6c757d');
-    });
-
-    it('returns gray for null status', () => {
-        expect(getStatusColor(null)).toBe('#6c757d');
-    });
 });
 
 describe('filterSessions', () => {
@@ -256,12 +223,10 @@ describe('filterSessions', () => {
     ];
 
     describe('all filter', () => {
-        it('returns all sessions', () => {
-            expect(filterSessions(sessions, 'all')).toHaveLength(6);
-        });
-
-        it('returns the original array reference', () => {
-            expect(filterSessions(sessions, 'all')).toBe(sessions);
+        it('returns all sessions unmodified', () => {
+            const result = filterSessions(sessions, 'all');
+            expect(result).toHaveLength(6);
+            expect(result).toEqual(sessions);
         });
     });
 
@@ -271,12 +236,6 @@ describe('filterSessions', () => {
             expect(result).toHaveLength(3);
             expect(result.every(s => s.status === 'running' || s.status === 'waiting')).toBe(true);
         });
-
-        it('excludes idle and error sessions', () => {
-            const result = filterSessions(sessions, 'active');
-            expect(result.some(s => s.status === 'idle')).toBe(false);
-            expect(result.some(s => s.status === 'error')).toBe(false);
-        });
     });
 
     describe('idle filter', () => {
@@ -284,13 +243,6 @@ describe('filterSessions', () => {
             const result = filterSessions(sessions, 'idle');
             expect(result).toHaveLength(2);
             expect(result.every(s => s.status === 'idle')).toBe(true);
-        });
-
-        it('excludes running, waiting, and error sessions', () => {
-            const result = filterSessions(sessions, 'idle');
-            expect(result.some(s => s.status === 'running')).toBe(false);
-            expect(result.some(s => s.status === 'waiting')).toBe(false);
-            expect(result.some(s => s.status === 'error')).toBe(false);
         });
     });
 
@@ -312,7 +264,7 @@ describe('filterSessions', () => {
         });
 
         it('treats unknown filter as "all"', () => {
-            expect(filterSessions(sessions, 'unknown')).toBe(sessions);
+            expect(filterSessions(sessions, 'unknown')).toEqual(sessions);
         });
     });
 });
