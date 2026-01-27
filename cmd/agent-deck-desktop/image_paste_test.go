@@ -459,6 +459,181 @@ func TestGenerateRemotePathWithExt(t *testing.T) {
 	}
 }
 
+// ==================== Edge cases: validateImageData ====================
+
+func TestValidateImageData_EmptyData(t *testing.T) {
+	// Production scenario: corrupted clipboard returns 0 bytes.
+	// Should reject gracefully, not panic.
+	err := validateImageData([]byte{})
+	if err == nil {
+		t.Error("expected error for empty data, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid image format") {
+		t.Errorf("expected 'invalid image format' in error, got: %v", err)
+	}
+}
+
+func TestValidateImageData_ExactMaxSize(t *testing.T) {
+	// Image at exactly the 10MB limit should pass validation (boundary is >MaxImageSize, not >=).
+	data := make([]byte, MaxImageSize)
+	// Add PNG header so format check passes
+	copy(data, []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D})
+
+	err := validateImageData(data)
+	if err != nil {
+		t.Errorf("expected no error for image at exact max size, got: %v", err)
+	}
+}
+
+// ==================== Edge cases: isImageFile for all supported formats ====================
+
+func TestIsImageFile_AllFormats(t *testing.T) {
+	// isImageFile is the entry point for drag-and-drop filtering.
+	// Existing tests only cover PNG and JPEG; GIF and WebP are untested via files.
+	tmpDir := t.TempDir()
+
+	formats := []struct {
+		name   string
+		header []byte
+	}{
+		{"test.gif", append([]byte("GIF89a"), make([]byte, 10)...)},
+		{"test.webp", append(append(append([]byte("RIFF"), 0x00, 0x00, 0x00, 0x00), []byte("WEBP")...), make([]byte, 10)...)},
+	}
+
+	for _, f := range formats {
+		path := filepath.Join(tmpDir, f.name)
+		os.WriteFile(path, f.header, 0644)
+
+		if !isImageFile(path) {
+			t.Errorf("expected %s to be detected as image", f.name)
+		}
+	}
+}
+
+func TestIsImageFile_TruncatedFile(t *testing.T) {
+	// Production scenario: a partial download or corrupt file with fewer than 12 bytes.
+	// isImageFile reads 12 bytes; if n < 12 it should return false.
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "truncated.png")
+	// Write only 5 bytes -- too short for magic byte detection
+	os.WriteFile(path, []byte{0x89, 0x50, 0x4E, 0x47, 0x0D}, 0644)
+
+	if isImageFile(path) {
+		t.Error("expected truncated file (< 12 bytes) to NOT be detected as image")
+	}
+}
+
+func TestIsImageFile_EmptyFile(t *testing.T) {
+	// Edge case: a 0-byte file should not be detected as an image
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "empty.png")
+	os.WriteFile(path, []byte{}, 0644)
+
+	if isImageFile(path) {
+		t.Error("expected empty file to NOT be detected as image")
+	}
+}
+
+// ==================== Edge cases: quotePathForShell ====================
+
+func TestQuotePathForShell_EmptyString(t *testing.T) {
+	// Edge case: empty path should produce empty single-quoted string
+	result := quotePathForShell("")
+	if result != "''" {
+		t.Errorf("quotePathForShell(\"\") = %q, want \"''\"", result)
+	}
+}
+
+func TestQuotePathForShell_MultipleSingleQuotes(t *testing.T) {
+	// Security: consecutive single quotes must all be escaped
+	result := quotePathForShell("/tmp/it''s.png")
+	expected := "'/tmp/it'\\'''\\''s.png'"
+	if result != expected {
+		t.Errorf("quotePathForShell with multiple quotes = %q, want %q", result, expected)
+	}
+}
+
+// ==================== Edge cases: detectImageFormat boundary ====================
+
+func TestDetectImageFormat_Exactly11Bytes(t *testing.T) {
+	// Boundary: detectImageFormat requires len >= 12. Data with exactly 11 bytes
+	// should return "" even with a valid PNG prefix.
+	data := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00}
+	if len(data) != 11 {
+		t.Fatalf("test setup error: expected 11 bytes, got %d", len(data))
+	}
+
+	result := detectImageFormat(data)
+	if result != "" {
+		t.Errorf("expected empty format for 11-byte data, got %q", result)
+	}
+}
+
+func TestDetectImageFormat_Exactly12Bytes(t *testing.T) {
+	// Boundary: 12 bytes is the minimum for format detection to succeed.
+	data := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D}
+	if len(data) != 12 {
+		t.Fatalf("test setup error: expected 12 bytes, got %d", len(data))
+	}
+
+	result := detectImageFormat(data)
+	if result != "png" {
+		t.Errorf("expected 'png' for 12-byte PNG data, got %q", result)
+	}
+}
+
+// ==================== Edge cases: generateRemotePathWithExt ====================
+
+func TestGenerateRemotePathWithExt_AllFormats(t *testing.T) {
+	// Verify path generation produces correct extensions for all supported formats
+	extensions := []string{".png", ".jpg", ".gif", ".webp"}
+
+	for _, ext := range extensions {
+		path := generateRemotePathWithExt(ext)
+		if !strings.HasPrefix(path, "/tmp/revden_img_") {
+			t.Errorf("generateRemotePathWithExt(%q): expected prefix /tmp/revden_img_, got %s", ext, path)
+		}
+		if !strings.HasSuffix(path, ext) {
+			t.Errorf("generateRemotePathWithExt(%q): expected suffix %s, got %s", ext, ext, path)
+		}
+	}
+}
+
+func TestGenerateRemotePathWithExt_Uniqueness(t *testing.T) {
+	// Generate several paths and verify they are all unique
+	seen := make(map[string]bool)
+	for i := 0; i < 20; i++ {
+		path := generateRemotePathWithExt(".png")
+		if seen[path] {
+			t.Errorf("duplicate path generated: %s", path)
+		}
+		seen[path] = true
+	}
+}
+
+// ==================== Edge cases: formatBracketedPaste ====================
+
+func TestFormatBracketedPaste_MultipleSpaceSeparatedPaths(t *testing.T) {
+	// Production scenario: multi-file drop joins quoted paths with spaces.
+	// The bracketed paste must wrap the entire joined string.
+	text := "'/tmp/img1.png' '/tmp/img2.jpg' '/tmp/img3.gif'"
+	result := formatBracketedPaste(text)
+
+	expected := "\x1b[200~" + text + "\x1b[201~"
+	if result != expected {
+		t.Errorf("formatBracketedPaste with multiple paths:\n  got:  %q\n  want: %q", result, expected)
+	}
+}
+
+func TestFormatBracketedPaste_EmptyString(t *testing.T) {
+	// Edge case: empty text should still produce valid bracketed paste sequences
+	result := formatBracketedPaste("")
+	expected := "\x1b[200~\x1b[201~"
+	if result != expected {
+		t.Errorf("formatBracketedPaste(\"\") = %q, want %q", result, expected)
+	}
+}
+
 // Helper functions for Go 1.21+ compatibility
 func min(a, b int) int {
 	if a < b {

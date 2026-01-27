@@ -212,6 +212,32 @@ func emitToast(ctx context.Context, message, toastType string) {
 	})
 }
 
+// uploadImageDataToRemote uploads validated image data to a remote host via SSH.
+// Detects format, shows a toast for large uploads, generates a unique remote path,
+// streams the data, and tracks the file for cleanup.
+// Returns the remote path on success.
+func uploadImageDataToRemote(conn *ssh.Connection, data []byte, sessionId, hostId string, appCtx context.Context) (string, error) {
+	format := detectImageFormat(data)
+	if format == "" {
+		return "", fmt.Errorf("invalid image format")
+	}
+
+	sizeMB := float64(len(data)) / (1024 * 1024)
+	if sizeMB > 0.5 {
+		emitToast(appCtx, fmt.Sprintf("Uploading image (%.1f MB)...", sizeMB), "info")
+	}
+
+	ext := imageExtensionForFormat(format)
+	remotePath := generateRemotePathWithExt(ext)
+
+	if err := StreamToRemoteFile(conn, data, remotePath); err != nil {
+		return "", fmt.Errorf("transfer failed: %w", err)
+	}
+
+	trackUploadedFile(sessionId, hostId, remotePath)
+	return remotePath, nil
+}
+
 // HandleRemoteImagePaste handles Ctrl+V image paste for remote SSH sessions.
 // It reads the clipboard image, transfers it to the remote host, and returns
 // the path wrapped in bracketed paste sequences for injection into the terminal.
@@ -236,7 +262,7 @@ func (a *App) HandleRemoteImagePaste(sessionId, hostId string) ImagePasteResult 
 		return ImagePasteResult{NoImage: true}
 	}
 
-	// 2. Validate image
+	// 2. Validate image (size + format)
 	if err := validateImageData(imgData); err != nil {
 		log.Printf("[image-paste] validation failed: %v", err)
 		emitToast(a.ctx, err.Error(), "error")
@@ -251,27 +277,18 @@ func (a *App) HandleRemoteImagePaste(sessionId, hostId string) ImagePasteResult 
 		return ImagePasteResult{Error: fmt.Sprintf("SSH connection failed: %v", err)}
 	}
 
-	// 4. Show uploading toast (for larger images)
-	sizeMB := float64(len(imgData)) / (1024 * 1024)
-	if sizeMB > 0.5 {
-		emitToast(a.ctx, fmt.Sprintf("Uploading image (%.1f MB)...", sizeMB), "info")
-	}
-
-	// 5. Generate remote path and transfer
-	remotePath := generateRemotePath()
-	if err := StreamToRemoteFile(conn, imgData, remotePath); err != nil {
-		log.Printf("[image-paste] transfer to %s failed: %v", hostId, err)
+	// 4. Upload image to remote
+	remotePath, err := uploadImageDataToRemote(conn, imgData, sessionId, hostId, a.ctx)
+	if err != nil {
+		log.Printf("[image-paste] upload to %s failed: %v", hostId, err)
 		emitToast(a.ctx, "Image upload failed", "error")
-		return ImagePasteResult{Error: fmt.Sprintf("transfer failed: %v", err)}
+		return ImagePasteResult{Error: err.Error()}
 	}
 
-	// 6. Track file for cleanup when session closes
-	trackUploadedFile(sessionId, hostId, remotePath)
-
-	// 7. Show success toast
+	// 5. Show success toast
 	emitToast(a.ctx, "Image uploaded to remote", "success")
 
-	// 8. Return success with bracketed paste text
+	// 6. Return success with bracketed paste text
 	// Claude Code recognizes raw file paths as image references (no @ prefix needed)
 	// See: https://github.com/anthropics/claude-code/issues/5277
 	injectText := formatBracketedPaste(remotePath)

@@ -81,42 +81,31 @@ func (a *App) handleRemoteFileDrop(sessionId, hostId string, imagePaths []string
 	var totalBytes int
 
 	for _, localPath := range imagePaths {
+		// Check file size before reading into memory
+		info, err := os.Stat(localPath)
+		if err != nil {
+			log.Printf("[image-drop] cannot stat %s: %v", localPath, err)
+			continue
+		}
+		if info.Size() > MaxImageSize {
+			log.Printf("[image-drop] file too large: %s (%d bytes)", localPath, info.Size())
+			emitToast(a.ctx, fmt.Sprintf("Image too large: %s", localPath), "warning")
+			continue
+		}
+
 		data, err := os.ReadFile(localPath)
 		if err != nil {
 			log.Printf("[image-drop] failed to read %s: %v", localPath, err)
 			continue
 		}
 
-		// Validate image data (size + magic bytes)
-		format := detectImageFormat(data)
-		if format == "" {
-			log.Printf("[image-drop] invalid image format: %s", localPath)
-			continue
-		}
-
-		if len(data) > MaxImageSize {
-			log.Printf("[image-drop] file too large: %s (%d bytes)", localPath, len(data))
-			emitToast(a.ctx, fmt.Sprintf("Image too large: %s", localPath), "warning")
-			continue
-		}
-
-		// Show upload toast for larger files
-		sizeMB := float64(len(data)) / (1024 * 1024)
-		if sizeMB > 0.5 {
-			emitToast(a.ctx, fmt.Sprintf("Uploading image (%.1f MB)...", sizeMB), "info")
-		}
-
-		// Generate remote path with correct extension
-		ext := imageExtensionForFormat(format)
-		remotePath := generateRemotePathWithExt(ext)
-
-		if err := StreamToRemoteFile(conn, data, remotePath); err != nil {
-			log.Printf("[image-drop] transfer to %s failed: %v", hostId, err)
+		remotePath, err := uploadImageDataToRemote(conn, data, sessionId, hostId, a.ctx)
+		if err != nil {
+			log.Printf("[image-drop] upload failed for %s: %v", localPath, err)
 			emitToast(a.ctx, "Image upload failed", "error")
 			continue
 		}
 
-		trackUploadedFile(sessionId, hostId, remotePath)
 		remotePaths = append(remotePaths, quotePathForShell(remotePath))
 		totalBytes += len(data)
 	}

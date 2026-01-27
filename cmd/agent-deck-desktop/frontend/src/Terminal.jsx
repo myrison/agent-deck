@@ -747,7 +747,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                     logger.error('[FILE-DROP] HandleFileDrop error:', err);
                 });
         };
-        EventsOn('files:dropped', handleFileDrop);
+        const cancelFileDrop = EventsOn('files:dropped', handleFileDrop);
 
         // Track last sent dimensions to avoid duplicate calls
         let lastCols = term.cols;
@@ -887,6 +887,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 logger.error('Failed to close terminal:', err);
             });
 
+            if (cancelFileDrop) cancelFileDrop();
             if (scrollbackRefreshTimer) {
                 clearTimeout(scrollbackRefreshTimer);
             }
