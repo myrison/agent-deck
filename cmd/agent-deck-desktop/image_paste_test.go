@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -21,8 +23,8 @@ func TestValidateImageData_TooLarge(t *testing.T) {
 }
 
 func TestValidateImageData_InvalidFormat(t *testing.T) {
-	// Create data with invalid header
-	data := []byte("not a PNG image")
+	// Create data with invalid header (must be >= 12 bytes for detectImageFormat)
+	data := []byte("not a valid image file format")
 
 	err := validateImageData(data)
 	if err == nil {
@@ -158,6 +160,221 @@ func TestImagePasteResult_Error(t *testing.T) {
 	}
 	if !strings.Contains(result.Error, "transfer failed") {
 		t.Errorf("expected Error to contain 'transfer failed', got %s", result.Error)
+	}
+}
+
+// ==================== Multi-format validation tests ====================
+
+func TestValidateImageData_JPEG(t *testing.T) {
+	// JPEG magic bytes: \xFF\xD8\xFF + padding to >= 12 bytes
+	data := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01}
+	data = append(data, make([]byte, 100)...)
+
+	err := validateImageData(data)
+	if err != nil {
+		t.Errorf("expected no error for valid JPEG, got: %v", err)
+	}
+}
+
+func TestValidateImageData_WebP(t *testing.T) {
+	// WebP: RIFF + 4-byte size + WEBP
+	data := []byte("RIFF")
+	data = append(data, 0x00, 0x00, 0x00, 0x00) // size placeholder
+	data = append(data, []byte("WEBP")...)
+	data = append(data, make([]byte, 100)...)
+
+	err := validateImageData(data)
+	if err != nil {
+		t.Errorf("expected no error for valid WebP, got: %v", err)
+	}
+}
+
+func TestValidateImageData_GIF(t *testing.T) {
+	// GIF89a header
+	data := []byte("GIF89a")
+	data = append(data, make([]byte, 100)...)
+
+	err := validateImageData(data)
+	if err != nil {
+		t.Errorf("expected no error for valid GIF89a, got: %v", err)
+	}
+
+	// GIF87a header
+	data2 := []byte("GIF87a")
+	data2 = append(data2, make([]byte, 100)...)
+
+	err = validateImageData(data2)
+	if err != nil {
+		t.Errorf("expected no error for valid GIF87a, got: %v", err)
+	}
+}
+
+func TestDetectImageFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     []byte
+		expected string
+	}{
+		{
+			name:     "PNG",
+			data:     append([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D}, make([]byte, 10)...),
+			expected: "png",
+		},
+		{
+			name:     "JPEG",
+			data:     append([]byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01}, make([]byte, 10)...),
+			expected: "jpeg",
+		},
+		{
+			name:     "GIF89a",
+			data:     append([]byte("GIF89a"), make([]byte, 10)...),
+			expected: "gif",
+		},
+		{
+			name:     "GIF87a",
+			data:     append([]byte("GIF87a"), make([]byte, 10)...),
+			expected: "gif",
+		},
+		{
+			name:     "WebP",
+			data:     append(append(append([]byte("RIFF"), 0x00, 0x00, 0x00, 0x00), []byte("WEBP")...), make([]byte, 10)...),
+			expected: "webp",
+		},
+		{
+			name:     "Unknown",
+			data:     []byte("not an image format!!"),
+			expected: "",
+		},
+		{
+			name:     "TooShort",
+			data:     []byte{0x89, 0x50},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := detectImageFormat(tt.data)
+			if result != tt.expected {
+				t.Errorf("detectImageFormat(%s) = %q, want %q", tt.name, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestImageExtensionForFormat(t *testing.T) {
+	tests := []struct {
+		format   string
+		expected string
+	}{
+		{"png", ".png"},
+		{"jpeg", ".jpg"},
+		{"gif", ".gif"},
+		{"webp", ".webp"},
+		{"unknown", ".png"}, // default fallback
+	}
+
+	for _, tt := range tests {
+		result := imageExtensionForFormat(tt.format)
+		if result != tt.expected {
+			t.Errorf("imageExtensionForFormat(%q) = %q, want %q", tt.format, result, tt.expected)
+		}
+	}
+}
+
+func TestIsImageFile(t *testing.T) {
+	// Create a temp dir with test files
+	tmpDir := t.TempDir()
+
+	// Write a PNG file
+	pngPath := filepath.Join(tmpDir, "test.png")
+	pngData := append([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D}, make([]byte, 100)...)
+	os.WriteFile(pngPath, pngData, 0644)
+
+	// Write a JPEG file
+	jpegPath := filepath.Join(tmpDir, "test.jpg")
+	jpegData := append([]byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01}, make([]byte, 100)...)
+	os.WriteFile(jpegPath, jpegData, 0644)
+
+	// Write a text file
+	textPath := filepath.Join(tmpDir, "readme.txt")
+	os.WriteFile(textPath, []byte("just a text file with enough bytes"), 0644)
+
+	if !isImageFile(pngPath) {
+		t.Error("expected PNG file to be detected as image")
+	}
+	if !isImageFile(jpegPath) {
+		t.Error("expected JPEG file to be detected as image")
+	}
+	if isImageFile(textPath) {
+		t.Error("expected text file to NOT be detected as image")
+	}
+	if isImageFile(filepath.Join(tmpDir, "nonexistent.png")) {
+		t.Error("expected nonexistent file to NOT be detected as image")
+	}
+}
+
+func TestQuotePathForShell(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple path",
+			input:    "/tmp/image.png",
+			expected: "'/tmp/image.png'",
+		},
+		{
+			name:     "path with spaces",
+			input:    "/tmp/my image.png",
+			expected: "'/tmp/my image.png'",
+		},
+		{
+			name:     "path with single quote",
+			input:    "/tmp/it's an image.png",
+			expected: "'/tmp/it'\\''s an image.png'",
+		},
+		{
+			name:     "malicious filename",
+			input:    "/tmp/file; rm -rf /.png",
+			expected: "'/tmp/file; rm -rf /.png'",
+		},
+		{
+			name:     "path with dollar sign",
+			input:    "/tmp/$HOME.png",
+			expected: "'/tmp/$HOME.png'",
+		},
+		{
+			name:     "path with backticks",
+			input:    "/tmp/`whoami`.png",
+			expected: "'/tmp/`whoami`.png'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := quotePathForShell(tt.input)
+			if result != tt.expected {
+				t.Errorf("quotePathForShell(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGenerateRemotePathWithExt(t *testing.T) {
+	path := generateRemotePathWithExt(".jpg")
+	if !strings.HasPrefix(path, "/tmp/revden_img_") {
+		t.Errorf("expected path to start with /tmp/revden_img_, got: %s", path)
+	}
+	if !strings.HasSuffix(path, ".jpg") {
+		t.Errorf("expected path to end with .jpg, got: %s", path)
+	}
+
+	// Ensure generateRemotePath still returns .png
+	pngPath := generateRemotePath()
+	if !strings.HasSuffix(pngPath, ".png") {
+		t.Errorf("expected generateRemotePath() to end with .png, got: %s", pngPath)
 	}
 }
 

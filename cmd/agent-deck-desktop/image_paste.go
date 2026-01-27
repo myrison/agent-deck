@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"sync"
 	"time"
 
@@ -88,25 +89,93 @@ func readClipboardImage() ([]byte, error) {
 }
 
 // validateImageData performs validation on image data before transfer.
-// Returns an error if the image is too large or invalid.
+// Accepts PNG, JPEG, GIF, and WebP formats via magic bytes detection.
+// Returns an error if the image is too large or has an unrecognized format.
 func validateImageData(data []byte) error {
 	if len(data) > MaxImageSize {
 		return fmt.Errorf("image too large: %d bytes (max %d bytes / 10MB)", len(data), MaxImageSize)
 	}
 
-	// Validate PNG header (native reader converts to PNG)
-	pngHeader := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
-	if !bytes.HasPrefix(data, pngHeader) {
-		return fmt.Errorf("invalid image format: expected PNG")
+	if detectImageFormat(data) == "" {
+		return fmt.Errorf("invalid image format: expected PNG, JPEG, GIF, or WebP")
 	}
 
 	return nil
 }
 
-// generateRemotePath creates a unique remote path for the image file
-// Uses nanosecond timestamp + random suffix for uniqueness
+// detectImageFormat identifies an image format from magic bytes.
+// Returns the format name ("png", "jpeg", "gif", "webp") or "" if unrecognized.
+func detectImageFormat(data []byte) string {
+	if len(data) < 12 {
+		return ""
+	}
+
+	// PNG: \x89PNG\r\n\x1a\n
+	if bytes.HasPrefix(data, []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}) {
+		return "png"
+	}
+
+	// JPEG: \xFF\xD8\xFF
+	if bytes.HasPrefix(data, []byte{0xFF, 0xD8, 0xFF}) {
+		return "jpeg"
+	}
+
+	// GIF: GIF87a or GIF89a
+	if bytes.HasPrefix(data, []byte("GIF87a")) || bytes.HasPrefix(data, []byte("GIF89a")) {
+		return "gif"
+	}
+
+	// WebP: RIFF....WEBP (bytes 0-3 = "RIFF", bytes 8-11 = "WEBP")
+	if bytes.HasPrefix(data, []byte("RIFF")) && bytes.Equal(data[8:12], []byte("WEBP")) {
+		return "webp"
+	}
+
+	return ""
+}
+
+// imageExtensionForFormat returns the file extension (with dot) for a format name.
+func imageExtensionForFormat(format string) string {
+	switch format {
+	case "png":
+		return ".png"
+	case "jpeg":
+		return ".jpg"
+	case "gif":
+		return ".gif"
+	case "webp":
+		return ".webp"
+	default:
+		return ".png"
+	}
+}
+
+// isImageFile checks if a file path points to an image based on magic bytes.
+// Reads the first 12 bytes of the file for format detection.
+func isImageFile(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	header := make([]byte, 12)
+	n, err := f.Read(header)
+	if err != nil || n < 12 {
+		return false
+	}
+
+	return detectImageFormat(header) != ""
+}
+
+// generateRemotePath creates a unique remote path for a PNG image file.
+// Uses nanosecond timestamp + random suffix for uniqueness.
 func generateRemotePath() string {
-	return fmt.Sprintf("/tmp/revden_img_%d_%d.png", time.Now().UnixNano(), rand.Intn(10000))
+	return generateRemotePathWithExt(".png")
+}
+
+// generateRemotePathWithExt creates a unique remote path with the given extension.
+func generateRemotePathWithExt(ext string) string {
+	return fmt.Sprintf("/tmp/revden_img_%d_%d%s", time.Now().UnixNano(), rand.Intn(10000), ext)
 }
 
 // StreamToRemoteFile streams data to a file on the remote host using SSH.

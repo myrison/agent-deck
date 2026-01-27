@@ -135,6 +135,12 @@ func main() {
 		},
 		LogLevel:           logLevel,
 		LogLevelProduction: logger.ERROR,
+		DragAndDrop: &options.DragAndDrop{
+			EnableFileDrop:     true,
+			DisableWebViewDrop: true,
+			CSSDropProperty:    "--wails-drop-target",
+			CSSDropValue:       "drop",
+		},
 		// Enable DevTools in development mode
 		Debug: options.Debug{
 			OpenInspectorOnStartup: isDev,
