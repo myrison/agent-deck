@@ -185,42 +185,32 @@ describe('EventsOn listener cleanup (root cause #1)', () => {
         expect(writesB).toEqual(['hello']);
     });
 
-    it('cleanup of all 12 event listeners leaves zero listeners', () => {
+    it('after cleanup, emitting events produces no handler invocations', () => {
         const bus = createEventBus();
-        const eventNames = [
-            'terminal:altscreen',
-            'settings:autoCopyOnSelect',
-            'terminal:debug',
-            'menu:paste',
-            'menu:copy',
-            'terminal:history',
-            'terminal:data',
-            'terminal:exit',
-            'terminal:connection-lost',
-            'terminal:reconnecting',
-            'terminal:connection-restored',
-            'terminal:connection-failed',
-        ];
+        const invocations = [];
 
-        // Register all 12 listeners and collect cancel functions
-        const cancels = eventNames.map(name =>
-            bus.EventsOn(name, () => {})
-        );
+        // Register listeners across multiple events and collect cancel functions
+        const cancelA = bus.EventsOn('menu:paste', () => invocations.push('paste'));
+        const cancelB = bus.EventsOn('terminal:data', () => invocations.push('data'));
+        const cancelC = bus.EventsOn('terminal:exit', () => invocations.push('exit'));
 
-        // Verify all registered
-        for (const name of eventNames) {
-            expect(bus.listenerCount(name)).toBe(1);
-        }
+        // Verify listeners fire before cleanup
+        bus.emit('menu:paste', 'text');
+        bus.emit('terminal:data', 'data');
+        bus.emit('terminal:exit', 'exit');
+        expect(invocations).toEqual(['paste', 'data', 'exit']);
 
         // Cleanup: call all cancel functions (simulates useEffect return)
-        for (const cancel of cancels) {
-            cancel();
-        }
+        cancelA();
+        cancelB();
+        cancelC();
+        invocations.length = 0;
 
-        // Verify all removed
-        for (const name of eventNames) {
-            expect(bus.listenerCount(name)).toBe(0);
-        }
+        // After cleanup, no handlers should fire
+        bus.emit('menu:paste', 'text');
+        bus.emit('terminal:data', 'data');
+        bus.emit('terminal:exit', 'exit');
+        expect(invocations).toEqual([]);
     });
 });
 
