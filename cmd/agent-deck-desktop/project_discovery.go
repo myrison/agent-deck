@@ -24,14 +24,17 @@ type SessionSummary struct {
 
 // ProjectInfo represents a discovered project for the frontend
 type ProjectInfo struct {
-	Path         string           `json:"path"`
-	Name         string           `json:"name"`
-	Score        float64          `json:"score"`                  // Frecency score
-	HasSession   bool             `json:"hasSession"`             // Has existing session?
-	Tool         string           `json:"tool"`                   // Tool if session exists (first session for backward compat)
-	SessionID    string           `json:"sessionId"`              // Session ID if exists (first session for backward compat)
-	SessionCount int              `json:"sessionCount"`           // Total number of sessions at this path
-	Sessions     []SessionSummary `json:"sessions,omitempty"`     // All sessions at this path
+	Path                  string           `json:"path"`
+	Name                  string           `json:"name"`
+	Score                 float64          `json:"score"`                            // Frecency score
+	HasSession            bool             `json:"hasSession"`                       // Has existing session?
+	Tool                  string           `json:"tool"`                             // Tool if session exists (first session for backward compat)
+	SessionID             string           `json:"sessionId"`                        // Session ID if exists (first session for backward compat)
+	SessionCount          int              `json:"sessionCount"`                     // Total number of sessions at this path+host
+	Sessions              []SessionSummary `json:"sessions,omitempty"`               // All sessions at this path+host
+	IsRemote              bool             `json:"isRemote,omitempty"`               // Whether this project group is remote
+	RemoteHost            string           `json:"remoteHost,omitempty"`             // SSH host for remote projects
+	RemoteHostDisplayName string           `json:"remoteHostDisplayName,omitempty"`  // Display name for remote host
 }
 
 // ProjectDiscoverySettings defines settings for discovering projects
@@ -201,11 +204,20 @@ func (pd *ProjectDiscovery) calculateFrecencyScore(projectPath string) float64 {
 func (pd *ProjectDiscovery) DiscoverProjects(sessions []SessionInfo) ([]ProjectInfo, error) {
 	settings := pd.getSettings()
 
-	// Build a map of path -> all sessions at that path
-	sessionsByPath := make(map[string][]SessionInfo)
+	// Build a map of (path, remoteHost) -> all sessions at that path+host.
+	// Local sessions use just the path as key; remote sessions use "path|host".
+	type groupKey struct {
+		path       string
+		remoteHost string
+	}
+	sessionsByGroup := make(map[groupKey][]SessionInfo)
 	for _, s := range sessions {
 		if s.ProjectPath != "" {
-			sessionsByPath[s.ProjectPath] = append(sessionsByPath[s.ProjectPath], s)
+			key := groupKey{path: s.ProjectPath}
+			if s.IsRemote {
+				key.remoteHost = s.RemoteHost
+			}
+			sessionsByGroup[key] = append(sessionsByGroup[key], s)
 		}
 	}
 
@@ -213,15 +225,15 @@ func (pd *ProjectDiscovery) DiscoverProjects(sessions []SessionInfo) ([]ProjectI
 	projectMap := make(map[string]*ProjectInfo)
 
 	// Add all projects from existing sessions (highest priority)
-	for path, pathSessions := range sessionsByPath {
+	for gk, groupSessions := range sessionsByGroup {
 		// Sort sessions by ID for deterministic ordering
-		sort.Slice(pathSessions, func(i, j int) bool {
-			return pathSessions[i].ID < pathSessions[j].ID
+		sort.Slice(groupSessions, func(i, j int) bool {
+			return groupSessions[i].ID < groupSessions[j].ID
 		})
 
-		// Build SessionSummary slice from all sessions at this path
-		summaries := make([]SessionSummary, len(pathSessions))
-		for i, s := range pathSessions {
+		// Build SessionSummary slice from all sessions in this group
+		summaries := make([]SessionSummary, len(groupSessions))
+		for i, s := range groupSessions {
 			summaries[i] = SessionSummary{
 				ID:                    s.ID,
 				CustomLabel:           s.CustomLabel,
@@ -234,16 +246,26 @@ func (pd *ProjectDiscovery) DiscoverProjects(sessions []SessionInfo) ([]ProjectI
 		}
 
 		// Use first session (by ID) for backward-compatible Tool/SessionID fields
-		firstSession := pathSessions[0]
-		projectMap[path] = &ProjectInfo{
-			Path:         path,
-			Name:         filepath.Base(path),
-			Score:        pd.calculateFrecencyScore(path) + 1000, // Boost existing sessions
-			HasSession:   true,
-			Tool:         firstSession.Tool,
-			SessionID:    firstSession.ID,
-			SessionCount: len(pathSessions),
-			Sessions:     summaries,
+		firstSession := groupSessions[0]
+
+		// Map key: plain path for local, "path|host" for remote
+		mapKey := gk.path
+		if gk.remoteHost != "" {
+			mapKey = gk.path + "|" + gk.remoteHost
+		}
+
+		projectMap[mapKey] = &ProjectInfo{
+			Path:                  gk.path,
+			Name:                  filepath.Base(gk.path),
+			Score:                 pd.calculateFrecencyScore(gk.path) + 1000, // Boost existing sessions
+			HasSession:            true,
+			Tool:                  firstSession.Tool,
+			SessionID:             firstSession.ID,
+			SessionCount:          len(groupSessions),
+			Sessions:              summaries,
+			IsRemote:              firstSession.IsRemote,
+			RemoteHost:            firstSession.RemoteHost,
+			RemoteHostDisplayName: firstSession.RemoteHostDisplayName,
 		}
 	}
 

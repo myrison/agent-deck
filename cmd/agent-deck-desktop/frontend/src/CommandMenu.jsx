@@ -83,11 +83,8 @@ export default function CommandMenu({
     // Convert projects to menu items (show ALL projects, including those with sessions)
     const projectItems = useMemo(() => {
         return projects
-            .map(p => {
-                // Derive remote status from sessions - if any session is remote, project is remote
-                const firstRemoteSession = p.sessions?.find(s => s.isRemote);
-                return {
-                    id: `project:${p.path}`,
+            .map(p => ({
+                    id: `project:${p.path}:${p.remoteHost || 'local'}`,
                     type: 'project',
                     title: p.name,
                     projectPath: p.path,
@@ -97,13 +94,27 @@ export default function CommandMenu({
                     shortcut: favoritesLookup[p.path]?.shortcut,
                     sessionCount: p.sessionCount || 0,
                     sessions: p.sessions || [],
-                    // Remote status derived from sessions
-                    isRemote: !!firstRemoteSession,
-                    remoteHost: firstRemoteSession?.remoteHost || '',
-                    remoteHostDisplayName: firstRemoteSession?.remoteHostDisplayName || '',
-                };
-            });
+                    isRemote: !!p.isRemote,
+                    remoteHost: p.remoteHost || '',
+                    remoteHostDisplayName: p.remoteHostDisplayName || '',
+            }));
     }, [projects, favoritesLookup]);
+
+    // Build set of session IDs that appear inside project groups, to deduplicate from the flat session list
+    const projectSessionIds = useMemo(() => {
+        const ids = new Set();
+        for (const p of projectItems) {
+            for (const s of p.sessions) {
+                ids.add(s.id);
+            }
+        }
+        return ids;
+    }, [projectItems]);
+
+    // Sessions not already represented inside a project group
+    const dedupedSessions = useMemo(() => {
+        return sessions.filter(s => !projectSessionIds.has(s.id));
+    }, [sessions, projectSessionIds]);
 
     // Convert saved layouts to action format
     const savedLayoutItems = useMemo(() => {
@@ -146,8 +157,8 @@ export default function CommandMenu({
         return [...base, ...LAYOUT_ACTIONS, ...savedLayoutItems];
     }, [showLayoutActions, savedLayoutItems, labelActions, deleteAction]);
 
-    // Fuse.js configuration for fuzzy search
-    const fuse = useMemo(() => new Fuse([...sessions, ...projectItems, ...allActions], {
+    // Fuse.js configuration for fuzzy search (uses deduplicated sessions)
+    const fuse = useMemo(() => new Fuse([...dedupedSessions, ...projectItems, ...allActions], {
         keys: [
             { name: 'title', weight: 0.4 },
             { name: 'projectPath', weight: 0.3 },
@@ -157,7 +168,7 @@ export default function CommandMenu({
         ],
         threshold: 0.4,
         includeScore: true,
-    }), [sessions, projectItems, allActions]);
+    }), [dedupedSessions, projectItems, allActions]);
 
     // Get filtered results
     const results = useMemo(() => {
@@ -190,15 +201,15 @@ export default function CommandMenu({
         }
 
         if (!query.trim()) {
-            // No query: show sessions first, then projects, then actions
-            const allItems = [...sessions, ...projectItems, ...allActions];
+            // No query: show deduplicated sessions first, then projects, then actions
+            const allItems = [...dedupedSessions, ...projectItems, ...allActions];
             logger.debug('Showing all items (no query)', { count: allItems.length });
             return allItems;
         }
         const searchResults = fuse.search(query).map(result => result.item);
         logger.debug('Search results', { query, count: searchResults.length });
         return searchResults;
-    }, [query, fuse, sessions, projectItems, allActions, pinMode, newSessionMode]);
+    }, [query, fuse, dedupedSessions, projectItems, allActions, pinMode, newSessionMode]);
 
     // Reset selection when results change
     useEffect(() => {
@@ -501,7 +512,7 @@ export default function CommandMenu({
                                             </span>
                                         )}
                                         <span className={`menu-host-badge ${item.isRemote ? 'remote' : 'local'}`}>
-                                            {item.remoteHostDisplayName || item.remoteHost || 'local'}
+                                            {(item.remoteHostDisplayName || item.remoteHost || 'local').toLowerCase()}
                                         </span>
                                         <span className="menu-project-hint">
                                             {pinMode ? 'Enter to pin' : (item.isPinned ? 'Pinned' : '⌘P Pin')}
@@ -527,7 +538,7 @@ export default function CommandMenu({
                                             </span>
                                         )}
                                         <span className={`menu-host-badge ${item.isRemote ? 'remote' : 'local'}`}>
-                                            {item.remoteHostDisplayName || item.remoteHost || 'local'}
+                                            {(item.remoteHostDisplayName || item.remoteHost || 'local').toLowerCase()}
                                         </span>
                                         <span
                                             className="menu-status"
