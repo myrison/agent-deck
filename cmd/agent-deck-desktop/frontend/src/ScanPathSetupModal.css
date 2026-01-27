@@ -1,0 +1,195 @@
+/* Scan Path Setup Modal */
+.scan-setup-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--modal-overlay);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1200;
+}
+
+.scan-setup-container {
+    width: 100%;
+    max-width: 500px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 10px;
+    box-shadow: 0 16px 48px var(--modal-shadow);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.scan-setup-header {
+    padding: 24px 24px 0;
+}
+
+.scan-setup-header h2 {
+    margin: 0 0 8px;
+    font-size: var(--font-2xl);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.scan-setup-description {
+    font-size: var(--font-base);
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 0;
+}
+
+.scan-setup-content {
+    padding: 20px 24px;
+    flex: 1;
+}
+
+.scan-setup-input-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.scan-setup-input {
+    flex: 1;
+    padding: 10px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: var(--font-base);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.scan-setup-input:focus {
+    border-color: var(--accent-primary);
+}
+
+.scan-setup-input::placeholder {
+    color: var(--text-dimmed);
+}
+
+.scan-setup-browse-btn {
+    padding: 10px 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: var(--font-base);
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.scan-setup-browse-btn:hover {
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
+}
+
+.scan-setup-path-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.scan-setup-path-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 6px;
+}
+
+.scan-setup-path-text {
+    flex: 1;
+    font-size: var(--font-base);
+    color: var(--text-primary);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scan-setup-path-remove {
+    background: transparent;
+    border: none;
+    color: var(--text-dimmed);
+    font-size: var(--font-xl);
+    cursor: pointer;
+    padding: 0;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
+    flex-shrink: 0;
+}
+
+.scan-setup-path-remove:hover {
+    color: var(--accent-error);
+    background: var(--danger-hover-bg);
+}
+
+.scan-setup-empty {
+    padding: 16px;
+    text-align: center;
+    color: var(--text-dimmed);
+    font-size: var(--font-base);
+}
+
+.scan-setup-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    border-top: 1px solid var(--border-secondary);
+    background: var(--bg-tertiary);
+}
+
+.scan-setup-skip-btn {
+    padding: 10px 20px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: var(--font-base);
+    cursor: pointer;
+    border-radius: 6px;
+    transition: color 0.15s;
+}
+
+.scan-setup-skip-btn:hover {
+    color: var(--text-primary);
+}
+
+.scan-setup-start-btn {
+    padding: 10px 24px;
+    background: var(--accent-primary);
+    border: none;
+    border-radius: 6px;
+    color: var(--tool-icon-text);
+    font-size: var(--font-base);
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+
+.scan-setup-start-btn:hover:not(:disabled) {
+    opacity: 0.9;
+}
+
+.scan-setup-start-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}

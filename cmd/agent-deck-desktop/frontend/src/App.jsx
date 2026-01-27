@@ -9,6 +9,7 @@ import ToolPicker from './ToolPicker';
 import SessionPicker from './SessionPicker';
 import ConfigPicker from './ConfigPicker';
 import SettingsModal from './SettingsModal';
+import ScanPathSetupModal from './ScanPathSetupModal';
 import UnifiedTopBar from './UnifiedTopBar';
 import ShortcutBar from './ShortcutBar';
 import KeyboardHelpModal from './KeyboardHelpModal';
@@ -21,7 +22,7 @@ import HostPicker, { LOCAL_HOST_ID } from './HostPicker';
 import DeleteSessionDialog from './DeleteSessionDialog';
 import Toast from './Toast';
 import { BranchIcon } from './ToolIcon';
-import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames, DeleteSession, OpenNewWindow, GetOpenTabState, SaveOpenTabState } from '../wailsjs/go/main/App';
+import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames, DeleteSession, OpenNewWindow, GetOpenTabState, SaveOpenTabState, HasScanPaths, GetSetupDismissed } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE } from './constants/terminal';
 import { shouldInterceptShortcut, hasAppModifier } from './utils/platform';
@@ -110,6 +111,7 @@ function App() {
     // Saved layouts
     const [savedLayouts, setSavedLayouts] = useState([]);
     const [showSaveLayoutModal, setShowSaveLayoutModal] = useState(false);
+    const [showScanPathSetup, setShowScanPathSetup] = useState(false);
 
     // Build saved layout shortcut map for keyboard handling
     const savedLayoutShortcuts = useMemo(() => {
@@ -241,6 +243,23 @@ function App() {
             }
         };
         loadSavedLayouts();
+
+        // Check if first-launch setup modal should be shown
+        const checkFirstLaunchSetup = async () => {
+            try {
+                const [hasPaths, dismissed] = await Promise.all([
+                    HasScanPaths(),
+                    GetSetupDismissed(),
+                ]);
+                if (!hasPaths && !dismissed) {
+                    setShowScanPathSetup(true);
+                    logger.info('Showing first-launch scan path setup');
+                }
+            } catch (err) {
+                logger.error('Failed to check first-launch setup:', err);
+            }
+        };
+        checkFirstLaunchSetup();
 
         // Load SSH host display names for friendly naming in dialogs
         const loadSSHHostDisplayNames = async () => {
@@ -2012,6 +2031,17 @@ function App() {
                 {showHelpModal && (
                     <KeyboardHelpModal onClose={() => setShowHelpModal(false)} />
                 )}
+                {showScanPathSetup && (
+                    <ScanPathSetupModal
+                        onComplete={() => {
+                            setShowScanPathSetup(false);
+                            loadSessionsAndProjects();
+                        }}
+                        onSkip={() => {
+                            setShowScanPathSetup(false);
+                        }}
+                    />
+                )}
             </div>
         );
     }
@@ -2282,6 +2312,17 @@ function App() {
                     onFontSizeChange={(newSize) => setFontSizeState(newSize)}
                     scrollSpeed={scrollSpeed}
                     onScrollSpeedChange={(newSpeed) => setScrollSpeedState(newSpeed)}
+                />
+            )}
+            {showScanPathSetup && (
+                <ScanPathSetupModal
+                    onComplete={() => {
+                        setShowScanPathSetup(false);
+                        loadSessionsAndProjects();
+                    }}
+                    onSkip={() => {
+                        setShowScanPathSetup(false);
+                    }}
                 />
             )}
             {showHelpModal && (

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './SettingsModal.css';
 import LaunchConfigEditor from './LaunchConfigEditor';
-import { GetLaunchConfigs, DeleteLaunchConfig, GetSoftNewlineMode, SetSoftNewlineMode, SetFontSize, GetScrollSpeed, SetScrollSpeed, ResetGroupSettings, GetAutoCopyOnSelectEnabled, SetAutoCopyOnSelectEnabled } from '../wailsjs/go/main/App';
+import { GetLaunchConfigs, DeleteLaunchConfig, GetSoftNewlineMode, SetSoftNewlineMode, SetFontSize, GetScrollSpeed, SetScrollSpeed, ResetGroupSettings, GetAutoCopyOnSelectEnabled, SetAutoCopyOnSelectEnabled, GetScanPaths, AddScanPath, RemoveScanPath, GetScanMaxDepth, SetScanMaxDepth, BrowseLocalDirectory } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { TOOLS } from './utils/tools';
 import ToolIcon from './ToolIcon';
@@ -21,6 +21,8 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
     const [creatingForTool, setCreatingForTool] = useState(null); // tool name when creating new
     const [softNewlineMode, setSoftNewlineMode] = useState('both');
     const [autoCopyOnSelect, setAutoCopyOnSelect] = useState(false);
+    const [scanPaths, setScanPaths] = useState([]);
+    const [scanMaxDepth, setScanMaxDepth] = useState(2);
     const { themePreference, setTheme } = useTheme();
     const containerRef = useRef(null);
 
@@ -35,6 +37,7 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
     useEffect(() => {
         loadConfigs();
         loadTerminalSettings();
+        loadScanSettings();
     }, []);
 
     const loadTerminalSettings = async () => {
@@ -135,6 +138,60 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
         } catch (err) {
             logger.error('Failed to save auto-copy setting:', err);
             alert('Failed to save setting: ' + err.message);
+        }
+    };
+
+    const loadScanSettings = async () => {
+        try {
+            const paths = await GetScanPaths();
+            setScanPaths(paths || []);
+            logger.info('Loaded scan paths', { count: paths?.length || 0 });
+        } catch (err) {
+            logger.error('Failed to load scan paths:', err);
+        }
+        try {
+            const depth = await GetScanMaxDepth();
+            setScanMaxDepth(depth || 2);
+            logger.info('Loaded scan max depth', { depth });
+        } catch (err) {
+            logger.error('Failed to load scan max depth:', err);
+        }
+    };
+
+    const handleAddScanPath = async () => {
+        try {
+            const dir = await BrowseLocalDirectory('');
+            if (dir) {
+                await AddScanPath(dir);
+                const paths = await GetScanPaths();
+                setScanPaths(paths || []);
+                logger.info('Added scan path', { dir });
+            }
+        } catch (err) {
+            logger.error('Failed to add scan path:', err);
+        }
+    };
+
+    const handleRemoveScanPath = async (path) => {
+        try {
+            await RemoveScanPath(path);
+            const paths = await GetScanPaths();
+            setScanPaths(paths || []);
+            logger.info('Removed scan path', { path });
+        } catch (err) {
+            logger.error('Failed to remove scan path:', err);
+        }
+    };
+
+    const handleMaxDepthChange = async (delta) => {
+        const newDepth = Math.max(1, Math.min(5, scanMaxDepth + delta));
+        if (newDepth === scanMaxDepth) return;
+        try {
+            await SetScanMaxDepth(newDepth);
+            setScanMaxDepth(newDepth);
+            logger.info('Set scan max depth', { depth: newDepth });
+        } catch (err) {
+            logger.error('Failed to set scan max depth:', err);
         }
     };
 
@@ -380,6 +437,60 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
                             >
                                 Reset
                             </button>
+                        </div>
+                    </div>
+
+                    {/* Project Discovery Settings */}
+                    <div className="settings-theme-section">
+                        <div className="settings-theme-header">
+                            <span className="settings-theme-icon">🔍</span>
+                            <h3>Project Discovery</h3>
+                        </div>
+                        <div className="settings-input-description">
+                            Directories scanned for projects.
+                        </div>
+                        <div className="settings-scan-paths-list">
+                            {scanPaths.length === 0 ? (
+                                <div className="settings-empty">No scan paths configured</div>
+                            ) : (
+                                scanPaths.map(path => (
+                                    <div key={path} className="settings-scan-path-item">
+                                        <span className="settings-scan-path-text" title={path}>{path}</span>
+                                        <button
+                                            className="settings-scan-path-remove"
+                                            onClick={() => handleRemoveScanPath(path)}
+                                            title="Remove path"
+                                        >
+                                            &times;
+                                        </button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        <button className="settings-scan-add-btn" onClick={handleAddScanPath}>
+                            Add Scan Path
+                        </button>
+                        <div className="settings-scan-depth-row">
+                            <span className="settings-scan-depth-label">Max depth</span>
+                            <div className="settings-font-size-controls">
+                                <button
+                                    className="settings-font-btn"
+                                    onClick={() => handleMaxDepthChange(-1)}
+                                    disabled={scanMaxDepth <= 1}
+                                    title="Decrease depth"
+                                >
+                                    −
+                                </button>
+                                <span className="settings-font-size-value">{scanMaxDepth}</span>
+                                <button
+                                    className="settings-font-btn"
+                                    onClick={() => handleMaxDepthChange(1)}
+                                    disabled={scanMaxDepth >= 5}
+                                    title="Increase depth"
+                                >
+                                    +
+                                </button>
+                            </div>
                         </div>
                     </div>
 

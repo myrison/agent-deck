@@ -225,3 +225,85 @@ func TestDesktopSettingsThemeCaseInsensitive(t *testing.T) {
 		}
 	}
 }
+
+func TestGetSetupDismissedDefault(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	dsm := &DesktopSettingsManager{configPath: configPath}
+
+	// Default should be false (setup not dismissed)
+	dismissed, err := dsm.GetSetupDismissed()
+	if err != nil {
+		t.Fatalf("GetSetupDismissed failed: %v", err)
+	}
+	if dismissed {
+		t.Error("Expected default SetupDismissed to be false")
+	}
+}
+
+func TestSetSetupDismissedRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	dsm := &DesktopSettingsManager{configPath: configPath}
+
+	// Dismiss the setup
+	err := dsm.SetSetupDismissed(true)
+	if err != nil {
+		t.Fatalf("SetSetupDismissed(true) failed: %v", err)
+	}
+
+	dismissed, err := dsm.GetSetupDismissed()
+	if err != nil {
+		t.Fatalf("GetSetupDismissed failed: %v", err)
+	}
+	if !dismissed {
+		t.Error("Expected SetupDismissed to be true after setting it")
+	}
+
+	// Reset the dismissed flag
+	err = dsm.SetSetupDismissed(false)
+	if err != nil {
+		t.Fatalf("SetSetupDismissed(false) failed: %v", err)
+	}
+
+	dismissed, _ = dsm.GetSetupDismissed()
+	if dismissed {
+		t.Error("Expected SetupDismissed to be false after resetting")
+	}
+}
+
+func TestSetupDismissedPreservesOtherSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	dsm := &DesktopSettingsManager{configPath: configPath}
+
+	// Set theme first
+	err := dsm.SetTheme("light")
+	if err != nil {
+		t.Fatalf("SetTheme failed: %v", err)
+	}
+
+	// Now set setup dismissed
+	err = dsm.SetSetupDismissed(true)
+	if err != nil {
+		t.Fatalf("SetSetupDismissed failed: %v", err)
+	}
+
+	// Verify theme is still correct
+	theme, err := dsm.GetTheme()
+	if err != nil {
+		t.Fatalf("GetTheme failed: %v", err)
+	}
+	if theme != "light" {
+		t.Errorf("Expected theme 'light' preserved after SetSetupDismissed, got '%s'", theme)
+	}
+
+	// Verify dismissed is still set
+	dismissed, _ := dsm.GetSetupDismissed()
+	if !dismissed {
+		t.Error("Expected SetupDismissed still true after verifying theme")
+	}
+}
