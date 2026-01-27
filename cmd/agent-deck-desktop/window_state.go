@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -33,7 +35,12 @@ type WindowState struct {
 
 // defaultGetStatePath returns the path to the window state file.
 func defaultGetStatePath() string {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		// Fall back to /tmp if home dir unavailable (rare edge case)
+		log.Printf("warning: could not determine home directory, using /tmp: %v", err)
+		return filepath.Join("/tmp", ".agent-deck", windowStateFile)
+	}
 	return filepath.Join(home, ".agent-deck", windowStateFile)
 }
 
@@ -69,8 +76,11 @@ func withFileLock(fn func(state *WindowState) error) error {
 	// Try to decode existing state
 	decoder := json.NewDecoder(f)
 	if err := decoder.Decode(state); err != nil {
-		// File empty or invalid JSON - use defaults
-		// This is normal for first run
+		if err != io.EOF {
+			// Log non-EOF errors (actual JSON parse failures) but continue with defaults
+			log.Printf("warning: failed to parse window state, using defaults: %v", err)
+		}
+		// Empty file (io.EOF) is normal for first run - silently use defaults
 	}
 
 	// Ensure map is initialized (might be nil from empty file)
@@ -111,7 +121,10 @@ func registerWindow() (int, error) {
 		// Check if we were passed a window number via env
 		if envNum := getEnvVar("REVDEN_WINDOW_NUM"); envNum != "" {
 			if n, err := fmt.Sscanf(envNum, "%d", &windowNum); err == nil && n == 1 {
-				// Use the assigned number
+				// Use the assigned number and keep NextWindowNumber monotonic
+				if windowNum >= state.NextWindowNumber {
+					state.NextWindowNumber = windowNum + 1
+				}
 			} else {
 				windowNum = 1 // Default to primary
 			}
@@ -137,6 +150,19 @@ func allocateNextWindowNumber() (int, error) {
 	var nextNum int
 
 	err := withFileLock(func(state *WindowState) error {
+		// Clean up dead windows to prevent unbounded number growth
+		for numStr, info := range state.ActiveWindows {
+			if !checkProcessExists(info.PID) {
+				delete(state.ActiveWindows, numStr)
+			}
+		}
+
+		// Reset counter if no active windows AND counter is unreasonably high
+		// This prevents unbounded growth after many app restart cycles
+		if len(state.ActiveWindows) == 0 && state.NextWindowNumber > 100 {
+			state.NextWindowNumber = 2
+		}
+
 		nextNum = state.NextWindowNumber
 		state.NextWindowNumber++
 		return nil

@@ -339,3 +339,41 @@ func TestInvalidJSONStateFile_RecoverGracefully(t *testing.T) {
 		t.Errorf("Expected 2 (default) from invalid file, got %d", num)
 	}
 }
+
+func TestRegisterWindow_UpdatesNextWindowNumberMonotonically(t *testing.T) {
+	cleanup := setupTestHooks(t)
+	defer cleanup()
+
+	// Simulate a window spawned with a high number (e.g., from previous session)
+	getEnvVar = func(key string) string {
+		if key == "REVDEN_WINDOW_NUM" {
+			return "10"
+		}
+		return ""
+	}
+
+	// Register window 10
+	windowNum, err := registerWindow()
+	if err != nil {
+		t.Fatalf("registerWindow failed: %v", err)
+	}
+	if windowNum != 10 {
+		t.Errorf("Expected window number 10, got %d", windowNum)
+	}
+
+	// Verify NextWindowNumber was updated to 11 (not stuck at 2)
+	state := readState(t)
+	if state.NextWindowNumber != 11 {
+		t.Errorf("NextWindowNumber should be 11 after registering window 10, got %d", state.NextWindowNumber)
+	}
+
+	// Next allocation should return 11, not 2
+	getEnvVar = func(key string) string { return "" } // Reset for allocation
+	nextNum, err := allocateNextWindowNumber()
+	if err != nil {
+		t.Fatalf("allocateNextWindowNumber failed: %v", err)
+	}
+	if nextNum != 11 {
+		t.Errorf("Next allocated number should be 11, got %d", nextNum)
+	}
+}
