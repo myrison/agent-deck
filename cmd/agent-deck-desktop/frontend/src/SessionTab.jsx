@@ -92,6 +92,9 @@ export default function SessionTab({ tab, index, isActive, onSwitch, onClose, on
         }
 
         const relativePath = getRelativePath(session.projectPath);
+        const hostDisplayName = session.isRemote
+            ? (session.remoteHostDisplayName || session.remoteHost)
+            : null;
 
         return (
             <div className="session-tooltip">
@@ -107,6 +110,14 @@ export default function SessionTab({ tab, index, isActive, onSwitch, onClose, on
                         )}
                     </span>
                 </div>
+
+                {/* Host indicator (remote sessions only) */}
+                {hostDisplayName && (
+                    <div className="tooltip-row tooltip-host">
+                        <span className="tooltip-icon">🌐</span>
+                        <span>{hostDisplayName}</span>
+                    </div>
+                )}
 
                 {/* Multi-pane indicator */}
                 {paneCount > 1 && (
@@ -191,7 +202,7 @@ export default function SessionTab({ tab, index, isActive, onSwitch, onClose, on
     return (
         <>
             <button
-                className={`session-tab${isActive ? ' active' : ''}${paneCount > 1 ? ' multi-pane' : ''}${hasCustomLabel ? ' has-label' : ''}`}
+                className={`session-tab${isActive ? ' active' : ''}${paneCount > 1 ? ' multi-pane' : ''}${hasCustomLabel ? ' has-label' : ''}${session?.isRemote ? ' is-remote' : ''}`}
                 onClick={onSwitch}
                 onContextMenu={onContextMenu}
                 onMouseEnter={(e) => showTooltip(e, getTooltipContent())}

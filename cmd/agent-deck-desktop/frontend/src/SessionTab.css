@@ -123,6 +123,12 @@
     opacity: 1;
 }
 
+/* Remote tab styling - purple top border to distinguish from local */
+.session-tab.is-remote {
+    border-top: 2px solid var(--accent-purple);
+    padding-top: 3px; /* Compensate for thicker top border */
+}
+
 /* Tooltip enhancements for tab */
 .tab-tooltip-label {
     color: var(--accent-primary);
@@ -133,6 +139,10 @@
     font-size: var(--font-xl);
     color: var(--text-primary);
     font-weight: 500;
+}
+
+.tooltip-host {
+    color: var(--accent-purple);
 }
 
 .tooltip-git {
