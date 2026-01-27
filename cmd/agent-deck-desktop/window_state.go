@@ -120,13 +120,13 @@ func registerWindow() (int, error) {
 
 		// Check if we were passed a window number via env
 		if envNum := getEnvVar("REVDEN_WINDOW_NUM"); envNum != "" {
-			if n, err := fmt.Sscanf(envNum, "%d", &windowNum); err == nil && n == 1 {
+			if n, err := fmt.Sscanf(envNum, "%d", &windowNum); err == nil && n == 1 && windowNum > 0 {
 				// Use the assigned number and keep NextWindowNumber monotonic
 				if windowNum >= state.NextWindowNumber {
 					state.NextWindowNumber = windowNum + 1
 				}
 			} else {
-				windowNum = 1 // Default to primary
+				windowNum = 1 // Default to primary (invalid or non-positive numbers)
 			}
 		} else {
 			windowNum = 1 // No env var = primary

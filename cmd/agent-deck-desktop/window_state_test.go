@@ -82,9 +82,8 @@ func TestInvalidEnvVar_DefaultsToPrimary(t *testing.T) {
 	cleanup := setupTestHooks(t)
 	defer cleanup()
 
-	// Note: Sscanf accepts negative numbers as valid integers,
-	// so "-1" would be parsed as window -1 (arguably a bug, but separate issue)
-	testCases := []string{"not-a-number", "abc123", "1.5", ""}
+	// All these should default to primary window (1)
+	testCases := []string{"not-a-number", "abc123", "1.5", "", "-1", "-100", "0"}
 	for _, invalidVal := range testCases {
 		// Reset state for each test case
 		os.Remove(getStatePath())
@@ -103,7 +102,7 @@ func TestInvalidEnvVar_DefaultsToPrimary(t *testing.T) {
 			t.Fatalf("registerWindow failed for '%s': %v", invalidVal, err)
 		}
 
-		// BEHAVIOR: Non-numeric env vars should default to primary window
+		// BEHAVIOR: Invalid, negative, or zero env vars should default to primary window
 		if windowNum != 1 {
 			t.Errorf("Invalid env var '%s' should default to 1, got %d", invalidVal, windowNum)
 		}
