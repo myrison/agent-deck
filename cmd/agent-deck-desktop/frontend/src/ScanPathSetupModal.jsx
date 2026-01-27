@@ -43,6 +43,7 @@ export default function ScanPathSetupModal({ onComplete, onSkip }) {
         if (paths.length === 0) return;
         try {
             await SetScanPaths(paths);
+            await SetSetupDismissed(true);
             logger.info('Saved scan paths from setup', { count: paths.length });
             onComplete();
         } catch (err) {

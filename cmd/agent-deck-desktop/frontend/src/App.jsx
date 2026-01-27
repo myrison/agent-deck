@@ -2031,6 +2031,17 @@ function App() {
                 {showHelpModal && (
                     <KeyboardHelpModal onClose={() => setShowHelpModal(false)} />
                 )}
+                {showScanPathSetup && (
+                    <ScanPathSetupModal
+                        onComplete={() => {
+                            setShowScanPathSetup(false);
+                            loadSessionsAndProjects();
+                        }}
+                        onSkip={() => {
+                            setShowScanPathSetup(false);
+                        }}
+                    />
+                )}
             </div>
         );
     }
