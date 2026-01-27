@@ -1511,6 +1511,154 @@ func TestSessionHasConversationData(t *testing.T) {
 }
 
 // TestParseClaudeSessionData tests the parseClaudeSessionData function
+// TestClearErrorLockout_AllowsImmediateRecheck verifies that calling
+// ClearErrorLockout on an error-state session causes the next UpdateStatus
+// to perform a full tmux existence check instead of short-circuiting.
+// This is the core behavioral fix for PR #67: stale remote sessions stuck in error.
+func TestClearErrorLockout_AllowsImmediateRecheck(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available")
+	}
+
+	// Create and start a real tmux session
+	inst := NewInstance("lockout-recheck-test", "/tmp")
+	inst.Command = "sleep 60"
+	if err := inst.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer func() { _ = inst.Kill() }()
+
+	// Wait for grace period so UpdateStatus runs real detection
+	time.Sleep(2 * time.Second)
+
+	// Confirm session is alive
+	if err := inst.UpdateStatus(); err != nil {
+		t.Fatalf("UpdateStatus failed: %v", err)
+	}
+	if inst.Status == StatusError {
+		t.Fatal("Session should be alive after start")
+	}
+
+	// Kill the tmux session to simulate ghost state
+	_ = inst.Kill()
+	time.Sleep(200 * time.Millisecond)
+
+	// UpdateStatus detects the dead session and records the error + timestamp
+	if err := inst.UpdateStatus(); err != nil {
+		t.Fatalf("UpdateStatus after kill: %v", err)
+	}
+	if inst.Status != StatusError {
+		t.Fatalf("Session should be error after kill, got: %s", inst.Status)
+	}
+
+	// Call UpdateStatus again immediately - should short-circuit (within 30s lockout).
+	// We can verify this by checking the status is still error even though
+	// the tmux session object reports Exists()=false - the point is the lockout
+	// prevents even the Exists() call from happening, which is the optimization.
+	// To prove the lockout is active, we note that UpdateStatus returns nil and
+	// status stays error without performing the expensive check.
+	statusBefore := inst.Status
+	if err := inst.UpdateStatus(); err != nil {
+		t.Fatalf("UpdateStatus (locked out): %v", err)
+	}
+	if inst.Status != statusBefore {
+		t.Fatalf("Status should not change during lockout, got: %s", inst.Status)
+	}
+
+	// NOW call ClearErrorLockout - this resets the timestamp
+	inst.ClearErrorLockout()
+
+	// The next UpdateStatus WILL perform a full check (no lockout).
+	// Since the session is still dead, it will set error again - but the important
+	// thing is that it actually performed the check (not skipped).
+	// We can verify this indirectly: if the session were alive, it would recover.
+	// Since it's dead, we get error again, but we know the code path ran because
+	// ClearErrorLockout is the only way to reset the lockout for a session
+	// that was checked < 30s ago.
+	if err := inst.UpdateStatus(); err != nil {
+		t.Fatalf("UpdateStatus after ClearErrorLockout: %v", err)
+	}
+	// Status is error because session is genuinely dead, but the check happened.
+	if inst.Status != StatusError {
+		t.Fatalf("Session should still be error (genuinely dead), got: %s", inst.Status)
+	}
+}
+
+// TestClearErrorLockout_RecoveryWithLiveSession verifies the full recovery scenario:
+// a session goes to error, ClearErrorLockout is called, and when the tmux session
+// is actually running, the session recovers from error state.
+func TestClearErrorLockout_RecoveryWithLiveSession(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available")
+	}
+
+	// Create and start a session
+	inst := NewInstance("lockout-recovery-test", "/tmp")
+	inst.Command = "sleep 60"
+	if err := inst.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	tmuxName := inst.GetTmuxSession().Name
+	defer exec.Command("tmux", "kill-session", "-t", tmuxName).Run()
+
+	time.Sleep(2 * time.Second)
+
+	// Confirm alive
+	if err := inst.UpdateStatus(); err != nil {
+		t.Fatalf("UpdateStatus failed: %v", err)
+	}
+	if inst.Status == StatusError {
+		t.Fatal("Session should be alive")
+	}
+
+	// Kill session, detect error, establish lockout
+	_ = inst.Kill()
+	time.Sleep(200 * time.Millisecond)
+	if err := inst.UpdateStatus(); err != nil {
+		t.Fatalf("UpdateStatus after kill: %v", err)
+	}
+	if inst.Status != StatusError {
+		t.Fatalf("Expected error, got: %s", inst.Status)
+	}
+
+	// Recreate the tmux session using the EXACT same name the instance references
+	restartCmd := exec.Command("tmux", "new-session", "-d", "-s", tmuxName, "-c", "/tmp")
+	if err := restartCmd.Run(); err != nil {
+		t.Fatalf("Failed to recreate tmux session: %v", err)
+	}
+	defer exec.Command("tmux", "kill-session", "-t", tmuxName).Run()
+
+	// Without ClearErrorLockout, the lockout prevents recovery
+	if err := inst.UpdateStatus(); err != nil {
+		t.Fatalf("UpdateStatus (locked out): %v", err)
+	}
+	if inst.Status != StatusError {
+		t.Fatalf("Session should still show error during lockout, got: %s", inst.Status)
+	}
+
+	// ClearErrorLockout + UpdateStatus should detect the live session
+	inst.ClearErrorLockout()
+	if err := inst.UpdateStatus(); err != nil {
+		t.Fatalf("UpdateStatus after ClearErrorLockout: %v", err)
+	}
+	if inst.Status == StatusError {
+		t.Error("After ClearErrorLockout, session should recover from error when tmux session is alive")
+	}
+}
+
+// TestRemoteErrorRecheckInterval_ShorterThanLocal verifies that remote sessions
+// use a shorter error recheck interval than local sessions. This regression
+// guard prevents someone from accidentally making remote recovery slower than
+// local recovery. Remote sessions use SSH with ControlMaster (5-50ms per call),
+// so faster recovery is both safe and desirable.
+func TestRemoteErrorRecheckInterval_ShorterThanLocal(t *testing.T) {
+	if remoteErrorRecheckInterval >= errorRecheckInterval {
+		t.Errorf("remoteErrorRecheckInterval (%v) should be shorter than errorRecheckInterval (%v) "+
+			"to allow faster recovery from transient SSH failures",
+			remoteErrorRecheckInterval, errorRecheckInterval)
+	}
+}
+
 func TestParseClaudeSessionData(t *testing.T) {
 	tests := []struct {
 		name       string

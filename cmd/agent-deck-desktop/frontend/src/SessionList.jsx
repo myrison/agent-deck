@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
 import { ListSessionsWithGroups, GetProjectRoots, GetExpandedGroups, ToggleGroupExpanded, SetAllGroupsExpanded, GetSSHHostStatus } from '../wailsjs/go/main/App';
+import { EventsOn } from '../wailsjs/runtime/runtime';
 import { createLogger } from './logger';
 import { formatRelativeTime, getRelativeProjectPath, getStatusColor } from './utils/sessionListUtils';
 import ToolIcon from './ToolIcon';
@@ -81,6 +82,18 @@ const SessionList = forwardRef(function SessionList({
         fetchHostStatus();
         const interval = setInterval(fetchHostStatus, 30000);
         return () => clearInterval(interval);
+    }, []);
+
+    // Listen for immediate status updates from backend (e.g., on successful attach)
+    useEffect(() => {
+        const cancel = EventsOn('session:statusUpdate', (data) => {
+            if (data?.sessionId && data?.status) {
+                setSessions(prev => prev.map(s =>
+                    s.id === data.sessionId ? { ...s, status: data.status } : s
+                ));
+            }
+        });
+        return cancel;
     }, []);
 
     const loadSessions = useCallback(async () => {

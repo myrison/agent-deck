@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -470,6 +473,245 @@ func TestConvertInstancesNormalizesEmptyGroupPathWithoutProjectPath(t *testing.T
 
 	if result[0].GroupPath != "my-sessions" {
 		t.Errorf("Expected GroupPath %q for session with no paths, got %q", "my-sessions", result[0].GroupPath)
+	}
+}
+
+// TestUpdateSessionStatus_UpdatesStatusInJSON verifies that UpdateSessionStatus
+// reads sessions.json, finds the matching session by ID, updates its status field,
+// and writes the result atomically. This is the core persistence mechanism for
+// status updates when a desktop terminal successfully attaches (PR #67).
+func TestUpdateSessionStatus_UpdatesStatusInJSON(t *testing.T) {
+	// Set up temp HOME so getSessionsPath() points to a test file
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	// Create the sessions directory structure
+	sessionsDir := filepath.Join(tmpHome, ".agent-deck", "profiles", "default")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions dir: %v", err)
+	}
+
+	// Write a sessions.json with a session in "error" status
+	sessionsJSON := `{
+  "instances": [
+    {
+      "id": "abc-123",
+      "title": "Test Session",
+      "status": "error",
+      "tool": "claude",
+      "project_path": "/tmp/test"
+    },
+    {
+      "id": "def-456",
+      "title": "Other Session",
+      "status": "idle",
+      "tool": "shell",
+      "project_path": "/tmp/other"
+    }
+  ]
+}`
+	sessionsPath := filepath.Join(sessionsDir, "sessions.json")
+	if err := os.WriteFile(sessionsPath, []byte(sessionsJSON), 0600); err != nil {
+		t.Fatalf("Failed to write sessions.json: %v", err)
+	}
+
+	tm := NewTmuxManager()
+
+	// Update the error session to "running"
+	if err := tm.UpdateSessionStatus("abc-123", "running"); err != nil {
+		t.Fatalf("UpdateSessionStatus failed: %v", err)
+	}
+
+	// Read back and verify
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		t.Fatalf("Failed to read sessions.json: %v", err)
+	}
+
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("Failed to parse result JSON: %v", err)
+	}
+
+	var instances []map[string]interface{}
+	if err := json.Unmarshal(result["instances"], &instances); err != nil {
+		t.Fatalf("Failed to parse instances: %v", err)
+	}
+
+	// Find the updated session
+	for _, inst := range instances {
+		id, _ := inst["id"].(string)
+		status, _ := inst["status"].(string)
+		if id == "abc-123" {
+			if status != "running" {
+				t.Errorf("Session abc-123 status = %q, want %q", status, "running")
+			}
+		}
+		if id == "def-456" {
+			if status != "idle" {
+				t.Errorf("Session def-456 status should be unchanged (idle), got %q", status)
+			}
+		}
+	}
+}
+
+// TestUpdateSessionStatus_SessionNotFound verifies that UpdateSessionStatus
+// returns an error when the session ID doesn't exist in sessions.json.
+func TestUpdateSessionStatus_SessionNotFound(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	sessionsDir := filepath.Join(tmpHome, ".agent-deck", "profiles", "default")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions dir: %v", err)
+	}
+
+	sessionsJSON := `{
+  "instances": [
+    {"id": "abc-123", "title": "Test", "status": "error"}
+  ]
+}`
+	sessionsPath := filepath.Join(sessionsDir, "sessions.json")
+	if err := os.WriteFile(sessionsPath, []byte(sessionsJSON), 0600); err != nil {
+		t.Fatalf("Failed to write sessions.json: %v", err)
+	}
+
+	tm := NewTmuxManager()
+	err := tm.UpdateSessionStatus("nonexistent-id", "running")
+	if err == nil {
+		t.Error("UpdateSessionStatus should return error for nonexistent session ID")
+	}
+	if err != nil && !strings.Contains(err.Error(), "session not found") {
+		t.Errorf("Error should mention 'session not found', got: %v", err)
+	}
+}
+
+// TestUpdateSessionStatus_PreservesOtherFields verifies that UpdateSessionStatus
+// only modifies the status field and preserves all other session data.
+func TestUpdateSessionStatus_PreservesOtherFields(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	sessionsDir := filepath.Join(tmpHome, ".agent-deck", "profiles", "default")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions dir: %v", err)
+	}
+
+	// Include extra fields that should be preserved
+	sessionsJSON := `{
+  "instances": [
+    {
+      "id": "abc-123",
+      "title": "Test Session",
+      "status": "error",
+      "tool": "claude",
+      "project_path": "/tmp/test",
+      "remote_host": "dev-server",
+      "claude_session_id": "session-xyz"
+    }
+  ],
+  "version": "1.0"
+}`
+	sessionsPath := filepath.Join(sessionsDir, "sessions.json")
+	if err := os.WriteFile(sessionsPath, []byte(sessionsJSON), 0600); err != nil {
+		t.Fatalf("Failed to write sessions.json: %v", err)
+	}
+
+	tm := NewTmuxManager()
+	if err := tm.UpdateSessionStatus("abc-123", "running"); err != nil {
+		t.Fatalf("UpdateSessionStatus failed: %v", err)
+	}
+
+	// Read back and verify all fields preserved
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		t.Fatalf("Failed to read sessions.json: %v", err)
+	}
+
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
+	}
+
+	// Top-level "version" key should be preserved
+	if string(result["version"]) != `"1.0"` {
+		t.Errorf("Top-level 'version' field not preserved, got: %s", string(result["version"]))
+	}
+
+	var instances []map[string]interface{}
+	if err := json.Unmarshal(result["instances"], &instances); err != nil {
+		t.Fatalf("Failed to parse instances: %v", err)
+	}
+
+	inst := instances[0]
+	if inst["title"] != "Test Session" {
+		t.Errorf("title not preserved: %v", inst["title"])
+	}
+	if inst["tool"] != "claude" {
+		t.Errorf("tool not preserved: %v", inst["tool"])
+	}
+	if inst["project_path"] != "/tmp/test" {
+		t.Errorf("project_path not preserved: %v", inst["project_path"])
+	}
+	if inst["remote_host"] != "dev-server" {
+		t.Errorf("remote_host not preserved: %v", inst["remote_host"])
+	}
+	if inst["claude_session_id"] != "session-xyz" {
+		t.Errorf("claude_session_id not preserved: %v", inst["claude_session_id"])
+	}
+	if inst["status"] != "running" {
+		t.Errorf("status should be updated to running, got: %v", inst["status"])
+	}
+}
+
+// TestUpdateSessionStatus_AtomicWrite verifies that if a .tmp file exists from
+// a previous failed write, UpdateSessionStatus still succeeds (overwrites it).
+func TestUpdateSessionStatus_AtomicWrite(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	sessionsDir := filepath.Join(tmpHome, ".agent-deck", "profiles", "default")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions dir: %v", err)
+	}
+
+	sessionsJSON := `{"instances": [{"id": "abc-123", "status": "error"}]}`
+	sessionsPath := filepath.Join(sessionsDir, "sessions.json")
+	if err := os.WriteFile(sessionsPath, []byte(sessionsJSON), 0600); err != nil {
+		t.Fatalf("Failed to write sessions.json: %v", err)
+	}
+
+	// Create a stale .tmp file
+	tmpPath := sessionsPath + ".tmp"
+	if err := os.WriteFile(tmpPath, []byte("stale data"), 0600); err != nil {
+		t.Fatalf("Failed to write stale .tmp file: %v", err)
+	}
+
+	tm := NewTmuxManager()
+	if err := tm.UpdateSessionStatus("abc-123", "running"); err != nil {
+		t.Fatalf("UpdateSessionStatus should succeed even with stale .tmp file: %v", err)
+	}
+
+	// Verify the .tmp file is gone (renamed to sessions.json)
+	if _, err := os.Stat(tmpPath); !os.IsNotExist(err) {
+		t.Error("Stale .tmp file should be cleaned up after successful write")
+	}
+
+	// Verify the result
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		t.Fatalf("Failed to read sessions.json: %v", err)
+	}
+	if !strings.Contains(string(data), `"running"`) {
+		t.Error("sessions.json should contain updated status 'running'")
 	}
 }
 

@@ -1619,6 +1619,7 @@ func (h *Home) runRemoteDiscovery() {
 	if len(remoteInstances) > 0 {
 		statusUpdated := 0
 		for _, inst := range remoteInstances {
+			inst.ClearErrorLockout() // Discovery just refreshed remote cache
 			oldStatus := inst.Status
 			if err := inst.UpdateStatus(); err == nil && inst.Status != oldStatus {
 				statusUpdated++
@@ -2383,6 +2384,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Acknowledgment was already done on attach (if session was waiting),
 		// so this just refreshes the display with current busy indicator state.
 		h.triggerStatusUpdate()
+		h.triggerRemoteDiscovery() // Force immediate remote status refresh
 
 		// Skip save during reload to avoid overwriting external changes (CLI)
 		h.reloadMu.Lock()

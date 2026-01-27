@@ -161,6 +161,19 @@ func (a *App) AttachSession(sessionID, tmuxSession string, cols, rows int) error
 	return t.AttachTmux(tmuxSession, cols, rows)
 }
 
+// emitRunningStatus persists "running" status to sessions.json and emits
+// an event so the frontend updates immediately. Used after successfully
+// attaching to both local and remote tmux sessions.
+func (a *App) emitRunningStatus(sessionID string) {
+	if err := a.tmux.UpdateSessionStatus(sessionID, "running"); err != nil {
+		fmt.Printf("Warning: failed to update session status: %v\n", err)
+	}
+	wailsRuntime.EventsEmit(a.ctx, "session:statusUpdate", map[string]string{
+		"sessionId": sessionID,
+		"status":    "running",
+	})
+}
+
 // StartTmuxSession connects to a tmux session using the hybrid approach:
 // 1. Fetches and emits sanitized history via terminal:history event
 // 2. Attaches PTY for live streaming
@@ -170,7 +183,12 @@ func (a *App) AttachSession(sessionID, tmuxSession string, cols, rows int) error
 // The sessionID is used to identify which pane/terminal this belongs to.
 func (a *App) StartTmuxSession(sessionID, tmuxSession string, cols, rows int) error {
 	t := a.terminals.GetOrCreate(sessionID)
-	return t.StartTmuxSession(tmuxSession, cols, rows)
+	if err := t.StartTmuxSession(tmuxSession, cols, rows); err != nil {
+		return err
+	}
+
+	a.emitRunningStatus(sessionID)
+	return nil
 }
 
 // StartRemoteTmuxSession connects to a tmux session on a remote host via SSH.
@@ -186,7 +204,12 @@ func (a *App) StartTmuxSession(sessionID, tmuxSession string, cols, rows int) er
 //   - cols, rows: initial terminal dimensions
 func (a *App) StartRemoteTmuxSession(sessionID, hostID, tmuxSession, projectPath, tool string, cols, rows int) error {
 	t := a.terminals.GetOrCreate(sessionID)
-	return t.StartRemoteTmuxSession(hostID, tmuxSession, projectPath, tool, cols, rows, a.tmux, a.sshBridge)
+	if err := t.StartRemoteTmuxSession(hostID, tmuxSession, projectPath, tool, cols, rows, a.tmux, a.sshBridge); err != nil {
+		return err
+	}
+
+	a.emitRunningStatus(sessionID)
+	return nil
 }
 
 // GetScrollback returns the scrollback buffer for a tmux session.
@@ -298,6 +321,12 @@ func (a *App) UpdateQuickLaunchFavoriteName(path, name string) error {
 // Call this when a user selects/opens a session to keep the list sorted by recency.
 func (a *App) MarkSessionAccessed(sessionID string) error {
 	return a.tmux.MarkSessionAccessed(sessionID)
+}
+
+// UpdateSessionStatus updates the status field for a session in sessions.json.
+// Used by the terminal to persist status changes (e.g., "running" on successful attach).
+func (a *App) UpdateSessionStatus(sessionID, status string) error {
+	return a.tmux.UpdateSessionStatus(sessionID, status)
 }
 
 // UpdateSessionCustomLabel updates the custom label for a session.
