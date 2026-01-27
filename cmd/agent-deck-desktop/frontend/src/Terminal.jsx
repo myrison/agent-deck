@@ -577,8 +577,13 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // ============================================================
 
         // Track terminal focus for multi-pane paste filtering
-        const focusDisposable = term.onFocus(() => { isFocusedRef.current = true; });
-        const blurDisposable = term.onBlur(() => { isFocusedRef.current = false; });
+        // xterm.js v6 removed onFocus/onBlur — use native DOM events on the textarea
+        const handleTermFocus = () => { isFocusedRef.current = true; };
+        const handleTermBlur = () => { isFocusedRef.current = false; };
+        if (term.textarea) {
+            term.textarea.addEventListener('focus', handleTermFocus);
+            term.textarea.addEventListener('blur', handleTermBlur);
+        }
 
         // Handle paste from menu (Cmd+V triggers Go callback which emits this)
         const handleMenuPaste = (text) => {
@@ -895,8 +900,10 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             scrollDisposable.dispose();
             dataDisposable.dispose();
             selectionDisposable.dispose();
-            focusDisposable.dispose();
-            blurDisposable.dispose();
+            if (term.textarea) {
+                term.textarea.removeEventListener('focus', handleTermFocus);
+                term.textarea.removeEventListener('blur', handleTermBlur);
+            }
             if (customKeyHandler) customKeyHandler.dispose();
             // Clean up mouse mode parser handlers
             if (enableHandler) enableHandler.dispose();
