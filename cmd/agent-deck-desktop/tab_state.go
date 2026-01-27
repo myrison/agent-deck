@@ -45,9 +45,47 @@ func NewTabStateManager() *TabStateManager {
 	}
 }
 
-// withTabFileLock executes fn while holding an exclusive lock on the tab state file.
-// This ensures cross-process safety when multiple windows manipulate tab state.
-func (m *TabStateManager) withTabFileLock(fn func(state *TabStateFile) error) error {
+// readTabState reads the tab state file under a shared lock (allows concurrent readers).
+func (m *TabStateManager) readTabState(fn func(state *TabStateFile) error) error {
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(m.filePath), 0700); err != nil {
+		return fmt.Errorf("failed to create tab state directory: %w", err)
+	}
+
+	// Open or create file (O_RDONLY would fail on non-existent; use RDWR|CREATE for consistency)
+	f, err := os.OpenFile(m.filePath, os.O_RDWR|os.O_CREATE, 0600)
+	if err != nil {
+		return fmt.Errorf("failed to open tab state: %w", err)
+	}
+	defer f.Close()
+
+	// Acquire shared lock (allows concurrent readers)
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH); err != nil {
+		return fmt.Errorf("failed to lock tab state: %w", err)
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+
+	// Read current state
+	state := &TabStateFile{
+		Windows: map[string]WindowTabState{},
+	}
+
+	decoder := json.NewDecoder(f)
+	if err := decoder.Decode(state); err != nil {
+		if err != io.EOF {
+			log.Printf("warning: failed to parse tab state, using defaults: %v", err)
+		}
+	}
+
+	if state.Windows == nil {
+		state.Windows = map[string]WindowTabState{}
+	}
+
+	return fn(state)
+}
+
+// writeTabState reads, mutates, and writes back the tab state file under an exclusive lock.
+func (m *TabStateManager) writeTabState(fn func(state *TabStateFile) error) error {
 	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(m.filePath), 0700); err != nil {
 		return fmt.Errorf("failed to create tab state directory: %w", err)
@@ -104,7 +142,7 @@ func (m *TabStateManager) withTabFileLock(fn func(state *TabStateFile) error) er
 func (m *TabStateManager) GetTabState(windowNum int) (*WindowTabState, error) {
 	var result *WindowTabState
 
-	err := m.withTabFileLock(func(state *TabStateFile) error {
+	err := m.readTabState(func(state *TabStateFile) error {
 		key := fmt.Sprintf("%d", windowNum)
 		if ws, ok := state.Windows[key]; ok {
 			result = &ws
@@ -117,7 +155,7 @@ func (m *TabStateManager) GetTabState(windowNum int) (*WindowTabState, error) {
 
 // SaveTabState persists the tab state for a given window number.
 func (m *TabStateManager) SaveTabState(windowNum int, state WindowTabState) error {
-	return m.withTabFileLock(func(file *TabStateFile) error {
+	return m.writeTabState(func(file *TabStateFile) error {
 		state.SavedAt = time.Now().Unix()
 		key := fmt.Sprintf("%d", windowNum)
 		file.Windows[key] = state

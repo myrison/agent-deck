@@ -326,7 +326,6 @@ function App() {
     // Debounced save of open tab state whenever tabs change
     useEffect(() => {
         if (!tabsRestoredRef.current) return; // Don't save before restore completes
-        if (openTabs.length === 0) return;    // Don't persist empty state
 
         const timer = setTimeout(() => {
             const tabs = openTabs.map(tab => ({
