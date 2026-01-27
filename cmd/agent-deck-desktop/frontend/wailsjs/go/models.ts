@@ -283,6 +283,44 @@ export namespace main {
 		}
 	}
 	
+	export class SavedTab {
+	    id: string;
+	    name: string;
+	    layout?: SavedLayoutNode;
+	    activePaneId: string;
+	    openedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SavedTab(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.layout = this.convertValues(source["layout"], SavedLayoutNode);
+	        this.activePaneId = source["activePaneId"];
+	        this.openedAt = source["openedAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class SessionInfo {
 	    id: string;
 	    title: string;
@@ -381,6 +419,40 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sessions = this.convertValues(source["sessions"], SessionInfo);
 	        this.groups = this.convertValues(source["groups"], GroupInfo);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class WindowTabState {
+	    activeTabId: string;
+	    tabs: SavedTab[];
+	    savedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new WindowTabState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.activeTabId = source["activeTabId"];
+	        this.tabs = this.convertValues(source["tabs"], SavedTab);
+	        this.savedAt = source["savedAt"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
