@@ -199,7 +199,6 @@ func TestDeadProcess_IsCleanedUp_OnNextRegistration(t *testing.T) {
 
 	// Seed initial state with a dead process window
 	initialState := WindowState{
-		NextWindowNumber: 5,
 		ActiveWindows: map[string]WindowInfo{
 			"2": {PID: deadPID},
 			"3": {PID: alivePID},
@@ -216,8 +215,7 @@ func TestDeadProcess_IsCleanedUp_OnNextRegistration(t *testing.T) {
 	}
 
 	// BEHAVIOR: Verify cleanup through subsequent allocation behavior
-	// If dead window 2 was cleaned up, allocating should NOT skip over it
-	// (though numbers don't get recycled, the cleanup prevents state bloat)
+	// If dead window 2 was cleaned up, its number becomes available for reuse
 
 	// The observable behavior we care about: registration succeeded
 	// and alive windows are preserved (tested via next window registration)
@@ -241,81 +239,65 @@ func TestDeadProcess_IsCleanedUp_OnNextRegistration(t *testing.T) {
 }
 
 // =============================================================================
-// BEHAVIORAL TESTS: Monotonicity (prevents number collisions after restart)
+// BEHAVIORAL TESTS: Gap-filling (numbers stay compact across sessions)
 // =============================================================================
 
-func TestHighWindowNumber_UpdatesNextAllocation(t *testing.T) {
+func TestAllocation_FillsGaps_WhenWindowsClosed(t *testing.T) {
 	cleanup := setupTestHooks(t)
 	defer cleanup()
 
-	// Simulate a window from previous session with high number
-	getEnvVar = func(key string) string {
-		if key == "REVDEN_WINDOW_NUM" {
-			return "50"
-		}
-		return ""
-	}
-
-	windowNum, err := registerWindow()
+	// Allocate windows 2 and 3
+	num1, err := allocateNextWindowNumber()
 	if err != nil {
-		t.Fatalf("registerWindow failed: %v", err)
+		t.Fatalf("First allocation failed: %v", err)
 	}
-	if windowNum != 50 {
-		t.Errorf("Expected window 50, got %d", windowNum)
+	if num1 != 2 {
+		t.Errorf("First allocation should be 2, got %d", num1)
 	}
 
-	// BEHAVIOR: Next allocation must be > 50 to prevent collision
-	getEnvVar = func(key string) string { return "" }
-
-	nextNum, err := allocateNextWindowNumber()
+	num2, err := allocateNextWindowNumber()
 	if err != nil {
-		t.Fatalf("allocateNextWindowNumber failed: %v", err)
+		t.Fatalf("Second allocation failed: %v", err)
+	}
+	if num2 != 3 {
+		t.Errorf("Second allocation should be 3, got %d", num2)
 	}
 
-	if nextNum <= 50 {
-		t.Errorf("Next allocation should be > 50 to prevent collision, got %d", nextNum)
+	// Close window 2
+	unregisterWindow(2)
+
+	// BEHAVIOR: Next allocation should reuse 2 (lowest gap)
+	num3, err := allocateNextWindowNumber()
+	if err != nil {
+		t.Fatalf("Third allocation failed: %v", err)
+	}
+	if num3 != 2 {
+		t.Errorf("Should reuse closed window number 2, got %d", num3)
 	}
 }
 
-func TestMultipleHighWindows_MaintainMonotonicity(t *testing.T) {
+func TestAllocation_SkipsOccupied_FindsFirstGap(t *testing.T) {
 	cleanup := setupTestHooks(t)
 	defer cleanup()
 
-	// Register windows in non-sequential order
-	windowNumbers := []int{5, 100, 3, 50, 200}
-	for i, num := range windowNumbers {
-		getCurrentPID = func() int { return 1000 + i }
-		getEnvVar = func(key string) string {
-			if key == "REVDEN_WINDOW_NUM" {
-				return string(rune('0'+num/100)) + string(rune('0'+(num/10)%10)) + string(rune('0'+num%10))
-			}
-			return ""
-		}
-		// Use proper string formatting
-		getEnvVar = func(n int) func(string) string {
-			return func(key string) string {
-				if key == "REVDEN_WINDOW_NUM" {
-					return formatInt(n)
-				}
-				return ""
-			}
-		}(num)
-
-		_, err := registerWindow()
-		if err != nil {
-			t.Fatalf("registerWindow for %d failed: %v", num, err)
-		}
+	// Seed state with windows 2 and 3 occupied, but not 4
+	initialState := WindowState{
+		ActiveWindows: map[string]WindowInfo{
+			"2": {PID: 2000},
+			"3": {PID: 3000},
+		},
 	}
+	data, _ := json.Marshal(initialState)
+	os.MkdirAll(filepath.Dir(getStatePath()), 0755)
+	os.WriteFile(getStatePath(), data, 0644)
 
-	// BEHAVIOR: Next allocation must be > max(all registered numbers)
-	getEnvVar = func(key string) string { return "" }
-	nextNum, err := allocateNextWindowNumber()
+	// BEHAVIOR: Should allocate 4 (first available after 2 and 3)
+	num, err := allocateNextWindowNumber()
 	if err != nil {
-		t.Fatalf("allocateNextWindowNumber failed: %v", err)
+		t.Fatalf("Allocation failed: %v", err)
 	}
-
-	if nextNum <= 200 {
-		t.Errorf("Next allocation should be > 200 (highest registered), got %d", nextNum)
+	if num != 4 {
+		t.Errorf("Should allocate 4 (first gap after 2,3), got %d", num)
 	}
 }
 
@@ -544,18 +526,17 @@ func TestFullWorkflow_OpenCloseReopenWindows(t *testing.T) {
 		t.Fatalf("Third allocation failed: %v", err)
 	}
 
-	// CRITICAL BEHAVIOR: Should get 3, not 2
-	// Even though window 2 was closed, we don't recycle numbers
-	// This prevents race conditions and title bar confusion
-	if thirdNum != 3 {
-		t.Errorf("Third window should be 3 (no number recycling), got %d", thirdNum)
+	// CRITICAL BEHAVIOR: Should get 2, reusing the closed window's number
+	// Gap-filling keeps numbers compact and intuitive
+	if thirdNum != 2 {
+		t.Errorf("Third window should reuse number 2 (gap-filling), got %d", thirdNum)
 	}
 
 	// Register the third window
 	getCurrentPID = func() int { return 1003 }
 	getEnvVar = func(key string) string {
 		if key == "REVDEN_WINDOW_NUM" {
-			return "3"
+			return "2"
 		}
 		return ""
 	}
@@ -564,7 +545,7 @@ func TestFullWorkflow_OpenCloseReopenWindows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Third registration failed: %v", err)
 	}
-	if finalNum != 3 {
-		t.Errorf("Final window should be 3, got %d", finalNum)
+	if finalNum != 2 {
+		t.Errorf("Final window should be 2, got %d", finalNum)
 	}
 }

@@ -29,8 +29,7 @@ type WindowInfo struct {
 
 // WindowState tracks all active window instances across processes.
 type WindowState struct {
-	NextWindowNumber int                   `json:"nextWindowNumber"`
-	ActiveWindows    map[string]WindowInfo `json:"activeWindows"`
+	ActiveWindows map[string]WindowInfo `json:"activeWindows"`
 }
 
 // defaultGetStatePath returns the path to the window state file.
@@ -69,8 +68,7 @@ func withFileLock(fn func(state *WindowState) error) error {
 
 	// Read current state
 	state := &WindowState{
-		NextWindowNumber: 2, // First secondary window is 2
-		ActiveWindows:    make(map[string]WindowInfo),
+		ActiveWindows: make(map[string]WindowInfo),
 	}
 
 	// Try to decode existing state
@@ -121,10 +119,7 @@ func registerWindow() (int, error) {
 		// Check if we were passed a window number via env
 		if envNum := getEnvVar("REVDEN_WINDOW_NUM"); envNum != "" {
 			if n, err := fmt.Sscanf(envNum, "%d", &windowNum); err == nil && n == 1 && windowNum > 0 {
-				// Use the assigned number and keep NextWindowNumber monotonic
-				if windowNum >= state.NextWindowNumber {
-					state.NextWindowNumber = windowNum + 1
-				}
+				// Use the assigned number
 			} else {
 				windowNum = 1 // Default to primary (invalid or non-positive numbers)
 			}
@@ -146,25 +141,34 @@ func registerWindow() (int, error) {
 
 // allocateNextWindowNumber reserves the next window number for spawning.
 // Called before launching a new window process.
+// Uses gap-filling: finds the lowest unused number starting from 2,
+// so window numbers stay compact (2, 3, 4...) across sessions.
 func allocateNextWindowNumber() (int, error) {
 	var nextNum int
 
 	err := withFileLock(func(state *WindowState) error {
-		// Clean up dead windows to prevent unbounded number growth
+		// Clean up dead windows first
 		for numStr, info := range state.ActiveWindows {
 			if !checkProcessExists(info.PID) {
 				delete(state.ActiveWindows, numStr)
 			}
 		}
 
-		// Reset counter if no active windows AND counter is unreasonably high
-		// This prevents unbounded growth after many app restart cycles
-		if len(state.ActiveWindows) == 0 && state.NextWindowNumber > 100 {
-			state.NextWindowNumber = 2
+		// Find the lowest available number starting from 2
+		for candidate := 2; ; candidate++ {
+			key := fmt.Sprintf("%d", candidate)
+			if _, exists := state.ActiveWindows[key]; !exists {
+				nextNum = candidate
+				// Reserve this number so concurrent allocations don't collide.
+				// The child process overwrites with its real PID on registration.
+				state.ActiveWindows[key] = WindowInfo{
+					PID:       getCurrentPID(),
+					StartedAt: time.Now(),
+				}
+				break
+			}
 		}
 
-		nextNum = state.NextWindowNumber
-		state.NextWindowNumber++
 		return nil
 	})
 
