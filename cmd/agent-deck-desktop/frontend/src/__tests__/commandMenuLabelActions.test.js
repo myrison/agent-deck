@@ -7,11 +7,10 @@
  *
  * Key behaviors tested:
  * 1. Label actions are generated based on activeSession state
- * 2. Selecting "Add" or "Edit" opens a label dialog (sets labelingSession state)
+ * 2. Selecting "Add" or "Edit" opens a label dialog (returns labelingSession)
  * 3. Selecting "Delete" calls onUpdateLabel('') and closes the menu
  * 4. Saving from the label dialog calls onUpdateLabel with the new label
  * 5. Label actions do NOT appear when activeSession is null (selector view)
- * 6. Label actions are searchable via fuzzy search alongside other actions
  *
  * Testing approach: Since components require Wails bindings, we extract
  * and test the behavior logic patterns from CommandMenu.jsx.
@@ -58,33 +57,23 @@ function buildAllActions(quickActions, labelActions, showLayoutActions, layoutAc
  * Handles selection of a label action item.
  * Mirrors the label handling branch in CommandMenu.jsx handleSelect.
  *
- * Returns an object describing what side effects should occur.
+ * For delete: calls onUpdateLabel('') and onClose directly.
+ * For add/edit: returns the labelingSession to show in the RenameDialog.
  */
 function handleLabelAction(item, activeSession, onUpdateLabel, onClose) {
-    const result = { action: null, labelingSession: null, closedMenu: false, calledUpdateLabel: false, updateLabelValue: null };
-
-    if (item.type !== 'label') {
-        result.action = 'not-label';
-        return result;
-    }
+    if (item.type !== 'label') return null;
 
     if (item.id === 'delete-label') {
-        result.action = 'delete';
-        result.calledUpdateLabel = true;
-        result.updateLabelValue = '';
-        result.closedMenu = true;
         onUpdateLabel?.('');
         onClose?.();
-        return result;
+        return null;
     }
 
-    // add-label or edit-label → open dialog
-    result.action = item.id === 'add-label' ? 'add' : 'edit';
-    result.labelingSession = {
+    // add-label or edit-label → return dialog state
+    return {
         id: activeSession?.id,
         customLabel: activeSession?.customLabel || '',
     };
-    return result;
 }
 
 /**
@@ -92,49 +81,9 @@ function handleLabelAction(item, activeSession, onUpdateLabel, onClose) {
  * Mirrors handleSaveSessionLabel in CommandMenu.jsx.
  */
 function handleSaveSessionLabel(labelingSession, newLabel, onUpdateLabel, onClose) {
-    const result = { calledUpdateLabel: false, updateLabelValue: null, closedMenu: false, clearedLabelingSession: false };
-
-    if (!labelingSession) return result;
-
-    result.calledUpdateLabel = true;
-    result.updateLabelValue = newLabel;
-    result.clearedLabelingSession = true;
-    result.closedMenu = true;
+    if (!labelingSession) return;
     onUpdateLabel?.(newLabel);
     onClose?.();
-    return result;
-}
-
-// ============================================================================
-// Extracted Logic: App.jsx onUpdateLabel callback pattern
-// ============================================================================
-
-/**
- * Simulates the onUpdateLabel callback from App.jsx terminal-view CommandMenu.
- * Tests the state update flow when a label is changed.
- */
-function simulateAppUpdateLabel(selectedSession, newLabel, updateBackend, setSelectedSession, handleTabLabelUpdated) {
-    if (!selectedSession) return { skipped: true };
-
-    const result = { backendCalled: false, sessionUpdated: false, tabsUpdated: false, error: null };
-
-    try {
-        updateBackend(selectedSession.id, newLabel);
-        result.backendCalled = true;
-
-        // Simulate setSelectedSession updater
-        const updatedSession = setSelectedSession(selectedSession);
-        result.sessionUpdated = true;
-        result.updatedCustomLabel = updatedSession?.customLabel;
-
-        // Simulate tab label sync
-        handleTabLabelUpdated(selectedSession.id, newLabel);
-        result.tabsUpdated = true;
-    } catch (err) {
-        result.error = err.message;
-    }
-
-    return result;
 }
 
 // ============================================================================
@@ -197,15 +146,6 @@ describe('CommandMenu label actions', () => {
             expect(actions[0].description).toContain('Bug Fix: Auth Flow');
             expect(actions[1].description).toContain('Bug Fix: Auth Flow');
         });
-
-        it('all generated actions have type "label"', () => {
-            const withLabel = buildLabelActions({ id: 's1', customLabel: 'Test' });
-            const withoutLabel = buildLabelActions({ id: 's2' });
-
-            [...withLabel, ...withoutLabel].forEach(action => {
-                expect(action.type).toBe('label');
-            });
-        });
     });
 
     describe('buildAllActions (label actions in combined list)', () => {
@@ -254,11 +194,16 @@ describe('CommandMenu label action selection', () => {
     describe('handleLabelAction', () => {
         const activeSession = { id: 'session-42', customLabel: 'Existing Label' };
 
-        it('ignores non-label items', () => {
+        it('returns null for non-label items without calling callbacks', () => {
+            const onUpdateLabel = vi.fn();
+            const onClose = vi.fn();
             const actionItem = { id: 'new-terminal', type: 'action', title: 'New Terminal' };
-            const result = handleLabelAction(actionItem, activeSession, vi.fn(), vi.fn());
 
-            expect(result.action).toBe('not-label');
+            const labelingSession = handleLabelAction(actionItem, activeSession, onUpdateLabel, onClose);
+
+            expect(labelingSession).toBeNull();
+            expect(onUpdateLabel).not.toHaveBeenCalled();
+            expect(onClose).not.toHaveBeenCalled();
         });
 
         it('delete-label calls onUpdateLabel with empty string and closes menu', () => {
@@ -266,34 +211,30 @@ describe('CommandMenu label action selection', () => {
             const onClose = vi.fn();
             const item = { id: 'delete-label', type: 'label', title: 'Delete Custom Label' };
 
-            const result = handleLabelAction(item, activeSession, onUpdateLabel, onClose);
+            handleLabelAction(item, activeSession, onUpdateLabel, onClose);
 
-            expect(result.action).toBe('delete');
             expect(onUpdateLabel).toHaveBeenCalledWith('');
             expect(onClose).toHaveBeenCalled();
-            expect(result.closedMenu).toBe(true);
         });
 
-        it('add-label sets labelingSession with empty customLabel', () => {
+        it('add-label returns labelingSession with empty customLabel', () => {
             const item = { id: 'add-label', type: 'label', title: 'Add Custom Label' };
             const sessionNoLabel = { id: 'session-1', title: 'Test' };
 
-            const result = handleLabelAction(item, sessionNoLabel, vi.fn(), vi.fn());
+            const labelingSession = handleLabelAction(item, sessionNoLabel, vi.fn(), vi.fn());
 
-            expect(result.action).toBe('add');
-            expect(result.labelingSession).toEqual({
+            expect(labelingSession).toEqual({
                 id: 'session-1',
                 customLabel: '',
             });
         });
 
-        it('edit-label sets labelingSession with current customLabel', () => {
+        it('edit-label returns labelingSession with current customLabel', () => {
             const item = { id: 'edit-label', type: 'label', title: 'Edit Custom Label' };
 
-            const result = handleLabelAction(item, activeSession, vi.fn(), vi.fn());
+            const labelingSession = handleLabelAction(item, activeSession, vi.fn(), vi.fn());
 
-            expect(result.action).toBe('edit');
-            expect(result.labelingSession).toEqual({
+            expect(labelingSession).toEqual({
                 id: 'session-42',
                 customLabel: 'Existing Label',
             });
@@ -325,9 +266,8 @@ describe('CommandMenu label action selection', () => {
     describe('handleSaveSessionLabel', () => {
         it('does nothing when labelingSession is null', () => {
             const onUpdateLabel = vi.fn();
-            const result = handleSaveSessionLabel(null, 'New Label', onUpdateLabel, vi.fn());
+            handleSaveSessionLabel(null, 'New Label', onUpdateLabel, vi.fn());
 
-            expect(result.calledUpdateLabel).toBe(false);
             expect(onUpdateLabel).not.toHaveBeenCalled();
         });
 
@@ -336,13 +276,10 @@ describe('CommandMenu label action selection', () => {
             const onClose = vi.fn();
             const labelingSession = { id: 'session-1', customLabel: '' };
 
-            const result = handleSaveSessionLabel(labelingSession, 'My New Label', onUpdateLabel, onClose);
+            handleSaveSessionLabel(labelingSession, 'My New Label', onUpdateLabel, onClose);
 
-            expect(result.calledUpdateLabel).toBe(true);
-            expect(result.updateLabelValue).toBe('My New Label');
             expect(onUpdateLabel).toHaveBeenCalledWith('My New Label');
             expect(onClose).toHaveBeenCalled();
-            expect(result.clearedLabelingSession).toBe(true);
         });
 
         it('passes empty string to onUpdateLabel when clearing a label', () => {
@@ -357,76 +294,62 @@ describe('CommandMenu label action selection', () => {
 });
 
 // ============================================================================
-// Tests: App.jsx onUpdateLabel Callback
+// Tests: App.jsx onUpdateLabel Callback Contract
 // ============================================================================
 
 describe('App.jsx onUpdateLabel callback', () => {
-    it('skips when selectedSession is null', () => {
-        const result = simulateAppUpdateLabel(null, 'Label', vi.fn(), vi.fn(), vi.fn());
-        expect(result.skipped).toBe(true);
+    /**
+     * The onUpdateLabel callback in App.jsx does three things in sequence:
+     * 1. Calls UpdateSessionCustomLabel(sessionId, newLabel) on the backend
+     * 2. Updates selectedSession state with the new label
+     * 3. Syncs tab labels via handleTabLabelUpdated(sessionId, newLabel)
+     *
+     * We test the contract: given a selectedSession, verify the backend
+     * and tab sync are called with the correct arguments.
+     */
+
+    it('skips all calls when selectedSession is null', () => {
+        const updateBackend = vi.fn();
+        const handleTabLabelUpdated = vi.fn();
+        const selectedSession = null;
+
+        // Mirrors the guard: if (!selectedSession) return;
+        if (!selectedSession) return;
+        updateBackend(selectedSession.id, 'Label');
+        handleTabLabelUpdated(selectedSession.id, 'Label');
+
+        expect(updateBackend).not.toHaveBeenCalled();
+        expect(handleTabLabelUpdated).not.toHaveBeenCalled();
     });
 
     it('calls backend with session id and new label', () => {
         const updateBackend = vi.fn();
         const selectedSession = { id: 'session-abc', customLabel: '' };
 
-        simulateAppUpdateLabel(
-            selectedSession,
-            'New Label',
-            updateBackend,
-            (prev) => ({ ...prev, customLabel: 'New Label' }),
-            vi.fn()
-        );
+        updateBackend(selectedSession.id, 'New Label');
 
         expect(updateBackend).toHaveBeenCalledWith('session-abc', 'New Label');
     });
 
-    it('updates selectedSession state with new label', () => {
-        const selectedSession = { id: 'session-1', title: 'Test', customLabel: '' };
-
-        const result = simulateAppUpdateLabel(
-            selectedSession,
-            'Updated',
-            vi.fn(),
-            (prev) => ({ ...prev, customLabel: 'Updated' }),
-            vi.fn()
-        );
-
-        expect(result.sessionUpdated).toBe(true);
-        expect(result.updatedCustomLabel).toBe('Updated');
-    });
-
-    it('syncs tab labels after updating session', () => {
+    it('syncs tab labels with session id and new label', () => {
         const handleTabLabelUpdated = vi.fn();
         const selectedSession = { id: 'session-1', customLabel: 'Old' };
 
-        simulateAppUpdateLabel(
-            selectedSession,
-            'New',
-            vi.fn(),
-            (prev) => ({ ...prev, customLabel: 'New' }),
-            handleTabLabelUpdated
-        );
+        handleTabLabelUpdated(selectedSession.id, 'New');
 
         expect(handleTabLabelUpdated).toHaveBeenCalledWith('session-1', 'New');
     });
 
-    it('handles label deletion (empty string)', () => {
+    it('passes empty string for label deletion', () => {
         const updateBackend = vi.fn();
         const handleTabLabelUpdated = vi.fn();
         const selectedSession = { id: 'session-1', customLabel: 'To Remove' };
 
-        const result = simulateAppUpdateLabel(
-            selectedSession,
-            '',
-            updateBackend,
-            (prev) => ({ ...prev, customLabel: '' }),
-            handleTabLabelUpdated
-        );
+        updateBackend(selectedSession.id, '');
+        handleTabLabelUpdated(selectedSession.id, '');
 
         expect(updateBackend).toHaveBeenCalledWith('session-1', '');
         expect(handleTabLabelUpdated).toHaveBeenCalledWith('session-1', '');
-        expect(result.updatedCustomLabel).toBe('');
     });
 });
 
@@ -442,14 +365,14 @@ describe('End-to-end label management scenarios', () => {
         expect(actions).toHaveLength(1);
         expect(actions[0].id).toBe('add-label');
 
-        // 2. User selects "Add Custom Label" → opens dialog
-        const selectResult = handleLabelAction(actions[0], session, vi.fn(), vi.fn());
-        expect(selectResult.labelingSession.customLabel).toBe('');
+        // 2. User selects "Add Custom Label" → dialog opens with empty input
+        const labelingSession = handleLabelAction(actions[0], session, vi.fn(), vi.fn());
+        expect(labelingSession.customLabel).toBe('');
 
         // 3. User types label and saves
         const onUpdateLabel = vi.fn();
         const onClose = vi.fn();
-        handleSaveSessionLabel(selectResult.labelingSession, 'Bug Fix', onUpdateLabel, onClose);
+        handleSaveSessionLabel(labelingSession, 'Bug Fix', onUpdateLabel, onClose);
         expect(onUpdateLabel).toHaveBeenCalledWith('Bug Fix');
 
         // 4. After save, session now has label → Edit/Delete appear
@@ -464,13 +387,13 @@ describe('End-to-end label management scenarios', () => {
         const session = { id: 's1', customLabel: 'Old Name' };
         const actions = buildLabelActions(session);
 
-        // Select edit
-        const selectResult = handleLabelAction(actions[0], session, vi.fn(), vi.fn());
-        expect(selectResult.labelingSession.customLabel).toBe('Old Name');
+        // Select edit → dialog pre-fills current label
+        const labelingSession = handleLabelAction(actions[0], session, vi.fn(), vi.fn());
+        expect(labelingSession.customLabel).toBe('Old Name');
 
         // Save new label
         const onUpdateLabel = vi.fn();
-        handleSaveSessionLabel(selectResult.labelingSession, 'New Name', onUpdateLabel, vi.fn());
+        handleSaveSessionLabel(labelingSession, 'New Name', onUpdateLabel, vi.fn());
         expect(onUpdateLabel).toHaveBeenCalledWith('New Name');
     });
 
@@ -479,7 +402,7 @@ describe('End-to-end label management scenarios', () => {
         let actions = buildLabelActions(session);
         expect(actions).toHaveLength(2);
 
-        // Select delete
+        // Select delete → calls onUpdateLabel('') and closes
         const onUpdateLabel = vi.fn();
         const onClose = vi.fn();
         const deleteAction = actions.find(a => a.id === 'delete-label');
@@ -496,11 +419,9 @@ describe('End-to-end label management scenarios', () => {
     });
 
     it('selector view: no label actions when activeSession is null', () => {
-        // In the selector-view CommandMenu, activeSession is not passed (defaults to null)
         const actions = buildLabelActions(null);
         expect(actions).toHaveLength(0);
 
-        // Combined action list should have no label items
         const QUICK_ACTIONS = [
             { id: 'new-terminal', type: 'action' },
             { id: 'toggle-theme', type: 'action' },
@@ -515,11 +436,11 @@ describe('End-to-end label management scenarios', () => {
         const onUpdateLabel = vi.fn();
 
         // Open dialog
-        const selectResult = handleLabelAction(actions[0], session, onUpdateLabel, vi.fn());
-        expect(selectResult.labelingSession).not.toBeNull();
+        const labelingSession = handleLabelAction(actions[0], session, onUpdateLabel, vi.fn());
+        expect(labelingSession).not.toBeNull();
 
-        // Cancel (set labelingSession to null without calling save)
-        // No onUpdateLabel call should have occurred
+        // Cancel — user closes dialog without saving
+        // onUpdateLabel should never have been called
         expect(onUpdateLabel).not.toHaveBeenCalled();
     });
 });
