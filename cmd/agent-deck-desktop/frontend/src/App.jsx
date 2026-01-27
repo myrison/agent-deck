@@ -2115,6 +2115,16 @@ function App() {
                     onShowSessionPicker={handleShowSessionPicker}
                     onShowHostPicker={handleStartHostSelection}
                     onPinToQuickLaunch={handlePinToQuickLaunch}
+                    activeSession={selectedSession}
+                    onUpdateLabel={(newLabel) => {
+                        if (!selectedSession) return;
+                        UpdateSessionCustomLabel(selectedSession.id, newLabel)
+                            .then(() => {
+                                setSelectedSession(prev => prev ? { ...prev, customLabel: newLabel || '' } : prev);
+                                handleTabLabelUpdated(selectedSession.id, newLabel);
+                            })
+                            .catch(err => logger.error('Failed to update label:', err));
+                    }}
                     sessions={sessions}
                     projects={projects}
                     favorites={favorites}
