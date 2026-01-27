@@ -91,6 +91,9 @@ type InstanceData struct {
 	// Latest user input for context
 	LatestPrompt string `json:"latest_prompt,omitempty"`
 
+	// Session label/summary (Claude's session description)
+	SessionLabel string `json:"session_label,omitempty"`
+
 	// MCP tracking (persisted for sync status display)
 	LoadedMCPNames []string `json:"loaded_mcp_names,omitempty"`
 
@@ -243,6 +246,7 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 			OpenCodeSessionID:  inst.OpenCodeSessionID,
 			OpenCodeDetectedAt: inst.OpenCodeDetectedAt,
 			LatestPrompt:       inst.LatestPrompt,
+			SessionLabel:       inst.SessionLabel,
 			LoadedMCPNames:     inst.LoadedMCPNames,
 			LaunchConfigName:   inst.LaunchConfigName,
 			DangerousMode:      inst.DangerousMode,
@@ -582,6 +586,7 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			OpenCodeSessionID:  instData.OpenCodeSessionID,
 			OpenCodeDetectedAt: instData.OpenCodeDetectedAt,
 			LatestPrompt:       instData.LatestPrompt,
+			SessionLabel:       instData.SessionLabel,
 			LoadedMCPNames:     instData.LoadedMCPNames,
 			LaunchConfigName:   instData.LaunchConfigName,
 			DangerousMode:      instData.DangerousMode,

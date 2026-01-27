@@ -77,6 +77,9 @@ type Instance struct {
 	// Latest user input for context (extracted from session files)
 	LatestPrompt string `json:"latest_prompt,omitempty"`
 
+	// Session label/summary (Claude's session description from JSONL)
+	SessionLabel string `json:"session_label,omitempty"`
+
 	// MCP tracking - which MCPs were loaded when session started/restarted
 	// Used to detect pending MCPs (added after session start) and stale MCPs (removed but still running)
 	LoadedMCPNames []string `json:"loaded_mcp_names,omitempty"`
@@ -1166,13 +1169,18 @@ func (i *Instance) UpdateClaudeSession(excludeIDs map[string]bool) {
 		i.ClaudeDetectedAt = time.Now()
 	}
 
-	// Update latest prompt from JSONL file
+	// Extract session data (prompt and label) in single pass
 	if i.ClaudeSessionID != "" {
 		jsonlPath := i.GetJSONLPath()
 		if jsonlPath != "" {
 			if data, err := os.ReadFile(jsonlPath); err == nil {
-				if prompt, err := parseClaudeLatestUserPrompt(data); err == nil && prompt != "" {
-					i.LatestPrompt = prompt
+				if sessionData, err := parseClaudeSessionData(data); err == nil {
+					if sessionData.LatestPrompt != "" {
+						i.LatestPrompt = sessionData.LatestPrompt
+					}
+					if sessionData.SessionLabel != "" {
+						i.SessionLabel = sessionData.SessionLabel
+					}
 				}
 			}
 		}
@@ -1514,18 +1522,27 @@ func parseClaudeLastAssistantMessage(data []byte, sessionID string) (*ResponseOu
 	}, nil
 }
 
-// parseClaudeLatestUserPrompt parses a Claude JSONL file to extract the last user message
-func parseClaudeLatestUserPrompt(data []byte) (string, error) {
+// ClaudeSessionData holds extracted metadata from a Claude JSONL file
+type ClaudeSessionData struct {
+	LatestPrompt string
+	SessionLabel string
+}
+
+// parseClaudeSessionData extracts both latest prompt and session label in a single pass.
+// This avoids parsing the file twice for efficiency.
+func parseClaudeSessionData(data []byte) (*ClaudeSessionData, error) {
 	// JSONL record structure
 	type claudeMessage struct {
 		Role    string          `json:"role"`
 		Content json.RawMessage `json:"content"`
 	}
 	type claudeRecord struct {
+		Type    string          `json:"type"`
 		Message json.RawMessage `json:"message"`
+		Summary string          `json:"summary"`
 	}
 
-	var latestPrompt string
+	result := &ClaudeSessionData{}
 
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	// Handle large lines
@@ -1543,52 +1560,48 @@ func parseClaudeLatestUserPrompt(data []byte) (string, error) {
 			continue // Skip malformed lines
 		}
 
-		// Only care about messages
-		if len(record.Message) == 0 {
-			continue
+		// Extract session label from summary records (takes last/most recent)
+		if record.Type == "summary" && record.Summary != "" {
+			result.SessionLabel = record.Summary
 		}
 
-		var msg claudeMessage
-		if err := json.Unmarshal(record.Message, &msg); err != nil {
-			continue
-		}
-
-		// Only care about user messages
-		if msg.Role != "user" {
-			continue
-		}
-
-		// Extract content (can be string or array of blocks)
-		var contentStr string
-		var extractedText string
-		if err := json.Unmarshal(msg.Content, &contentStr); err == nil {
-			// Simple string content
-			extractedText = contentStr
-		} else {
-			// Try as array of content blocks
-			var blocks []map[string]interface{}
-			if err := json.Unmarshal(msg.Content, &blocks); err == nil {
-				var sb strings.Builder
-				for _, block := range blocks {
-					if blockType, ok := block["type"].(string); ok && blockType == "text" {
-						if text, ok := block["text"].(string); ok {
-							sb.WriteString(text)
-							sb.WriteString(" ")
+		// Extract latest user prompt
+		if len(record.Message) > 0 {
+			var msg claudeMessage
+			if err := json.Unmarshal(record.Message, &msg); err == nil && msg.Role == "user" {
+				// Extract content (can be string or array of blocks)
+				var contentStr string
+				var extractedText string
+				if err := json.Unmarshal(msg.Content, &contentStr); err == nil {
+					// Simple string content
+					extractedText = contentStr
+				} else {
+					// Try as array of content blocks
+					var blocks []map[string]any
+					if err := json.Unmarshal(msg.Content, &blocks); err == nil {
+						var sb strings.Builder
+						for _, block := range blocks {
+							if blockType, ok := block["type"].(string); ok && blockType == "text" {
+								if text, ok := block["text"].(string); ok {
+									sb.WriteString(text)
+									sb.WriteString(" ")
+								}
+							}
 						}
+						extractedText = strings.TrimSpace(sb.String())
 					}
 				}
-				extractedText = strings.TrimSpace(sb.String())
-			}
-		}
 
-		// Sanitize: strip newlines and extra spaces for single-line display
-		if extractedText != "" {
-			content := strings.ReplaceAll(extractedText, "\n", " ")
-			latestPrompt = strings.Join(strings.Fields(content), " ")
+				// Sanitize: strip newlines and extra spaces for single-line display
+				if extractedText != "" {
+					content := strings.ReplaceAll(extractedText, "\n", " ")
+					result.LatestPrompt = strings.Join(strings.Fields(content), " ")
+				}
+			}
 		}
 	}
 
-	return latestPrompt, nil
+	return result, scanner.Err()
 }
 
 // parseGeminiLatestUserPrompt parses a Gemini JSON file to extract the last user message

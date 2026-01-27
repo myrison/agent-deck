@@ -670,3 +670,236 @@ func TestHomeViewAllLayoutModes(t *testing.T) {
 		})
 	}
 }
+
+// TestSessionLabelDisplayedForClaudeSessions verifies that session labels appear in the UI.
+// When a Claude session has a SessionLabel, it should be visible in the rendered view.
+func TestSessionLabelDisplayedForClaudeSessions(t *testing.T) {
+	home := NewHome()
+	home.width = 200 // Extra wide to prevent truncation
+	home.height = 30
+	home.initialLoading = false
+
+	// SETUP: Claude session with a short label (to avoid truncation issues)
+	inst := &session.Instance{
+		ID:           "test-claude-1",
+		Title:        "test",
+		Tool:         "claude",
+		Status:       session.StatusIdle,
+		SessionLabel: "Label123", // Short, distinctive label
+	}
+
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID = map[string]*session.Instance{inst.ID: inst}
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	// EXECUTE: Render the view
+	view := home.View()
+
+	// VERIFY: The label text appears in the rendered output
+	if !strings.Contains(view, "Label123") {
+		t.Error("Session label should be visible in the rendered view")
+		t.Logf("Rendered view:\n%s", view)
+	}
+}
+
+// TestSessionLabelNotDisplayedForNonClaude verifies labels are Claude-specific.
+// Gemini sessions should not show labels even if the field is populated.
+func TestSessionLabelNotDisplayedForNonClaude(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 30
+	home.initialLoading = false
+
+	// SETUP: Gemini session with a label (shouldn't happen in practice, but testing the guard)
+	inst := &session.Instance{
+		ID:           "test-gemini-1",
+		Title:        "gemini-project",
+		Tool:         "gemini",
+		Status:       session.StatusIdle,
+		SessionLabel: "This label should not appear", // Set but should be ignored
+	}
+
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID = map[string]*session.Instance{inst.ID: inst}
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	// EXECUTE
+	view := home.View()
+
+	// VERIFY: The label should NOT appear for non-Claude tools
+	if strings.Contains(view, "This label should not appear") {
+		t.Error("Session labels should only display for Claude sessions, not Gemini")
+	}
+}
+
+// TestSessionLabelTruncatesOnNarrowTerminal verifies dynamic truncation.
+// Long labels should be truncated with "..." on narrow terminals.
+func TestSessionLabelTruncatesOnNarrowTerminal(t *testing.T) {
+	home := NewHome()
+	home.width = 60 // Narrow - forces truncation
+	home.height = 30
+	home.initialLoading = false
+
+	// SETUP: Long label that won't fit
+	longLabel := "This is a very long session label that definitely will not fit in a narrow terminal"
+	inst := &session.Instance{
+		ID:           "test-claude-truncate",
+		Title:        "project-name",
+		Tool:         "claude",
+		Status:       session.StatusIdle,
+		SessionLabel: longLabel,
+	}
+
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID = map[string]*session.Instance{inst.ID: inst}
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	// EXECUTE
+	view := home.View()
+
+	// VERIFY: Full label should NOT appear (it's too long)
+	if strings.Contains(view, longLabel) {
+		t.Error("Long label should be truncated on narrow terminal")
+	}
+
+	// VERIFY: Truncation indicator should appear (ellipsis)
+	if !strings.Contains(view, "...") {
+		t.Error("Truncated label should show ellipsis")
+	}
+
+	// VERIFY: Start of label should still be visible
+	if !strings.Contains(view, "This is") {
+		t.Error("Beginning of truncated label should be visible")
+	}
+}
+
+// TestSessionLabelEmptyNotRendered verifies no empty badge appears.
+// Sessions without labels should not show an empty bracket or extra space.
+func TestSessionLabelEmptyNotRendered(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 30
+	home.initialLoading = false
+
+	// SETUP: Claude session WITHOUT a label
+	inst := &session.Instance{
+		ID:           "test-claude-nolabel",
+		Title:        "no-label-project",
+		Tool:         "claude",
+		Status:       session.StatusIdle,
+		SessionLabel: "", // Empty - no badge should appear
+	}
+
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID = map[string]*session.Instance{inst.ID: inst}
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	// EXECUTE
+	view := home.View()
+
+	// VERIFY: The session appears (basic sanity check)
+	if !strings.Contains(view, "no-label-project") {
+		t.Error("Session title should be visible")
+	}
+
+	// VERIFY: Tool name appears right after title (no label badge in between)
+	// The format should be "no-label-project claude" not "no-label-project [] claude"
+	if strings.Contains(view, "no-label-project  claude") {
+		t.Error("Empty label should not add extra spacing between title and tool")
+	}
+}
+
+// TestMultipleSessionsSameTitleAndPath verifies that multiple sessions with the same
+// title and project path are all displayed in the UI (not deduplicated).
+// Regression test for: https://github.com/myrison/agent-deck/issues/XX
+func TestMultipleSessionsSameTitleAndPath(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	// Create 3 sessions with the same title and path but different IDs
+	samePath := "/Users/test/project"
+	sameTitle := "agent-deck"
+	sameGroup := "hc-repo"
+
+	inst1 := session.NewInstance(sameTitle, samePath)
+	inst1.GroupPath = sameGroup
+
+	inst2 := session.NewInstance(sameTitle, samePath)
+	inst2.GroupPath = sameGroup
+
+	inst3 := session.NewInstance(sameTitle, samePath)
+	inst3.GroupPath = sameGroup
+
+	// Verify all have unique IDs
+	if inst1.ID == inst2.ID || inst2.ID == inst3.ID || inst1.ID == inst3.ID {
+		t.Fatal("Sessions should have unique IDs")
+	}
+
+	// Set up the home model with all 3 sessions
+	instances := []*session.Instance{inst1, inst2, inst3}
+	home.instancesMu.Lock()
+	home.instances = instances
+	home.instanceByID = make(map[string]*session.Instance, len(instances))
+	for _, inst := range instances {
+		home.instanceByID[inst.ID] = inst
+	}
+	home.instancesMu.Unlock()
+
+	// Build group tree and flat items
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	// Count session items in flatItems
+	sessionCount := 0
+	for _, item := range home.flatItems {
+		if item.Type == session.ItemTypeSession {
+			sessionCount++
+		}
+	}
+
+	// All 3 sessions should appear in flatItems
+	if sessionCount != 3 {
+		t.Errorf("Expected 3 sessions in flatItems, got %d", sessionCount)
+
+		// Debug: print what we got
+		t.Logf("flatItems contains:")
+		for i, item := range home.flatItems {
+			if item.Type == session.ItemTypeGroup {
+				t.Logf("  [%d] GROUP: %s", i, item.Group.Name)
+			} else {
+				t.Logf("  [%d] SESSION: %s (ID: %s)", i, item.Session.Title, item.Session.ID)
+			}
+		}
+	}
+
+	// Verify all 3 unique IDs appear
+	foundIDs := make(map[string]bool)
+	for _, item := range home.flatItems {
+		if item.Type == session.ItemTypeSession {
+			foundIDs[item.Session.ID] = true
+		}
+	}
+
+	if !foundIDs[inst1.ID] {
+		t.Errorf("Session 1 (ID: %s) not found in flatItems", inst1.ID)
+	}
+	if !foundIDs[inst2.ID] {
+		t.Errorf("Session 2 (ID: %s) not found in flatItems", inst2.ID)
+	}
+	if !foundIDs[inst3.ID] {
+		t.Errorf("Session 3 (ID: %s) not found in flatItems", inst3.ID)
+	}
+}
