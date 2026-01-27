@@ -46,6 +46,8 @@ export function GetLaunchConfigs():Promise<Array<main.LaunchConfigInfo>>;
 
 export function GetLaunchConfigsForTool(arg1:string):Promise<Array<main.LaunchConfigInfo>>;
 
+export function GetOpenTabState():Promise<main.WindowTabState>;
+
 export function GetProjectRoots():Promise<Array<string>>;
 
 export function GetQuickLaunchBarVisibility():Promise<boolean>;
@@ -82,9 +84,9 @@ export function GetWindowNumber():Promise<number>;
 
 export function HandleFileDrop(arg1:string,arg2:string,arg3:Array<string>):Promise<main.ImagePasteResult>;
 
-export function HasScanPaths():Promise<boolean>;
-
 export function HandleRemoteImagePaste(arg1:string,arg2:string):Promise<main.ImagePasteResult>;
+
+export function HasScanPaths():Promise<boolean>;
 
 export function IsGitWorktree(arg1:string):Promise<boolean>;
 
@@ -120,6 +122,8 @@ export function SaveLaunchConfig(arg1:string,arg2:string,arg3:string,arg4:string
 
 export function SaveLayout(arg1:main.SavedLayout):Promise<main.SavedLayout>;
 
+export function SaveOpenTabState(arg1:main.WindowTabState):Promise<void>;
+
 export function SessionExists(arg1:string):Promise<boolean>;
 
 export function SetAllGroupsExpanded(arg1:Array<string>,arg2:boolean):Promise<void>;
@@ -132,15 +136,15 @@ export function SetDesktopTheme(arg1:string):Promise<void>;
 
 export function SetFontSize(arg1:number):Promise<void>;
 
+export function SetQuickLaunchBarVisibility(arg1:boolean):Promise<void>;
+
 export function SetScanMaxDepth(arg1:number):Promise<void>;
 
 export function SetScanPaths(arg1:Array<string>):Promise<void>;
 
-export function SetSetupDismissed(arg1:boolean):Promise<void>;
-
-export function SetQuickLaunchBarVisibility(arg1:boolean):Promise<void>;
-
 export function SetScrollSpeed(arg1:number):Promise<void>;
+
+export function SetSetupDismissed(arg1:boolean):Promise<void>;
 
 export function SetSoftNewlineMode(arg1:string):Promise<void>;
 

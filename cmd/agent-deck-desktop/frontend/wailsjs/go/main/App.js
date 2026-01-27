@@ -90,6 +90,10 @@ export function GetLaunchConfigsForTool(arg1) {
   return window['go']['main']['App']['GetLaunchConfigsForTool'](arg1);
 }
 
+export function GetOpenTabState() {
+  return window['go']['main']['App']['GetOpenTabState']();
+}
+
 export function GetProjectRoots() {
   return window['go']['main']['App']['GetProjectRoots']();
 }
@@ -162,12 +166,12 @@ export function HandleFileDrop(arg1, arg2, arg3) {
   return window['go']['main']['App']['HandleFileDrop'](arg1, arg2, arg3);
 }
 
-export function HasScanPaths() {
-  return window['go']['main']['App']['HasScanPaths']();
-}
-
 export function HandleRemoteImagePaste(arg1, arg2) {
   return window['go']['main']['App']['HandleRemoteImagePaste'](arg1, arg2);
+}
+
+export function HasScanPaths() {
+  return window['go']['main']['App']['HasScanPaths']();
 }
 
 export function IsGitWorktree(arg1) {
@@ -238,6 +242,10 @@ export function SaveLayout(arg1) {
   return window['go']['main']['App']['SaveLayout'](arg1);
 }
 
+export function SaveOpenTabState(arg1) {
+  return window['go']['main']['App']['SaveOpenTabState'](arg1);
+}
+
 export function SessionExists(arg1) {
   return window['go']['main']['App']['SessionExists'](arg1);
 }
@@ -262,6 +270,10 @@ export function SetFontSize(arg1) {
   return window['go']['main']['App']['SetFontSize'](arg1);
 }
 
+export function SetQuickLaunchBarVisibility(arg1) {
+  return window['go']['main']['App']['SetQuickLaunchBarVisibility'](arg1);
+}
+
 export function SetScanMaxDepth(arg1) {
   return window['go']['main']['App']['SetScanMaxDepth'](arg1);
 }
@@ -270,16 +282,12 @@ export function SetScanPaths(arg1) {
   return window['go']['main']['App']['SetScanPaths'](arg1);
 }
 
-export function SetSetupDismissed(arg1) {
-  return window['go']['main']['App']['SetSetupDismissed'](arg1);
-}
-
-export function SetQuickLaunchBarVisibility(arg1) {
-  return window['go']['main']['App']['SetQuickLaunchBarVisibility'](arg1);
-}
-
 export function SetScrollSpeed(arg1) {
   return window['go']['main']['App']['SetScrollSpeed'](arg1);
+}
+
+export function SetSetupDismissed(arg1) {
+  return window['go']['main']['App']['SetSetupDismissed'](arg1);
 }
 
 export function SetSoftNewlineMode(arg1) {
