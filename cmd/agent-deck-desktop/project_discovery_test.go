@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -828,4 +829,354 @@ scan_paths = ["` + scanPath + `"]
 			t.Errorf("Expected s3 status 'stopped', got '%s'", statusMap["s3"])
 		}
 	})
+}
+
+// TestSetScanPaths tests normalization, deduplication, and round-trip persistence
+func TestSetScanPaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	pd := &ProjectDiscovery{
+		frecencyPath: filepath.Join(tmpDir, "frecency.json"),
+		frecency:     &FrecencyData{Projects: make(map[string]ProjectUsage)},
+		configPath:   configPath,
+	}
+
+	t.Run("normalizes and deduplicates paths", func(t *testing.T) {
+		err := pd.SetScanPaths([]string{
+			"/projects/code/",  // trailing slash
+			"  /projects/code", // leading whitespace + duplicate after normalization
+			"/projects/web",
+			"",           // empty
+			"  ",         // whitespace-only
+			"/projects/web/", // duplicate after trailing slash trim
+		})
+		if err != nil {
+			t.Fatalf("SetScanPaths failed: %v", err)
+		}
+
+		paths := pd.GetRawScanPaths()
+		if len(paths) != 2 {
+			t.Fatalf("Expected 2 unique paths, got %d: %v", len(paths), paths)
+		}
+
+		// Verify both expected paths are present
+		pathSet := make(map[string]bool)
+		for _, p := range paths {
+			pathSet[p] = true
+		}
+		if !pathSet["/projects/code"] {
+			t.Error("Expected /projects/code in result")
+		}
+		if !pathSet["/projects/web"] {
+			t.Error("Expected /projects/web in result")
+		}
+	})
+
+	t.Run("empty input clears all paths", func(t *testing.T) {
+		// Set some paths first
+		pd.SetScanPaths([]string{"/some/path"})
+		if len(pd.GetRawScanPaths()) == 0 {
+			t.Fatal("Setup failed: expected paths to be set")
+		}
+
+		// Clear with empty slice
+		err := pd.SetScanPaths([]string{})
+		if err != nil {
+			t.Fatalf("SetScanPaths(empty) failed: %v", err)
+		}
+
+		paths := pd.GetRawScanPaths()
+		if len(paths) != 0 {
+			t.Errorf("Expected 0 paths after clearing, got %d: %v", len(paths), paths)
+		}
+	})
+}
+
+// TestAddScanPath tests adding paths with deduplication and home-dir collapsing
+func TestAddScanPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	pd := &ProjectDiscovery{
+		frecencyPath: filepath.Join(tmpDir, "frecency.json"),
+		frecency:     &FrecencyData{Projects: make(map[string]ProjectUsage)},
+		configPath:   configPath,
+	}
+
+	t.Run("adds new path", func(t *testing.T) {
+		err := pd.AddScanPath("/projects/new")
+		if err != nil {
+			t.Fatalf("AddScanPath failed: %v", err)
+		}
+
+		paths := pd.GetRawScanPaths()
+		if len(paths) != 1 {
+			t.Fatalf("Expected 1 path, got %d: %v", len(paths), paths)
+		}
+	})
+
+	t.Run("deduplicates exact match", func(t *testing.T) {
+		// Reset
+		pd.SetScanPaths([]string{"/projects/existing"})
+
+		err := pd.AddScanPath("/projects/existing")
+		if err != nil {
+			t.Fatalf("AddScanPath failed: %v", err)
+		}
+
+		paths := pd.GetRawScanPaths()
+		if len(paths) != 1 {
+			t.Errorf("Expected 1 path (no duplicate), got %d: %v", len(paths), paths)
+		}
+	})
+
+	t.Run("deduplicates tilde-expanded path against stored tilde path", func(t *testing.T) {
+		home, _ := os.UserHomeDir()
+		if home == "" {
+			t.Skip("No home directory available")
+		}
+
+		// Store a path with ~/
+		pd.SetScanPaths([]string{"~/projects"})
+
+		// Add the expanded form
+		err := pd.AddScanPath(filepath.Join(home, "projects"))
+		if err != nil {
+			t.Fatalf("AddScanPath failed: %v", err)
+		}
+
+		paths := pd.GetRawScanPaths()
+		if len(paths) != 1 {
+			t.Errorf("Expected 1 path (expanded form should deduplicate), got %d: %v", len(paths), paths)
+		}
+	})
+
+	t.Run("collapses home dir to tilde when storing", func(t *testing.T) {
+		home, _ := os.UserHomeDir()
+		if home == "" {
+			t.Skip("No home directory available")
+		}
+
+		pd.SetScanPaths([]string{}) // Clear
+		expandedPath := filepath.Join(home, "code", "myproject")
+
+		err := pd.AddScanPath(expandedPath)
+		if err != nil {
+			t.Fatalf("AddScanPath failed: %v", err)
+		}
+
+		paths := pd.GetRawScanPaths()
+		if len(paths) != 1 {
+			t.Fatalf("Expected 1 path, got %d", len(paths))
+		}
+
+		// Should be stored with ~/ prefix
+		if paths[0] != "~/code/myproject" {
+			t.Errorf("Expected stored path '~/code/myproject', got '%s'", paths[0])
+		}
+	})
+
+	t.Run("ignores empty and whitespace-only input", func(t *testing.T) {
+		pd.SetScanPaths([]string{}) // Clear
+
+		pd.AddScanPath("")
+		pd.AddScanPath("   ")
+
+		paths := pd.GetRawScanPaths()
+		if len(paths) != 0 {
+			t.Errorf("Expected 0 paths for empty/whitespace input, got %d: %v", len(paths), paths)
+		}
+	})
+}
+
+// TestRemoveScanPath tests removing paths by value with tilde expansion matching
+func TestRemoveScanPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	pd := &ProjectDiscovery{
+		frecencyPath: filepath.Join(tmpDir, "frecency.json"),
+		frecency:     &FrecencyData{Projects: make(map[string]ProjectUsage)},
+		configPath:   configPath,
+	}
+
+	t.Run("removes by exact value", func(t *testing.T) {
+		pd.SetScanPaths([]string{"/projects/a", "/projects/b", "/projects/c"})
+
+		err := pd.RemoveScanPath("/projects/b")
+		if err != nil {
+			t.Fatalf("RemoveScanPath failed: %v", err)
+		}
+
+		paths := pd.GetRawScanPaths()
+		if len(paths) != 2 {
+			t.Fatalf("Expected 2 paths after removal, got %d: %v", len(paths), paths)
+		}
+
+		for _, p := range paths {
+			if p == "/projects/b" {
+				t.Error("Removed path /projects/b should not be present")
+			}
+		}
+	})
+
+	t.Run("removes by tilde-expanded match", func(t *testing.T) {
+		home, _ := os.UserHomeDir()
+		if home == "" {
+			t.Skip("No home directory available")
+		}
+
+		pd.SetScanPaths([]string{"~/projects", "/other/path"})
+
+		// Remove using expanded form
+		err := pd.RemoveScanPath(filepath.Join(home, "projects"))
+		if err != nil {
+			t.Fatalf("RemoveScanPath failed: %v", err)
+		}
+
+		paths := pd.GetRawScanPaths()
+		if len(paths) != 1 {
+			t.Fatalf("Expected 1 path after removal, got %d: %v", len(paths), paths)
+		}
+		if paths[0] != "/other/path" {
+			t.Errorf("Expected remaining path '/other/path', got '%s'", paths[0])
+		}
+	})
+
+	t.Run("removing nonexistent path is a no-op", func(t *testing.T) {
+		pd.SetScanPaths([]string{"/projects/a"})
+
+		err := pd.RemoveScanPath("/nonexistent")
+		if err != nil {
+			t.Fatalf("RemoveScanPath failed: %v", err)
+		}
+
+		paths := pd.GetRawScanPaths()
+		if len(paths) != 1 {
+			t.Errorf("Expected 1 path unchanged, got %d", len(paths))
+		}
+	})
+}
+
+// TestSetMaxDepth tests depth clamping and round-trip persistence
+func TestSetMaxDepth(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	pd := &ProjectDiscovery{
+		frecencyPath: filepath.Join(tmpDir, "frecency.json"),
+		frecency:     &FrecencyData{Projects: make(map[string]ProjectUsage)},
+		configPath:   configPath,
+	}
+
+	t.Run("default max depth is 2", func(t *testing.T) {
+		depth := pd.GetMaxDepth()
+		if depth != 2 {
+			t.Errorf("Expected default MaxDepth 2, got %d", depth)
+		}
+	})
+
+	t.Run("saves and retrieves valid depth", func(t *testing.T) {
+		err := pd.SetMaxDepth(3)
+		if err != nil {
+			t.Fatalf("SetMaxDepth(3) failed: %v", err)
+		}
+
+		depth := pd.GetMaxDepth()
+		if depth != 3 {
+			t.Errorf("Expected MaxDepth 3, got %d", depth)
+		}
+	})
+
+	t.Run("clamps below minimum to 1", func(t *testing.T) {
+		err := pd.SetMaxDepth(0)
+		if err != nil {
+			t.Fatalf("SetMaxDepth(0) failed: %v", err)
+		}
+
+		depth := pd.GetMaxDepth()
+		if depth != 1 {
+			t.Errorf("Expected clamped MaxDepth 1, got %d", depth)
+		}
+	})
+
+	t.Run("clamps above maximum to 5", func(t *testing.T) {
+		err := pd.SetMaxDepth(10)
+		if err != nil {
+			t.Fatalf("SetMaxDepth(10) failed: %v", err)
+		}
+
+		depth := pd.GetMaxDepth()
+		if depth != 5 {
+			t.Errorf("Expected clamped MaxDepth 5, got %d", depth)
+		}
+	})
+
+}
+
+// TestHasScanPaths tests the boolean check for configured scan paths
+func TestHasScanPaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	pd := &ProjectDiscovery{
+		frecencyPath: filepath.Join(tmpDir, "frecency.json"),
+		frecency:     &FrecencyData{Projects: make(map[string]ProjectUsage)},
+		configPath:   configPath,
+	}
+
+	t.Run("returns false when no config exists", func(t *testing.T) {
+		if pd.HasScanPaths() {
+			t.Error("Expected HasScanPaths=false with no config")
+		}
+	})
+}
+
+// TestSaveProjectDiscoveryPreservesOtherSections tests that saving scan paths
+// or max_depth doesn't lose other config sections
+func TestSaveProjectDiscoveryPreservesOtherSections(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	// Write a config with a desktop section already present
+	initialConfig := `[desktop]
+theme = "light"
+
+[desktop.terminal]
+font_size = 18
+`
+	os.WriteFile(configPath, []byte(initialConfig), 0644)
+
+	pd := &ProjectDiscovery{
+		frecencyPath: filepath.Join(tmpDir, "frecency.json"),
+		frecency:     &FrecencyData{Projects: make(map[string]ProjectUsage)},
+		configPath:   configPath,
+	}
+
+	// Set scan paths (writes to project_discovery section)
+	err := pd.SetScanPaths([]string{"/projects/code"})
+	if err != nil {
+		t.Fatalf("SetScanPaths failed: %v", err)
+	}
+
+	// Read back and verify desktop section is preserved
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("Failed to read config: %v", err)
+	}
+
+	content := string(data)
+	if !strings.Contains(content, "desktop") {
+		t.Error("desktop section was lost after saving scan paths")
+	}
+	if !strings.Contains(content, "light") {
+		t.Error("desktop theme value was lost after saving scan paths")
+	}
+
+	// Also verify the scan paths were written
+	paths := pd.GetRawScanPaths()
+	if len(paths) != 1 || paths[0] != "/projects/code" {
+		t.Errorf("Expected scan paths [/projects/code], got %v", paths)
+	}
 }
