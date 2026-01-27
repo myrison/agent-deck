@@ -341,6 +341,10 @@ function App() {
                 // Toggle between light and dark (skip auto for quick toggle)
                 setTheme(theme === 'dark' ? 'light' : 'dark');
                 break;
+            case 'delete-session':
+                logger.info('Palette action: delete session');
+                setShowDeleteDialog(true);
+                break;
             default:
                 logger.warn('Unknown palette action:', actionId);
         }
