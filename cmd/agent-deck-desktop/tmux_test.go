@@ -32,6 +32,12 @@ func TestTmuxManagerCreateSession(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
+	// Redirect HOME so PersistSession writes to a temp dir, not real sessions.json
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
 	tm := NewTmuxManager()
 	tmpDir := t.TempDir()
 
@@ -370,6 +376,12 @@ func TestCreateSessionSetsGroupPathFromProjectDir(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available, skipping integration test")
 	}
+
+	// Redirect HOME so PersistSession writes to a temp dir, not real sessions.json
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
 
 	tm := NewTmuxManager()
 	tmpDir := t.TempDir() // e.g., /var/folders/.../T/TestXxx/001
