@@ -755,3 +755,126 @@ func TestConvertInstancesPreservesExistingGroupPath(t *testing.T) {
 	}
 }
 
+// TestPersistSessionWritesRemoteTmuxNameForRemote verifies that when
+// PersistSession is called with IsRemote=true, the resulting sessions.json
+// contains "remote_tmux_name" set to the TmuxSession value. The TUI's
+// remote discovery logic uses this field to match discovered remote sessions
+// back to persisted entries.
+func TestPersistSessionWritesRemoteTmuxNameForRemote(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	// Create the sessions directory structure
+	sessionsDir := filepath.Join(tmpHome, ".agent-deck", "profiles", "default")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions dir: %v", err)
+	}
+
+	tm := NewTmuxManager()
+
+	// Persist a remote session
+	err := tm.PersistSession(SessionInfo{
+		ID:          "remote-001",
+		Title:       "Remote Session",
+		ProjectPath: "/home/user/project",
+		GroupPath:   "remote/Jeeves",
+		Tool:        "claude",
+		Status:      "running",
+		TmuxSession: "agentdeck_12345",
+		IsRemote:    true,
+		RemoteHost:  "jeeves",
+	})
+	if err != nil {
+		t.Fatalf("PersistSession failed: %v", err)
+	}
+
+	// Read back and verify remote_tmux_name is present
+	sessionsPath := filepath.Join(sessionsDir, "sessions.json")
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		t.Fatalf("Failed to read sessions.json: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
+	}
+
+	var instances []map[string]interface{}
+	if err := json.Unmarshal(raw["instances"], &instances); err != nil {
+		t.Fatalf("Failed to parse instances: %v", err)
+	}
+
+	if len(instances) != 1 {
+		t.Fatalf("Expected 1 instance, got %d", len(instances))
+	}
+
+	remoteTmuxName, ok := instances[0]["remote_tmux_name"].(string)
+	if !ok {
+		t.Fatal("remote_tmux_name field missing or not a string in persisted JSON")
+	}
+	if remoteTmuxName != "agentdeck_12345" {
+		t.Errorf("remote_tmux_name = %q, want %q", remoteTmuxName, "agentdeck_12345")
+	}
+}
+
+// TestPersistSessionOmitsRemoteTmuxNameForLocal verifies that when
+// PersistSession is called with IsRemote=false, the resulting sessions.json
+// does NOT contain "remote_tmux_name" (the field uses omitempty and should
+// be absent for local sessions).
+func TestPersistSessionOmitsRemoteTmuxNameForLocal(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	sessionsDir := filepath.Join(tmpHome, ".agent-deck", "profiles", "default")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions dir: %v", err)
+	}
+
+	tm := NewTmuxManager()
+
+	// Persist a local session (IsRemote defaults to false)
+	err := tm.PersistSession(SessionInfo{
+		ID:          "local-001",
+		Title:       "Local Session",
+		ProjectPath: "/Users/jason/project",
+		GroupPath:   "project",
+		Tool:        "claude",
+		Status:      "running",
+		TmuxSession: "agentdeck_67890",
+	})
+	if err != nil {
+		t.Fatalf("PersistSession failed: %v", err)
+	}
+
+	// Read back raw JSON and check that remote_tmux_name is absent
+	sessionsPath := filepath.Join(sessionsDir, "sessions.json")
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		t.Fatalf("Failed to read sessions.json: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
+	}
+
+	var instances []map[string]interface{}
+	if err := json.Unmarshal(raw["instances"], &instances); err != nil {
+		t.Fatalf("Failed to parse instances: %v", err)
+	}
+
+	if len(instances) != 1 {
+		t.Fatalf("Expected 1 instance, got %d", len(instances))
+	}
+
+	// remote_tmux_name should be absent (omitempty with empty string)
+	if val, exists := instances[0]["remote_tmux_name"]; exists {
+		t.Errorf("remote_tmux_name should be omitted for local sessions, but got: %v", val)
+	}
+}
+
