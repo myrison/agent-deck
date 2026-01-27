@@ -174,6 +174,28 @@ func generateSessionID() string {
 	return fmt.Sprintf("%s-%d", hex.EncodeToString(bytes), time.Now().Unix())
 }
 
+// extractGroupPath derives a group path from a project directory path.
+// Returns the parent directory name of the project (e.g., "/Users/jason/hc-repo/agent-deck" → "hc-repo").
+// Falls back to "my-sessions" if no meaningful parent is found.
+// This mirrors internal/session/instance.go:extractGroupPath but uses "my-sessions" directly
+// (the TUI uses DefaultGroupName/"My Sessions" which then gets migrated to "my-sessions").
+func extractGroupPath(projectPath string) string {
+	parts := strings.Split(projectPath, "/")
+	for i := len(parts) - 1; i >= 0; i-- {
+		part := parts[i]
+		if part != "" && part != "Users" && part != "home" && !strings.HasPrefix(part, ".") {
+			if i > 0 && i == len(parts)-1 {
+				parent := parts[i-1]
+				if parent != "" && parent != "Users" && parent != "home" && !strings.HasPrefix(parent, ".") {
+					return parent
+				}
+			}
+			return part
+		}
+	}
+	return "my-sessions"
+}
+
 // countSessionsAtPath returns the number of existing sessions at a given project path.
 func (tm *TmuxManager) countSessionsAtPath(projectPath string) int {
 	sessionsPath, err := tm.getSessionsPath()
@@ -360,12 +382,23 @@ func (tm *TmuxManager) convertInstancesToSessionInfos(instances []instanceJSON) 
 			lastAccessed = inst.CreatedAt
 		}
 
+		// Normalize empty group paths for existing sessions.
+		// Sessions created by older versions or the TUI may have empty group_path.
+		groupPath := inst.GroupPath
+		if groupPath == "" {
+			if inst.ProjectPath != "" {
+				groupPath = extractGroupPath(inst.ProjectPath)
+			} else {
+				groupPath = "my-sessions"
+			}
+		}
+
 		result = append(result, SessionInfo{
 			ID:                    inst.ID,
 			Title:                 inst.Title,
 			CustomLabel:           inst.CustomLabel,
 			ProjectPath:           inst.ProjectPath,
-			GroupPath:             inst.GroupPath,
+			GroupPath:             groupPath,
 			Tool:                  inst.Tool,
 			Status:                inst.Status,
 			TmuxSession:           inst.TmuxSession,
@@ -848,6 +881,7 @@ func (tm *TmuxManager) CreateSession(projectPath, title, tool, configKey string)
 		Title:            title,
 		CustomLabel:      customLabel,
 		ProjectPath:      projectPath,
+		GroupPath:        extractGroupPath(projectPath),
 		Tool:             tool,
 		Status:           "running",
 		TmuxSession:      sessionName,
