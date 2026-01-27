@@ -48,8 +48,14 @@ export default function HostPicker({ onSelect, onCancel }) {
             setLoading(false);
         };
         loadHosts();
-        containerRef.current?.focus();
     }, []);
+
+    // Focus container when loading completes (the container isn't rendered during loading state)
+    useEffect(() => {
+        if (!loading) {
+            containerRef.current?.focus();
+        }
+    }, [loading]);
 
     const handleTestConnection = async (hostId, e) => {
         e.stopPropagation();
