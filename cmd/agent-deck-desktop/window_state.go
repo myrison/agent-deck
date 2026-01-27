@@ -11,6 +11,14 @@ import (
 
 const windowStateFile = "window-state.json"
 
+// Package-level hooks for testing. In production, these use the real implementations.
+var (
+	getStatePath       = defaultGetStatePath
+	checkProcessExists = defaultProcessExists
+	getCurrentPID      = os.Getpid
+	getEnvVar          = os.Getenv
+)
+
 // WindowInfo tracks a single window instance.
 type WindowInfo struct {
 	PID       int       `json:"pid"`
@@ -23,8 +31,8 @@ type WindowState struct {
 	ActiveWindows    map[string]WindowInfo `json:"activeWindows"`
 }
 
-// getWindowStatePath returns the path to the window state file.
-func getWindowStatePath() string {
+// defaultGetStatePath returns the path to the window state file.
+func defaultGetStatePath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".agent-deck", windowStateFile)
 }
@@ -32,7 +40,7 @@ func getWindowStatePath() string {
 // withFileLock executes fn while holding an exclusive lock on the state file.
 // This ensures cross-process safety when multiple windows manipulate state.
 func withFileLock(fn func(state *WindowState) error) error {
-	path := getWindowStatePath()
+	path := getStatePath()
 
 	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -95,13 +103,13 @@ func registerWindow() (int, error) {
 	err := withFileLock(func(state *WindowState) error {
 		// Clean up dead windows first
 		for numStr, info := range state.ActiveWindows {
-			if !processExists(info.PID) {
+			if !checkProcessExists(info.PID) {
 				delete(state.ActiveWindows, numStr)
 			}
 		}
 
 		// Check if we were passed a window number via env
-		if envNum := os.Getenv("REVDEN_WINDOW_NUM"); envNum != "" {
+		if envNum := getEnvVar("REVDEN_WINDOW_NUM"); envNum != "" {
 			if n, err := fmt.Sscanf(envNum, "%d", &windowNum); err == nil && n == 1 {
 				// Use the assigned number
 			} else {
@@ -113,7 +121,7 @@ func registerWindow() (int, error) {
 
 		// Register ourselves
 		state.ActiveWindows[fmt.Sprintf("%d", windowNum)] = WindowInfo{
-			PID:       os.Getpid(),
+			PID:       getCurrentPID(),
 			StartedAt: time.Now(),
 		}
 
@@ -145,8 +153,8 @@ func unregisterWindow(windowNum int) {
 	})
 }
 
-// processExists checks if a process with given PID is still running.
-func processExists(pid int) bool {
+// defaultProcessExists checks if a process with given PID is still running.
+func defaultProcessExists(pid int) bool {
 	process, err := os.FindProcess(pid)
 	if err != nil {
 		return false
