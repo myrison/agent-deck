@@ -2,176 +2,192 @@ package main
 
 import (
 	"strings"
+	"sync"
 	"testing"
 )
 
+// --- validateImageData ---
+
 func TestValidateImageData_TooLarge(t *testing.T) {
-	// Create data larger than 10MB
 	data := make([]byte, MaxImageSize+1)
-	// Add PNG header to pass format check if size passed
 	copy(data, []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A})
 
 	err := validateImageData(data)
 	if err == nil {
-		t.Error("expected error for oversized image, got nil")
+		t.Fatal("expected error for oversized image")
 	}
 	if !strings.Contains(err.Error(), "too large") {
-		t.Errorf("expected 'too large' in error message, got: %v", err)
+		t.Errorf("expected 'too large' in error, got: %v", err)
+	}
+}
+
+func TestValidateImageData_ExactlyAtLimit(t *testing.T) {
+	data := make([]byte, MaxImageSize)
+	copy(data, []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A})
+
+	err := validateImageData(data)
+	if err != nil {
+		t.Errorf("image exactly at MaxImageSize should be valid, got: %v", err)
 	}
 }
 
 func TestValidateImageData_InvalidFormat(t *testing.T) {
-	// Create data with invalid header
-	data := []byte("not a PNG image")
+	data := []byte("not a PNG image at all")
 
 	err := validateImageData(data)
 	if err == nil {
-		t.Error("expected error for invalid format, got nil")
+		t.Fatal("expected error for non-PNG data")
 	}
 	if !strings.Contains(err.Error(), "invalid image format") {
-		t.Errorf("expected 'invalid image format' in error message, got: %v", err)
+		t.Errorf("expected 'invalid image format' in error, got: %v", err)
 	}
 }
 
 func TestValidateImageData_ValidPNG(t *testing.T) {
-	// Create valid PNG header with small data
-	data := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
-	// Add some padding to make it look like a real image
-	data = append(data, make([]byte, 100)...)
+	data := append([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}, make([]byte, 100)...)
+
+	if err := validateImageData(data); err != nil {
+		t.Errorf("valid PNG header should pass validation, got: %v", err)
+	}
+}
+
+func TestValidateImageData_EmptyData(t *testing.T) {
+	err := validateImageData([]byte{})
+	if err == nil {
+		t.Fatal("expected error for empty data")
+	}
+}
+
+func TestValidateImageData_TruncatedHeader(t *testing.T) {
+	// Only first 4 bytes of PNG header - should fail format check
+	data := []byte{0x89, 0x50, 0x4E, 0x47}
 
 	err := validateImageData(data)
-	if err != nil {
-		t.Errorf("expected no error for valid PNG, got: %v", err)
+	if err == nil {
+		t.Fatal("expected error for truncated PNG header")
 	}
 }
 
-func TestGenerateRemotePath(t *testing.T) {
-	path1 := generateRemotePath()
-	path2 := generateRemotePath()
+// --- generateRemotePath ---
 
-	// Should start with /tmp/revden_img_
-	if !strings.HasPrefix(path1, "/tmp/revden_img_") {
-		t.Errorf("expected path to start with /tmp/revden_img_, got: %s", path1)
-	}
-	if !strings.HasSuffix(path1, ".png") {
-		t.Errorf("expected path to end with .png, got: %s", path1)
-	}
+func TestGenerateRemotePath_Format(t *testing.T) {
+	path := generateRemotePath()
 
-	// Paths should be unique
-	if path1 == path2 {
-		t.Error("expected unique paths, got same path twice")
+	if !strings.HasPrefix(path, "/tmp/revden_img_") {
+		t.Errorf("expected /tmp/revden_img_ prefix, got: %s", path)
+	}
+	if !strings.HasSuffix(path, ".png") {
+		t.Errorf("expected .png suffix, got: %s", path)
 	}
 }
 
-func TestFormatBracketedPaste(t *testing.T) {
-	text := "/tmp/test.png"
-	result := formatBracketedPaste(text)
-
-	// Should start with bracketed paste start sequence
-	expectedStart := "\x1b[200~"
-	if !strings.HasPrefix(result, expectedStart) {
-		t.Errorf("expected result to start with bracketed paste sequence, got: %q", result[:min(len(result), 10)])
-	}
-
-	// Should end with bracketed paste end sequence
-	expectedEnd := "\x1b[201~"
-	if !strings.HasSuffix(result, expectedEnd) {
-		t.Errorf("expected result to end with bracketed paste end sequence, got: %q", result[max(0, len(result)-10):])
-	}
-
-	// Should contain the original text
-	if !strings.Contains(result, text) {
-		t.Errorf("expected result to contain original text %q, got: %q", text, result)
+func TestGenerateRemotePath_Uniqueness(t *testing.T) {
+	seen := make(map[string]bool)
+	for i := 0; i < 100; i++ {
+		path := generateRemotePath()
+		if seen[path] {
+			t.Fatalf("duplicate path generated on iteration %d: %s", i, path)
+		}
+		seen[path] = true
 	}
 }
 
-func TestTrackAndCleanupFiles(t *testing.T) {
-	sessionID := "test-session-123"
-	hostID := "test-host"
-	remotePath1 := "/tmp/test1.png"
-	remotePath2 := "/tmp/test2.png"
+// --- formatBracketedPaste ---
 
-	// Track some files
-	trackUploadedFile(sessionID, hostID, remotePath1)
-	trackUploadedFile(sessionID, hostID, remotePath2)
+func TestFormatBracketedPaste_WrapsPathCorrectly(t *testing.T) {
+	result := formatBracketedPaste("/tmp/test.png")
 
-	// Verify files are tracked
-	uploadedFilesRegistry.RLock()
-	files, exists := uploadedFilesRegistry.files[sessionID]
-	uploadedFilesRegistry.RUnlock()
-
-	if !exists {
-		t.Error("expected session to be tracked")
+	expected := "\x1b[200~/tmp/test.png\x1b[201~"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
 	}
-	if len(files) != 2 {
-		t.Errorf("expected 2 files tracked, got %d", len(files))
-	}
+}
 
-	// Cleanup with nil sshBridge (should remove from registry without error)
+// --- trackUploadedFile / cleanupUploadedFiles ---
+
+func TestTrackAndCleanup_RegistryRemovedAfterCleanup(t *testing.T) {
+	sessionID := "test-lifecycle-" + generateRemotePath()
+
+	trackUploadedFile(sessionID, "host", "/tmp/img1.png")
+	trackUploadedFile(sessionID, "host", "/tmp/img2.png")
+
+	// Cleanup removes the session from the registry (prevents double-cleanup / memory leak)
 	cleanupUploadedFiles(sessionID, nil)
 
-	// Verify files are removed from registry
 	uploadedFilesRegistry.RLock()
-	_, exists = uploadedFilesRegistry.files[sessionID]
+	_, exists := uploadedFilesRegistry.files[sessionID]
 	uploadedFilesRegistry.RUnlock()
 
 	if exists {
-		t.Error("expected session to be removed from registry after cleanup")
+		t.Error("session should be removed from registry after cleanup")
 	}
+
+	// A second cleanup on the same session should be a no-op
+	cleanupUploadedFiles(sessionID, nil)
 }
 
-func TestImagePasteResult_NoImage(t *testing.T) {
-	result := ImagePasteResult{NoImage: true}
+func TestTrackFiles_SessionIsolation(t *testing.T) {
+	session1 := "test-isolation-1-" + generateRemotePath()
+	session2 := "test-isolation-2-" + generateRemotePath()
 
-	if !result.NoImage {
-		t.Error("expected NoImage to be true")
+	trackUploadedFile(session1, "host-a", "/tmp/s1_img.png")
+	trackUploadedFile(session2, "host-b", "/tmp/s2_img.png")
+
+	// Cleaning up session1 should not affect session2
+	cleanupUploadedFiles(session1, nil)
+
+	uploadedFilesRegistry.RLock()
+	_, s1Exists := uploadedFilesRegistry.files[session1]
+	s2Files, s2Exists := uploadedFilesRegistry.files[session2]
+	uploadedFilesRegistry.RUnlock()
+
+	if s1Exists {
+		t.Error("session1 should be cleaned up")
 	}
-	if result.Success {
-		t.Error("expected Success to be false when NoImage is true")
+	if !s2Exists || len(s2Files) != 1 {
+		t.Error("session2 should still have its files intact")
 	}
+
+	// Clean up session2 for test hygiene
+	cleanupUploadedFiles(session2, nil)
 }
 
-func TestImagePasteResult_Success(t *testing.T) {
-	result := ImagePasteResult{
-		Success:    true,
-		RemotePath: "/tmp/test.png",
-		InjectText: "\x1b[200~/tmp/test.png\x1b[201~",
-		ByteCount:  1024,
-	}
-
-	if !result.Success {
-		t.Error("expected Success to be true")
-	}
-	if result.RemotePath != "/tmp/test.png" {
-		t.Errorf("expected RemotePath to be /tmp/test.png, got %s", result.RemotePath)
-	}
-	if result.ByteCount != 1024 {
-		t.Errorf("expected ByteCount to be 1024, got %d", result.ByteCount)
-	}
+func TestCleanupUploadedFiles_UnknownSession(t *testing.T) {
+	// Cleaning up a session that was never tracked should be a no-op
+	cleanupUploadedFiles("nonexistent-session-xyz", nil)
+	// No panic, no error = success
 }
 
-func TestImagePasteResult_Error(t *testing.T) {
-	result := ImagePasteResult{Error: "transfer failed: connection refused"}
+func TestTrackFiles_ConcurrentAccess(t *testing.T) {
+	sessionID := "test-concurrent-" + generateRemotePath()
+	var wg sync.WaitGroup
 
-	if result.Success {
-		t.Error("expected Success to be false when Error is set")
+	// Spawn 50 goroutines all tracking files for the same session
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			trackUploadedFile(sessionID, "host", generateRemotePath())
+		}(i)
 	}
-	if !strings.Contains(result.Error, "transfer failed") {
-		t.Errorf("expected Error to contain 'transfer failed', got %s", result.Error)
+	wg.Wait()
+
+	uploadedFilesRegistry.RLock()
+	count := len(uploadedFilesRegistry.files[sessionID])
+	uploadedFilesRegistry.RUnlock()
+
+	if count != 50 {
+		t.Errorf("expected 50 tracked files after concurrent writes, got %d", count)
 	}
+
+	// Clean up
+	cleanupUploadedFiles(sessionID, nil)
 }
 
-// Helper functions for Go 1.21+ compatibility
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
+// --- emitToast ---
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
+func TestEmitToast_NilContextDoesNotPanic(t *testing.T) {
+	// emitToast with nil context should be a safe no-op
+	emitToast(nil, "test message", "info")
+	// No panic = test passes
 }
