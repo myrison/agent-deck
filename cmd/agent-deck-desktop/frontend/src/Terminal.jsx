@@ -7,7 +7,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 // import { WebglAddon } from '@xterm/addon-webgl'; // Disabled - breaks scroll detection
 import '@xterm/xterm/css/xterm.css';
 import './Terminal.css';
-import { StartTerminal, WriteTerminal, ResizeTerminal, CloseTerminal, StartTmuxSession, StartRemoteTmuxSession, LogFrontendDiagnostic, GetTerminalSettings, RefreshTerminalAfterResize } from '../wailsjs/go/main/App';
+import { StartTerminal, WriteTerminal, ResizeTerminal, CloseTerminal, StartTmuxSession, StartRemoteTmuxSession, LogFrontendDiagnostic, GetTerminalSettings, RefreshTerminalAfterResize, HandleRemoteImagePaste } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE } from './constants/terminal';
 import { EventsOn, ClipboardSetText } from '../wailsjs/runtime/runtime';
@@ -305,6 +305,35 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 }
                 // No selection: on Windows/Linux let Ctrl+C send SIGINT, on macOS no-op
                 return !isMac;
+            }
+
+            // Remote Image Paste: Ctrl+V on macOS for SSH sessions
+            // This checks clipboard for images and transfers them to the remote host
+            // Distinct from Cmd+V (standard text paste)
+            if (isMac && e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'v' && !e.shiftKey && !e.altKey) {
+                if (session?.isRemote && session?.remoteHost) {
+                    e.preventDefault();
+                    HandleRemoteImagePaste(sessionId, session.remoteHost)
+                        .then(result => {
+                            if (result.noImage) {
+                                // No image in clipboard, send normal Ctrl+V character (^V)
+                                logger.debug('No image in clipboard, sending Ctrl+V character');
+                                WriteTerminal(sessionId, '\x16').catch(console.error);
+                            } else if (result.success) {
+                                // Inject bracketed paste with image path
+                                logger.info('Image pasted to remote:', result.remotePath, `(${result.byteCount} bytes)`);
+                                WriteTerminal(sessionId, result.injectText).catch(console.error);
+                            } else {
+                                logger.error('Remote image paste failed:', result.error);
+                                // Show error in terminal
+                                WriteTerminal(sessionId, `\r\n\x1b[31m[Image paste failed: ${result.error}]\x1b[0m\r\n`).catch(console.error);
+                            }
+                        })
+                        .catch(err => {
+                            logger.error('HandleRemoteImagePaste error:', err);
+                        });
+                    return false;
+                }
             }
 
             // Paste: Cmd+V on macOS, Ctrl+V on Windows/Linux

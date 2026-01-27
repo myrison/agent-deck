@@ -138,6 +138,10 @@ export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
 }
 
+export function HandleRemoteImagePaste(arg1, arg2) {
+  return window['go']['main']['App']['HandleRemoteImagePaste'](arg1, arg2);
+}
+
 export function IsGitWorktree(arg1) {
   return window['go']['main']['App']['IsGitWorktree'](arg1);
 }

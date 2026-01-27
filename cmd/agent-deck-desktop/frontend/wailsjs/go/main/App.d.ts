@@ -70,6 +70,8 @@ export function GetTerminalSettings():Promise<Record<string, any>>;
 
 export function GetVersion():Promise<string>;
 
+export function HandleRemoteImagePaste(arg1:string,arg2:string):Promise<main.ImagePasteResult>;
+
 export function IsGitWorktree(arg1:string):Promise<boolean>;
 
 export function ListSSHHosts():Promise<Array<string>>;
