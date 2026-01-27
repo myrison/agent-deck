@@ -24,6 +24,7 @@ type App struct {
 	launchConfig     *LaunchConfigManager
 	desktopSettings  *DesktopSettingsManager
 	savedLayouts     *SavedLayoutsManager
+	tabState         *TabStateManager
 	sshBridge        *SSHBridge
 	windowNumber     int // 1 for primary window, 2+ for secondary windows
 }
@@ -38,6 +39,7 @@ func NewApp() *App {
 		launchConfig:     NewLaunchConfigManager(),
 		desktopSettings:  NewDesktopSettingsManager(),
 		savedLayouts:     NewSavedLayoutsManager(),
+		tabState:         NewTabStateManager(),
 		sshBridge:        NewSSHBridge(),
 	}
 }
@@ -679,4 +681,17 @@ func (a *App) GetWindowNumber() int {
 // IsPrimaryWindow returns true if this is the primary (first) window.
 func (a *App) IsPrimaryWindow() bool {
 	return a.windowNumber == 1
+}
+
+// ==================== Tab State Persistence ====================
+
+// GetOpenTabState returns the saved tab state for this window.
+// Returns nil (not an error) when no state has been saved.
+func (a *App) GetOpenTabState() (*WindowTabState, error) {
+	return a.tabState.GetTabState(a.windowNumber)
+}
+
+// SaveOpenTabState persists the current tab state for this window.
+func (a *App) SaveOpenTabState(state WindowTabState) error {
+	return a.tabState.SaveTabState(a.windowNumber, state)
 }

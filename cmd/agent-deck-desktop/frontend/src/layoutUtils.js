@@ -612,6 +612,40 @@ export function layoutToSaveFormat(layout) {
 }
 
 /**
+ * Convert a layout to save format for tab state persistence.
+ * Unlike layoutToSaveFormat (which generates new IDs for templates), this preserves
+ * existing pane IDs so activePaneId references remain valid on restore.
+ *
+ * @param {Object} layout - Layout node with sessions
+ * @returns {Object} Layout structure with bindings and preserved pane IDs
+ */
+export function layoutToTabSaveFormat(layout) {
+    if (layout.type === 'pane') {
+        const result = {
+            type: 'pane',
+            id: layout.id, // Preserve existing pane ID
+        };
+
+        const binding = extractBindingFromSession(layout.session);
+        if (binding) {
+            result.binding = binding;
+        }
+
+        return result;
+    }
+
+    return {
+        type: 'split',
+        direction: layout.direction,
+        ratio: layout.ratio,
+        children: [
+            layoutToTabSaveFormat(layout.children[0]),
+            layoutToTabSaveFormat(layout.children[1]),
+        ],
+    };
+}
+
+/**
  * Find the best matching session for a binding from available sessions
  * Resolution order:
  *   1. Match by customLabel in same projectPath
@@ -721,6 +755,51 @@ export function applySavedLayout(currentLayout, savedLayout, allSessions = []) {
     }
 
     return { layout: result, closedSessions };
+}
+
+/**
+ * Restore a tab layout from saved state, preserving pane IDs and resolving bindings.
+ * Unlike applySavedLayout (which generates new IDs for templates), this preserves saved
+ * pane IDs so that activePaneId references remain valid after restore.
+ *
+ * @param {Object} savedNode - Saved layout node (from SavedTab.layout)
+ * @param {Array} allSessions - All available sessions for binding resolution
+ * @param {Set} [assignedIds] - Session IDs already assigned (to avoid duplicates)
+ * @returns {Object} Live layout with sessions resolved from bindings
+ */
+export function restoreTabLayout(savedNode, allSessions, assignedIds = new Set()) {
+    if (savedNode.type === 'pane') {
+        const paneId = savedNode.id || generatePaneId();
+        const result = {
+            type: 'pane',
+            id: paneId,
+            sessionId: null,
+            session: null,
+        };
+
+        if (savedNode.binding) {
+            const available = allSessions.filter(s => !assignedIds.has(s.id));
+            const session = findBestSessionForBinding(savedNode.binding, available);
+            if (session) {
+                result.sessionId = session.id;
+                result.session = session;
+                assignedIds.add(session.id);
+            }
+        }
+
+        return result;
+    }
+
+    // Split node — recurse into children
+    return {
+        type: 'split',
+        direction: savedNode.direction,
+        ratio: savedNode.ratio,
+        children: [
+            restoreTabLayout(savedNode.children[0], allSessions, assignedIds),
+            restoreTabLayout(savedNode.children[1], allSessions, assignedIds),
+        ],
+    };
 }
 
 /**
