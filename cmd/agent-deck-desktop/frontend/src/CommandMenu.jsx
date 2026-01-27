@@ -131,12 +131,20 @@ export default function CommandMenu({
         ];
     }, [activeSession]);
 
+    // Build delete session action (only when a session is active)
+    const deleteAction = useMemo(() => {
+        if (!activeSession) return [];
+        return [
+            { id: 'delete-session', type: 'action', title: 'Delete Session', description: `Delete "${activeSession.customLabel || activeSession.title}"` },
+        ];
+    }, [activeSession]);
+
     // Build list of all actions including layout actions if enabled
     const allActions = useMemo(() => {
-        const base = [...QUICK_ACTIONS, ...labelActions];
+        const base = [...QUICK_ACTIONS, ...labelActions, ...deleteAction];
         if (!showLayoutActions) return base;
         return [...base, ...LAYOUT_ACTIONS, ...savedLayoutItems];
-    }, [showLayoutActions, savedLayoutItems, labelActions]);
+    }, [showLayoutActions, savedLayoutItems, labelActions, deleteAction]);
 
     // Fuse.js configuration for fuzzy search
     const fuse = useMemo(() => new Fuse([...sessions, ...projectItems, ...allActions], {
