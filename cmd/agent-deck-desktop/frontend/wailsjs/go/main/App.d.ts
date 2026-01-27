@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function AddQuickLaunchFavorite(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function AddScanPath(arg1:string):Promise<void>;
+
 export function AttachSession(arg1:string,arg2:string,arg3:number,arg4:number):Promise<void>;
 
 export function BrowseLocalDirectory(arg1:string):Promise<string>;
@@ -58,11 +60,17 @@ export function GetSavedLayoutByID(arg1:string):Promise<main.SavedLayout>;
 
 export function GetSavedLayouts():Promise<Array<main.SavedLayout>>;
 
+export function GetScanMaxDepth():Promise<number>;
+
+export function GetScanPaths():Promise<Array<string>>;
+
 export function GetScrollSpeed():Promise<number>;
 
 export function GetScrollback(arg1:string):Promise<string>;
 
 export function GetSessionMetadata(arg1:string):Promise<main.SessionMetadata>;
+
+export function GetSetupDismissed():Promise<boolean>;
 
 export function GetSoftNewlineMode():Promise<string>;
 
@@ -73,6 +81,8 @@ export function GetVersion():Promise<string>;
 export function GetWindowNumber():Promise<number>;
 
 export function HandleFileDrop(arg1:string,arg2:string,arg3:Array<string>):Promise<main.ImagePasteResult>;
+
+export function HasScanPaths():Promise<boolean>;
 
 export function HandleRemoteImagePaste(arg1:string,arg2:string):Promise<main.ImagePasteResult>;
 
@@ -100,6 +110,8 @@ export function RefreshTerminalAfterResize(arg1:string):Promise<void>;
 
 export function RemoveQuickLaunchFavorite(arg1:string):Promise<void>;
 
+export function RemoveScanPath(arg1:string):Promise<void>;
+
 export function ResetGroupSettings():Promise<void>;
 
 export function ResizeTerminal(arg1:string,arg2:number,arg3:number):Promise<void>;
@@ -119,6 +131,12 @@ export function SetClickToCursorEnabled(arg1:boolean):Promise<void>;
 export function SetDesktopTheme(arg1:string):Promise<void>;
 
 export function SetFontSize(arg1:number):Promise<void>;
+
+export function SetScanMaxDepth(arg1:number):Promise<void>;
+
+export function SetScanPaths(arg1:Array<string>):Promise<void>;
+
+export function SetSetupDismissed(arg1:boolean):Promise<void>;
 
 export function SetQuickLaunchBarVisibility(arg1:boolean):Promise<void>;
 
@@ -141,6 +159,8 @@ export function UpdateQuickLaunchFavoriteName(arg1:string,arg2:string):Promise<v
 export function UpdateQuickLaunchShortcut(arg1:string,arg2:string):Promise<void>;
 
 export function UpdateSessionCustomLabel(arg1:string,arg2:string):Promise<void>;
+
+export function UpdateSessionStatus(arg1:string,arg2:string):Promise<void>;
 
 export function ValidateMCPConfigPath(arg1:string):Promise<Array<string>>;
 

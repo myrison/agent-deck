@@ -127,6 +127,9 @@ export namespace main {
 	    sessionId: string;
 	    sessionCount: number;
 	    sessions?: SessionSummary[];
+	    isRemote?: boolean;
+	    remoteHost?: string;
+	    remoteHostDisplayName?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ProjectInfo(source);
@@ -142,6 +145,9 @@ export namespace main {
 	        this.sessionId = source["sessionId"];
 	        this.sessionCount = source["sessionCount"];
 	        this.sessions = this.convertValues(source["sessions"], SessionSummary);
+	        this.isRemote = source["isRemote"];
+	        this.remoteHost = source["remoteHost"];
+	        this.remoteHostDisplayName = source["remoteHostDisplayName"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

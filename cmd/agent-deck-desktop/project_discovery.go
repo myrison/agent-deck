@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -170,6 +171,181 @@ func (pd *ProjectDiscovery) getSettings() ProjectDiscoverySettings {
 	settings.ScanPaths = expandedPaths
 
 	return settings
+}
+
+// GetRawScanPaths returns the unexpanded scan paths (with ~/ preserved) for display
+func (pd *ProjectDiscovery) GetRawScanPaths() []string {
+	data, err := os.ReadFile(pd.configPath)
+	if err != nil {
+		return []string{}
+	}
+
+	var config struct {
+		ProjectDiscovery ProjectDiscoverySettings `toml:"project_discovery"`
+	}
+	if err := toml.Unmarshal(data, &config); err != nil {
+		return []string{}
+	}
+
+	if len(config.ProjectDiscovery.ScanPaths) == 0 {
+		return []string{}
+	}
+	return config.ProjectDiscovery.ScanPaths
+}
+
+// SetScanPaths writes the scan paths to config.toml, preserving other sections
+func (pd *ProjectDiscovery) SetScanPaths(paths []string) error {
+	// Normalize paths
+	normalized := make([]string, 0, len(paths))
+	seen := make(map[string]bool)
+	for _, p := range paths {
+		p = strings.TrimSpace(p)
+		p = strings.TrimRight(p, "/")
+		if p == "" {
+			continue
+		}
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		normalized = append(normalized, p)
+	}
+
+	return pd.saveProjectDiscoverySettings(func(settings map[string]interface{}) {
+		settings["scan_paths"] = normalized
+	})
+}
+
+// AddScanPath appends a path, deduplicating against existing paths
+func (pd *ProjectDiscovery) AddScanPath(path string) error {
+	path = strings.TrimSpace(path)
+	path = strings.TrimRight(path, "/")
+	if path == "" {
+		return nil
+	}
+
+	existing := pd.GetRawScanPaths()
+
+	// Also check with home dir collapsed to ~/
+	home, _ := os.UserHomeDir()
+	collapsedPath := path
+	if home != "" && strings.HasPrefix(path, home+"/") {
+		collapsedPath = "~/" + path[len(home)+1:]
+	}
+
+	for _, p := range existing {
+		if p == path || p == collapsedPath {
+			return nil // Already exists
+		}
+		// Expand existing path for comparison
+		expanded := p
+		if strings.HasPrefix(p, "~/") && home != "" {
+			expanded = filepath.Join(home, p[2:])
+		}
+		if expanded == path {
+			return nil
+		}
+	}
+
+	// Store with ~/ prefix when possible
+	storePath := collapsedPath
+	existing = append(existing, storePath)
+	return pd.SetScanPaths(existing)
+}
+
+// RemoveScanPath removes a path by value match
+func (pd *ProjectDiscovery) RemoveScanPath(path string) error {
+	path = strings.TrimSpace(path)
+	existing := pd.GetRawScanPaths()
+
+	// Also expand path for comparison
+	home, _ := os.UserHomeDir()
+
+	filtered := make([]string, 0, len(existing))
+	for _, p := range existing {
+		if p == path {
+			continue
+		}
+		// Also check expanded forms
+		expandedP := p
+		if strings.HasPrefix(p, "~/") && home != "" {
+			expandedP = filepath.Join(home, p[2:])
+		}
+		expandedPath := path
+		if strings.HasPrefix(path, "~/") && home != "" {
+			expandedPath = filepath.Join(home, path[2:])
+		}
+		if expandedP == expandedPath {
+			continue
+		}
+		filtered = append(filtered, p)
+	}
+	return pd.SetScanPaths(filtered)
+}
+
+// GetMaxDepth returns the current max_depth setting
+func (pd *ProjectDiscovery) GetMaxDepth() int {
+	settings := pd.getSettings()
+	return settings.MaxDepth
+}
+
+// SetMaxDepth saves the max_depth setting, clamped to 1-5
+func (pd *ProjectDiscovery) SetMaxDepth(depth int) error {
+	if depth < 1 {
+		depth = 1
+	} else if depth > 5 {
+		depth = 5
+	}
+
+	return pd.saveProjectDiscoverySettings(func(settings map[string]interface{}) {
+		settings["max_depth"] = depth
+	})
+}
+
+// HasScanPaths returns whether any scan paths are configured
+func (pd *ProjectDiscovery) HasScanPaths() bool {
+	return len(pd.GetRawScanPaths()) > 0
+}
+
+// saveProjectDiscoverySettings is a helper that reads config.toml, applies a mutation
+// to the project_discovery section, and writes it back preserving other sections.
+func (pd *ProjectDiscovery) saveProjectDiscoverySettings(mutate func(settings map[string]interface{})) error {
+	existingData, _ := os.ReadFile(pd.configPath)
+
+	var existingConfig map[string]interface{}
+	if len(existingData) > 0 {
+		if err := toml.Unmarshal(existingData, &existingConfig); err != nil {
+			existingConfig = make(map[string]interface{})
+		}
+	} else {
+		existingConfig = make(map[string]interface{})
+	}
+
+	// Get or create project_discovery section
+	pdSection, ok := existingConfig["project_discovery"].(map[string]interface{})
+	if !ok {
+		pdSection = make(map[string]interface{})
+	}
+
+	mutate(pdSection)
+	existingConfig["project_discovery"] = pdSection
+
+	// Ensure directory exists
+	dir := filepath.Dir(pd.configPath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+
+	var buf bytes.Buffer
+	if len(existingData) == 0 {
+		buf.WriteString("# Agent Deck Configuration\n\n")
+	}
+
+	if err := toml.NewEncoder(&buf).Encode(existingConfig); err != nil {
+		return err
+	}
+
+	return os.WriteFile(pd.configPath, buf.Bytes(), 0600)
 }
 
 // calculateFrecencyScore calculates the frecency score for a project

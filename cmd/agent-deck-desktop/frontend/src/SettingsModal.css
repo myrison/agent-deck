@@ -506,6 +506,86 @@
     color: var(--text-primary);
 }
 
+/* Scan Path Settings */
+.settings-scan-paths-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.settings-scan-path-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 6px;
+}
+
+.settings-scan-path-text {
+    flex: 1;
+    font-size: var(--font-base);
+    color: var(--text-primary);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-scan-path-remove {
+    background: transparent;
+    border: none;
+    color: var(--text-dimmed);
+    font-size: var(--font-xl);
+    cursor: pointer;
+    padding: 0;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
+    flex-shrink: 0;
+}
+
+.settings-scan-path-remove:hover {
+    color: var(--accent-error);
+    background: var(--danger-hover-bg);
+}
+
+.settings-scan-add-btn {
+    padding: 8px 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: var(--font-base);
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-bottom: 16px;
+}
+
+.settings-scan-add-btn:hover {
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
+}
+
+.settings-scan-depth-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.settings-scan-depth-label {
+    font-size: var(--font-base);
+    color: var(--text-muted);
+}
+
 /* Checkbox Settings */
 .settings-checkbox-item {
     margin-bottom: 12px;

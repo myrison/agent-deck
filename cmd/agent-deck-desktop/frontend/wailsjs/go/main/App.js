@@ -6,6 +6,10 @@ export function AddQuickLaunchFavorite(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddQuickLaunchFavorite'](arg1, arg2, arg3);
 }
 
+export function AddScanPath(arg1) {
+  return window['go']['main']['App']['AddScanPath'](arg1);
+}
+
 export function AttachSession(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['AttachSession'](arg1, arg2, arg3, arg4);
 }
@@ -114,6 +118,14 @@ export function GetSavedLayouts() {
   return window['go']['main']['App']['GetSavedLayouts']();
 }
 
+export function GetScanMaxDepth() {
+  return window['go']['main']['App']['GetScanMaxDepth']();
+}
+
+export function GetScanPaths() {
+  return window['go']['main']['App']['GetScanPaths']();
+}
+
 export function GetScrollSpeed() {
   return window['go']['main']['App']['GetScrollSpeed']();
 }
@@ -124,6 +136,10 @@ export function GetScrollback(arg1) {
 
 export function GetSessionMetadata(arg1) {
   return window['go']['main']['App']['GetSessionMetadata'](arg1);
+}
+
+export function GetSetupDismissed() {
+  return window['go']['main']['App']['GetSetupDismissed']();
 }
 
 export function GetSoftNewlineMode() {
@@ -144,6 +160,10 @@ export function GetWindowNumber() {
 
 export function HandleFileDrop(arg1, arg2, arg3) {
   return window['go']['main']['App']['HandleFileDrop'](arg1, arg2, arg3);
+}
+
+export function HasScanPaths() {
+  return window['go']['main']['App']['HasScanPaths']();
 }
 
 export function HandleRemoteImagePaste(arg1, arg2) {
@@ -198,6 +218,10 @@ export function RemoveQuickLaunchFavorite(arg1) {
   return window['go']['main']['App']['RemoveQuickLaunchFavorite'](arg1);
 }
 
+export function RemoveScanPath(arg1) {
+  return window['go']['main']['App']['RemoveScanPath'](arg1);
+}
+
 export function ResetGroupSettings() {
   return window['go']['main']['App']['ResetGroupSettings']();
 }
@@ -236,6 +260,18 @@ export function SetDesktopTheme(arg1) {
 
 export function SetFontSize(arg1) {
   return window['go']['main']['App']['SetFontSize'](arg1);
+}
+
+export function SetScanMaxDepth(arg1) {
+  return window['go']['main']['App']['SetScanMaxDepth'](arg1);
+}
+
+export function SetScanPaths(arg1) {
+  return window['go']['main']['App']['SetScanPaths'](arg1);
+}
+
+export function SetSetupDismissed(arg1) {
+  return window['go']['main']['App']['SetSetupDismissed'](arg1);
 }
 
 export function SetQuickLaunchBarVisibility(arg1) {
@@ -280,6 +316,10 @@ export function UpdateQuickLaunchShortcut(arg1, arg2) {
 
 export function UpdateSessionCustomLabel(arg1, arg2) {
   return window['go']['main']['App']['UpdateSessionCustomLabel'](arg1, arg2);
+}
+
+export function UpdateSessionStatus(arg1, arg2) {
+  return window['go']['main']['App']['UpdateSessionStatus'](arg1, arg2);
 }
 
 export function ValidateMCPConfigPath(arg1) {

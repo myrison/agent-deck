@@ -390,6 +390,55 @@ func (a *App) GetProjectRoots() []string {
 	return settings.ScanPaths
 }
 
+// GetScanPaths returns raw scan paths with ~/ preserved for display in settings.
+func (a *App) GetScanPaths() []string {
+	return a.projectDiscovery.GetRawScanPaths()
+}
+
+// SetScanPaths writes scan paths to config.toml.
+func (a *App) SetScanPaths(paths []string) error {
+	return a.projectDiscovery.SetScanPaths(paths)
+}
+
+// AddScanPath appends a scan path (deduplicates).
+func (a *App) AddScanPath(path string) error {
+	return a.projectDiscovery.AddScanPath(path)
+}
+
+// RemoveScanPath removes a scan path by value.
+func (a *App) RemoveScanPath(path string) error {
+	return a.projectDiscovery.RemoveScanPath(path)
+}
+
+// GetScanMaxDepth returns the current max_depth setting for project scanning.
+func (a *App) GetScanMaxDepth() int {
+	return a.projectDiscovery.GetMaxDepth()
+}
+
+// SetScanMaxDepth saves the max_depth setting (clamped 1-5).
+func (a *App) SetScanMaxDepth(depth int) error {
+	return a.projectDiscovery.SetMaxDepth(depth)
+}
+
+// HasScanPaths returns whether any scan paths are configured.
+func (a *App) HasScanPaths() bool {
+	return a.projectDiscovery.HasScanPaths()
+}
+
+// GetSetupDismissed returns whether the first-launch setup was dismissed.
+func (a *App) GetSetupDismissed() bool {
+	dismissed, err := a.desktopSettings.GetSetupDismissed()
+	if err != nil {
+		return false
+	}
+	return dismissed
+}
+
+// SetSetupDismissed sets whether the first-launch setup was dismissed.
+func (a *App) SetSetupDismissed(dismissed bool) error {
+	return a.desktopSettings.SetSetupDismissed(dismissed)
+}
+
 // LogFrontendDiagnostic writes diagnostic info from frontend to the debug log file.
 // This allows Claude to read diagnostic info that would otherwise only be in browser console.
 func (a *App) LogFrontendDiagnostic(message string) {

@@ -17,8 +17,9 @@ type GroupSettings struct {
 
 // DesktopConfig represents the [desktop] section of config.toml
 type DesktopConfig struct {
-	Theme    string         `toml:"theme"`    // "dark", "light", or "auto"
-	Terminal TerminalConfig `toml:"terminal"` // Terminal behavior settings
+	Theme           string         `toml:"theme"`            // "dark", "light", or "auto"
+	Terminal        TerminalConfig `toml:"terminal"`         // Terminal behavior settings
+	SetupDismissed  bool           `toml:"setup_dismissed"`  // Whether first-launch setup was dismissed
 }
 
 // TerminalConfig represents terminal input behavior settings
@@ -146,7 +147,8 @@ func (dsm *DesktopSettingsManager) saveDesktopSettings(desktop *DesktopConfig) e
 
 	// Update the desktop section
 	existingConfig["desktop"] = map[string]interface{}{
-		"theme": desktop.Theme,
+		"theme":           desktop.Theme,
+		"setup_dismissed": desktop.SetupDismissed,
 		"terminal": map[string]interface{}{
 			"soft_newline":        desktop.Terminal.SoftNewline,
 			"font_size":           desktop.Terminal.FontSize,
@@ -377,6 +379,33 @@ func (dsm *DesktopSettingsManager) SetAutoCopyOnSelect(enabled bool) error {
 	}
 
 	config.Terminal.AutoCopyOnSelect = enabled
+	return dsm.saveDesktopSettings(config)
+}
+
+// GetSetupDismissed returns whether the first-launch setup modal was dismissed
+func (dsm *DesktopSettingsManager) GetSetupDismissed() (bool, error) {
+	config, err := dsm.loadDesktopSettings()
+	if err != nil {
+		return false, err
+	}
+	return config.SetupDismissed, nil
+}
+
+// SetSetupDismissed sets whether the first-launch setup was dismissed
+func (dsm *DesktopSettingsManager) SetSetupDismissed(dismissed bool) error {
+	config, err := dsm.loadDesktopSettings()
+	if err != nil {
+		config = &DesktopConfig{
+			Theme: "dark",
+			Terminal: TerminalConfig{
+				SoftNewline: "both",
+				FontSize:    14,
+				ScrollSpeed: 100,
+			},
+		}
+	}
+
+	config.SetupDismissed = dismissed
 	return dsm.saveDesktopSettings(config)
 }
 
