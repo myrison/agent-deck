@@ -285,3 +285,231 @@ func TestSanitizeShellArgsAcceptsAllSafe(t *testing.T) {
 	}
 }
 
+// TestExtractGroupPathReturnsParentForTypicalProjectPath verifies that for a
+// typical macOS project path like "/Users/jason/hc-repo/agent-deck", the
+// function returns the parent directory "hc-repo" — this is how sessions get
+// grouped by their containing folder in the sidebar.
+func TestExtractGroupPathReturnsParentForTypicalProjectPath(t *testing.T) {
+	got := extractGroupPath("/Users/jason/hc-repo/agent-deck")
+	if got != "hc-repo" {
+		t.Errorf("extractGroupPath(/Users/jason/hc-repo/agent-deck) = %q, want %q", got, "hc-repo")
+	}
+}
+
+// TestExtractGroupPathReturnsFallbackForEmptyPath verifies that an empty
+// project path falls back to "my-sessions" — this is the default group used
+// when there's no project context (e.g., sessions created without a directory).
+func TestExtractGroupPathReturnsFallbackForEmptyPath(t *testing.T) {
+	got := extractGroupPath("")
+	if got != "my-sessions" {
+		t.Errorf("extractGroupPath(%q) = %q, want %q", "", got, "my-sessions")
+	}
+}
+
+// TestExtractGroupPathReturnsParentForLinuxHomePath verifies the function
+// works for Linux-style home directories where /home is skipped the same
+// way /Users is on macOS.
+func TestExtractGroupPathReturnsParentForLinuxHomePath(t *testing.T) {
+	got := extractGroupPath("/home/dev/projects/my-app")
+	if got != "projects" {
+		t.Errorf("extractGroupPath(/home/dev/projects/my-app) = %q, want %q", got, "projects")
+	}
+}
+
+// TestExtractGroupPathSkipsHiddenParent verifies that when the parent
+// directory starts with a dot (e.g., hidden config directories), the function
+// returns the project directory itself rather than the hidden parent — hidden
+// directories aren't meaningful group names.
+func TestExtractGroupPathSkipsHiddenParent(t *testing.T) {
+	got := extractGroupPath("/Users/jason/.config/my-app")
+	if got != "my-app" {
+		t.Errorf("extractGroupPath(/Users/jason/.config/my-app) = %q, want %q", got, "my-app")
+	}
+}
+
+// TestExtractGroupPathReturnsDirNameForSingleSegmentPath verifies that a
+// path with only one meaningful segment (e.g., "/tmp") returns that segment
+// as the group name — there's no parent to use, so the directory itself is
+// the group. This covers quick scratch sessions opened in /tmp.
+func TestExtractGroupPathReturnsDirNameForSingleSegmentPath(t *testing.T) {
+	got := extractGroupPath("/tmp")
+	if got != "tmp" {
+		t.Errorf("extractGroupPath(%q) = %q, want %q", "/tmp", got, "tmp")
+	}
+}
+
+// TestExtractGroupPathReturnsUsernameForProjectDirectlyInHome verifies that
+// when a project sits directly in the home directory (e.g., /Users/jason/my-project),
+// the parent "jason" is returned as the group name. This is a realistic edge case
+// for users who keep projects directly in ~ without an organizing subfolder.
+func TestExtractGroupPathReturnsUsernameForProjectDirectlyInHome(t *testing.T) {
+	got := extractGroupPath("/Users/jason/my-project")
+	if got != "jason" {
+		t.Errorf("extractGroupPath(/Users/jason/my-project) = %q, want %q", got, "jason")
+	}
+}
+
+// TestExtractGroupPathHandlesDeeplyNestedPath verifies that for deeply
+// nested project paths, the function still returns the immediate parent
+// of the last path component — depth doesn't change the grouping logic.
+func TestExtractGroupPathHandlesDeeplyNestedPath(t *testing.T) {
+	got := extractGroupPath("/Users/jason/code/work/team/project-x")
+	if got != "team" {
+		t.Errorf("extractGroupPath(/Users/jason/code/work/team/project-x) = %q, want %q", got, "team")
+	}
+}
+
+// TestCreateSessionSetsGroupPathFromProjectDir verifies that CreateSession
+// populates the GroupPath field based on the project directory — this is
+// the core behavior the PR introduces so the desktop app can display
+// sessions grouped by their containing folder.
+func TestCreateSessionSetsGroupPathFromProjectDir(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm := NewTmuxManager()
+	tmpDir := t.TempDir() // e.g., /var/folders/.../T/TestXxx/001
+
+	session, err := tm.CreateSession(tmpDir, "Group Test", "claude", "")
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", session.TmuxSession).Run()
+
+	// GroupPath should be set (not empty) and match what extractGroupPath would return
+	expected := extractGroupPath(tmpDir)
+	if session.GroupPath != expected {
+		t.Errorf("CreateSession GroupPath = %q, want %q (derived from %q)", session.GroupPath, expected, tmpDir)
+	}
+	if session.GroupPath == "" {
+		t.Error("CreateSession should never produce an empty GroupPath")
+	}
+}
+
+// TestConvertInstancesNormalizesEmptyGroupPathWithProjectPath verifies
+// that when converting stored instances (from older versions or the TUI)
+// that have an empty group_path but a valid project_path, the conversion
+// derives the group path from the project path — ensuring consistent
+// grouping in the sidebar.
+func TestConvertInstancesNormalizesEmptyGroupPathWithProjectPath(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm := NewTmuxManager()
+
+	// Create a tmux session so the instance won't be filtered as "not running"
+	tmpDir := t.TempDir()
+	sessionName := "test_normalize_grouppath"
+	cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test tmux session: %v", err)
+	}
+	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+	// Simulate an instance from an older version with empty group_path
+	instances := []instanceJSON{
+		{
+			ID:          "test-id-001",
+			Title:       "Old Session",
+			ProjectPath: "/Users/jason/hc-repo/agent-deck",
+			GroupPath:   "", // Empty — the scenario this PR fixes
+			Tool:        "claude",
+			Status:      "running",
+			TmuxSession: sessionName,
+		},
+	}
+
+	result := tm.convertInstancesToSessionInfos(instances)
+	if len(result) == 0 {
+		t.Fatal("convertInstancesToSessionInfos returned no sessions (tmux session may not be detected)")
+	}
+
+	// The empty group_path should be normalized to the derived value
+	if result[0].GroupPath != "hc-repo" {
+		t.Errorf("Expected normalized GroupPath %q, got %q", "hc-repo", result[0].GroupPath)
+	}
+}
+
+// TestConvertInstancesNormalizesEmptyGroupPathWithoutProjectPath verifies
+// that when both group_path and project_path are empty (e.g., a shell-only
+// session), the conversion defaults to "my-sessions" — the catch-all group.
+func TestConvertInstancesNormalizesEmptyGroupPathWithoutProjectPath(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm := NewTmuxManager()
+
+	// Create a tmux session so the instance won't be filtered
+	tmpDir := t.TempDir()
+	sessionName := "test_normalize_empty"
+	cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test tmux session: %v", err)
+	}
+	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+	instances := []instanceJSON{
+		{
+			ID:          "test-id-002",
+			Title:       "No Path Session",
+			ProjectPath: "", // No project path
+			GroupPath:   "", // No group path
+			Tool:        "claude",
+			Status:      "running",
+			TmuxSession: sessionName,
+		},
+	}
+
+	result := tm.convertInstancesToSessionInfos(instances)
+	if len(result) == 0 {
+		t.Fatal("convertInstancesToSessionInfos returned no sessions")
+	}
+
+	if result[0].GroupPath != "my-sessions" {
+		t.Errorf("Expected GroupPath %q for session with no paths, got %q", "my-sessions", result[0].GroupPath)
+	}
+}
+
+// TestConvertInstancesPreservesExistingGroupPath verifies that when an
+// instance already has a non-empty group_path (set by a newer version),
+// the conversion preserves it as-is — no override or normalization.
+func TestConvertInstancesPreservesExistingGroupPath(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm := NewTmuxManager()
+
+	tmpDir := t.TempDir()
+	sessionName := "test_preserve_grouppath"
+	cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test tmux session: %v", err)
+	}
+	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+	instances := []instanceJSON{
+		{
+			ID:          "test-id-003",
+			Title:       "Existing Group Session",
+			ProjectPath: "/Users/jason/hc-repo/agent-deck",
+			GroupPath:   "custom-group", // Already set — should NOT be overridden
+			Tool:        "claude",
+			Status:      "running",
+			TmuxSession: sessionName,
+		},
+	}
+
+	result := tm.convertInstancesToSessionInfos(instances)
+	if len(result) == 0 {
+		t.Fatal("convertInstancesToSessionInfos returned no sessions")
+	}
+
+	if result[0].GroupPath != "custom-group" {
+		t.Errorf("Expected preserved GroupPath %q, got %q", "custom-group", result[0].GroupPath)
+	}
+}
+
