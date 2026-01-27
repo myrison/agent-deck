@@ -325,8 +325,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                                 WriteTerminal(sessionId, result.injectText).catch(console.error);
                             } else {
                                 logger.error('Remote image paste failed:', result.error);
-                                // Show error in terminal
-                                WriteTerminal(sessionId, `\r\n\x1b[31m[Image paste failed: ${result.error}]\x1b[0m\r\n`).catch(console.error);
+                                // Toast notification is emitted by the Go backend
                             }
                         })
                         .catch(err => {

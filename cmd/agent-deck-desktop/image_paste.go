@@ -113,7 +113,7 @@ func generateRemotePath() string {
 // Uses 'umask 077; cat > path' for secure file creation with 0600 permissions.
 func StreamToRemoteFile(conn *ssh.Connection, data []byte, remotePath string) error {
 	// Use cat with umask for secure file creation (permissions 0600)
-	command := fmt.Sprintf("umask 077; cat > %s", remotePath)
+	command := fmt.Sprintf("umask 077; cat > %q", remotePath)
 
 	reader := bytes.NewReader(data)
 	_, err := conn.RunCommandWithStdin(command, reader)

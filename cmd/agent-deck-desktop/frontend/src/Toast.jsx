@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { EventsOn } from '../wailsjs/runtime/runtime';
 import './Toast.css';
 
@@ -10,6 +10,7 @@ import './Toast.css';
  */
 export default function Toast() {
     const [toasts, setToasts] = useState([]);
+    const mountedRef = useRef(true);
 
     // Add a toast with auto-dismiss
     const addToast = useCallback((message, type = 'info') => {
@@ -27,14 +28,16 @@ export default function Toast() {
 
     // Listen for toast events from backend
     useEffect(() => {
+        mountedRef.current = true;
         const handler = (data) => {
+            if (!mountedRef.current) return;
             if (data?.message) {
                 addToast(data.message, data.type || 'info');
             }
         };
         EventsOn('toast:show', handler);
 
-        // Note: EventsOff is not safe in multi-component apps, handlers just no-op when unmounted
+        return () => { mountedRef.current = false; };
     }, [addToast]);
 
     if (toasts.length === 0) return null;

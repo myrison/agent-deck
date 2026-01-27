@@ -49,6 +49,10 @@ void* ReadClipboardImageAsPNG(int* outLen) {
         // Copy to C memory that Go can manage
         *outLen = (int)[pngData length];
         void *result = malloc(*outLen);
+        if (result == NULL) {
+            *outLen = 0;
+            return NULL;
+        }
         memcpy(result, [pngData bytes], *outLen);
         return result;
     }
