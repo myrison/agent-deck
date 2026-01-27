@@ -1015,37 +1015,35 @@ func (tm *TmuxManager) CreateRemoteSession(hostID, projectPath, title, tool, con
 	return sessionInfo, nil
 }
 
-// MarkSessionAccessed updates the last_accessed_at timestamp for a session.
-// This keeps the session list sorted by most recently used.
-func (tm *TmuxManager) MarkSessionAccessed(sessionID string) error {
+// updateSessionField performs an atomic read-modify-write on sessions.json.
+// It finds the session by ID, calls mutate to apply changes, then writes back atomically.
+// All session field update methods delegate to this to avoid duplicating the
+// read → parse → find → mutate → marshal → atomic-write skeleton.
+func (tm *TmuxManager) updateSessionField(sessionID string, mutate func(inst map[string]interface{})) error {
 	sessionsPath, err := tm.getSessionsPath()
 	if err != nil {
 		return err
 	}
 
-	// Read current sessions
 	data, err := os.ReadFile(sessionsPath)
 	if err != nil {
 		return err
 	}
 
-	// Parse as raw JSON to preserve all fields
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
 
-	// Parse instances array
 	var instances []map[string]interface{}
 	if err := json.Unmarshal(raw["instances"], &instances); err != nil {
 		return err
 	}
 
-	// Find and update the session
 	found := false
 	for i, inst := range instances {
 		if id, ok := inst["id"].(string); ok && id == sessionID {
-			instances[i]["last_accessed_at"] = time.Now().Format(time.RFC3339Nano)
+			mutate(instances[i])
 			found = true
 			break
 		}
@@ -1055,14 +1053,12 @@ func (tm *TmuxManager) MarkSessionAccessed(sessionID string) error {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	// Marshal instances back
 	instancesData, err := json.Marshal(instances)
 	if err != nil {
 		return err
 	}
 	raw["instances"] = instancesData
 
-	// Write back with indentation (atomic write via temp file)
 	output, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
 		return err
@@ -1081,65 +1077,32 @@ func (tm *TmuxManager) MarkSessionAccessed(sessionID string) error {
 	return nil
 }
 
+// MarkSessionAccessed updates the last_accessed_at timestamp for a session.
+// This keeps the session list sorted by most recently used.
+func (tm *TmuxManager) MarkSessionAccessed(sessionID string) error {
+	return tm.updateSessionField(sessionID, func(inst map[string]interface{}) {
+		inst["last_accessed_at"] = time.Now().Format(time.RFC3339Nano)
+	})
+}
+
+// validSessionStatuses defines the set of status values that can be persisted.
+var validSessionStatuses = map[string]bool{
+	"running": true,
+	"idle":    true,
+	"waiting": true,
+	"error":   true,
+	"paused":  true,
+}
+
 // UpdateSessionStatus updates the status field for a session in sessions.json.
-// Follows the same atomic write pattern as MarkSessionAccessed.
 // The TUI's StorageWatcher (fsnotify) will detect the write and reload.
 func (tm *TmuxManager) UpdateSessionStatus(sessionID, status string) error {
-	sessionsPath, err := tm.getSessionsPath()
-	if err != nil {
-		return err
+	if !validSessionStatuses[status] {
+		return fmt.Errorf("invalid session status: %q", status)
 	}
-
-	data, err := os.ReadFile(sessionsPath)
-	if err != nil {
-		return err
-	}
-
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-
-	var instances []map[string]interface{}
-	if err := json.Unmarshal(raw["instances"], &instances); err != nil {
-		return err
-	}
-
-	found := false
-	for i, inst := range instances {
-		if id, ok := inst["id"].(string); ok && id == sessionID {
-			instances[i]["status"] = status
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		return fmt.Errorf("session not found: %s", sessionID)
-	}
-
-	instancesData, err := json.Marshal(instances)
-	if err != nil {
-		return err
-	}
-	raw["instances"] = instancesData
-
-	output, err := json.MarshalIndent(raw, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	tmpPath := sessionsPath + ".tmp"
-	if err := os.WriteFile(tmpPath, output, 0600); err != nil {
-		return fmt.Errorf("failed to write temp file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, sessionsPath); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("failed to finalize save: %w", err)
-	}
-
-	return nil
+	return tm.updateSessionField(sessionID, func(inst map[string]interface{}) {
+		inst["status"] = status
+	})
 }
 
 // DeleteSession removes a session from sessions.json and kills its tmux session.
@@ -1245,70 +1208,11 @@ func (tm *TmuxManager) DeleteSession(sessionID string, sshBridge *SSHBridge) err
 // UpdateSessionCustomLabel updates the custom_label field for a session.
 // Pass an empty string to remove the custom label.
 func (tm *TmuxManager) UpdateSessionCustomLabel(sessionID, customLabel string) error {
-	sessionsPath, err := tm.getSessionsPath()
-	if err != nil {
-		return err
-	}
-
-	// Read current sessions
-	data, err := os.ReadFile(sessionsPath)
-	if err != nil {
-		return err
-	}
-
-	// Parse as raw JSON to preserve all fields
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-
-	// Parse instances array
-	var instances []map[string]interface{}
-	if err := json.Unmarshal(raw["instances"], &instances); err != nil {
-		return err
-	}
-
-	// Find and update the session
-	found := false
-	for i, inst := range instances {
-		if id, ok := inst["id"].(string); ok && id == sessionID {
-			if customLabel == "" {
-				// Remove the custom_label field
-				delete(instances[i], "custom_label")
-			} else {
-				instances[i]["custom_label"] = customLabel
-			}
-			found = true
-			break
+	return tm.updateSessionField(sessionID, func(inst map[string]interface{}) {
+		if customLabel == "" {
+			delete(inst, "custom_label")
+		} else {
+			inst["custom_label"] = customLabel
 		}
-	}
-
-	if !found {
-		return fmt.Errorf("session not found: %s", sessionID)
-	}
-
-	// Marshal instances back
-	instancesData, err := json.Marshal(instances)
-	if err != nil {
-		return err
-	}
-	raw["instances"] = instancesData
-
-	// Write back with indentation (atomic write via temp file)
-	output, err := json.MarshalIndent(raw, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	tmpPath := sessionsPath + ".tmp"
-	if err := os.WriteFile(tmpPath, output, 0600); err != nil {
-		return fmt.Errorf("failed to write temp file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, sessionsPath); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("failed to finalize save: %w", err)
-	}
-
-	return nil
+	})
 }

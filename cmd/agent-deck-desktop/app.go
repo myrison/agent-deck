@@ -161,6 +161,19 @@ func (a *App) AttachSession(sessionID, tmuxSession string, cols, rows int) error
 	return t.AttachTmux(tmuxSession, cols, rows)
 }
 
+// emitRunningStatus persists "running" status to sessions.json and emits
+// an event so the frontend updates immediately. Used after successfully
+// attaching to both local and remote tmux sessions.
+func (a *App) emitRunningStatus(sessionID string) {
+	if err := a.tmux.UpdateSessionStatus(sessionID, "running"); err != nil {
+		fmt.Printf("Warning: failed to update session status: %v\n", err)
+	}
+	wailsRuntime.EventsEmit(a.ctx, "session:statusUpdate", map[string]string{
+		"sessionId": sessionID,
+		"status":    "running",
+	})
+}
+
 // StartTmuxSession connects to a tmux session using the hybrid approach:
 // 1. Fetches and emits sanitized history via terminal:history event
 // 2. Attaches PTY for live streaming
@@ -174,16 +187,7 @@ func (a *App) StartTmuxSession(sessionID, tmuxSession string, cols, rows int) er
 		return err
 	}
 
-	// Persist "running" status so TUI picks it up via StorageWatcher
-	if err := a.tmux.UpdateSessionStatus(sessionID, "running"); err != nil {
-		// Log but don't fail - session is usable
-		fmt.Printf("Warning: failed to update session status: %v\n", err)
-	}
-	// Emit event for immediate frontend update
-	wailsRuntime.EventsEmit(a.ctx, "session:statusUpdate", map[string]string{
-		"sessionId": sessionID,
-		"status":    "running",
-	})
+	a.emitRunningStatus(sessionID)
 	return nil
 }
 
@@ -204,15 +208,7 @@ func (a *App) StartRemoteTmuxSession(sessionID, hostID, tmuxSession, projectPath
 		return err
 	}
 
-	// Persist "running" status so TUI picks it up via StorageWatcher
-	if err := a.tmux.UpdateSessionStatus(sessionID, "running"); err != nil {
-		fmt.Printf("Warning: failed to update session status: %v\n", err)
-	}
-	// Emit event for immediate frontend update
-	wailsRuntime.EventsEmit(a.ctx, "session:statusUpdate", map[string]string{
-		"sessionId": sessionID,
-		"status":    "running",
-	})
+	a.emitRunningStatus(sessionID)
 	return nil
 }
 
