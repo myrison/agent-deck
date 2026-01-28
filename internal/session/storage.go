@@ -345,6 +345,84 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 	return nil
 }
 
+// LoadStorageData reads raw StorageData from the JSON file without converting to Instance objects.
+// This is useful for callers that work directly with InstanceData (e.g., desktop app).
+// Returns empty StorageData if file doesn't exist.
+func (s *Storage) LoadStorageData() (*StorageData, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Check if file exists
+	if _, err := os.Stat(s.path); os.IsNotExist(err) {
+		return &StorageData{
+			Instances: []*InstanceData{},
+			Groups:    []*GroupData{},
+			UpdatedAt: time.Time{},
+		}, nil
+	}
+
+	// Try to load from main file first
+	data, err := s.loadFromFile(s.path)
+	if err != nil {
+		// Main file is corrupted - try to recover from backups
+		log.Printf("Warning: main storage file corrupted (%v), attempting recovery from backup", err)
+		data, err = s.recoverFromBackups()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load and no valid backup found: %w", err)
+		}
+		log.Printf("Successfully recovered from backup")
+	}
+
+	return data, nil
+}
+
+// SaveStorageData persists raw StorageData to the JSON file.
+// Uses atomic write pattern with fsync, backup rotation, and validation.
+// This is useful for callers that work directly with InstanceData (e.g., desktop app).
+func (s *Storage) SaveStorageData(data *StorageData) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Update timestamp
+	data.UpdatedAt = time.Now()
+
+	// Validate data before saving
+	if err := validateStorageData(data); err != nil {
+		return fmt.Errorf("data validation failed: %w", err)
+	}
+
+	// Marshal to JSON
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	// Atomic write pattern (same as SaveWithGroups)
+	tmpPath := s.path + ".tmp"
+
+	// Step 1: Write to temporary file
+	if err := os.WriteFile(tmpPath, jsonData, 0600); err != nil {
+		return fmt.Errorf("failed to write temp file: %w", err)
+	}
+
+	// Step 2: fsync the temp file
+	if err := syncFile(tmpPath); err != nil {
+		log.Printf("Warning: fsync failed for %s: %v", tmpPath, err)
+	}
+
+	// Step 3: Rotate backups before overwriting
+	if _, err := os.Stat(s.path); err == nil {
+		s.rotateBackups()
+	}
+
+	// Step 4: Atomic rename
+	if err := os.Rename(tmpPath, s.path); err != nil {
+		return fmt.Errorf("failed to finalize save: %w", err)
+	}
+
+	return nil
+}
+
 // validateStorageData checks data integrity before saving
 func validateStorageData(data *StorageData) error {
 	if data == nil {
