@@ -628,8 +628,8 @@ func (t *Terminal) attemptReconnection(hostID, tmuxSession string) {
 		// Emit reconnecting event with sessionId
 		if t.ctx != nil {
 			runtime.EventsEmit(t.ctx, "terminal:reconnecting", map[string]interface{}{
-				"sessionId": t.sessionID,
-				"attempt":   attempt,
+				"sessionId":   t.sessionID,
+				"attempt":     attempt,
 				"maxAttempts": maxReconnectAttempts,
 			})
 		}
@@ -845,7 +845,7 @@ func (t *Terminal) pollTmuxOnce() {
 			// We position cursor to the last viewport row, so CRLF scrolls content up
 			if len(historyGap) > 0 {
 				// Save cursor, move to bottom row, emit history, restore cursor
-				combined.WriteString("\x1b7")                                        // Save cursor (DEC)
+				combined.WriteString("\x1b7")                                         // Save cursor (DEC)
 				combined.WriteString(fmt.Sprintf("\x1b[%d;1H", tracker.viewportRows)) // Go to bottom row
 				combined.WriteString(historyGap)                                      // History lines with CRLF scroll up
 				combined.WriteString("\x1b8")                                         // Restore cursor (DEC)
@@ -865,7 +865,7 @@ func (t *Terminal) pollTmuxOnce() {
 		// Viewport unchanged but we have history gap - emit it with proper cursor management
 		if t.ctx != nil {
 			var combined strings.Builder
-			combined.WriteString("\x1b7")                                        // Save cursor
+			combined.WriteString("\x1b7")                                         // Save cursor
 			combined.WriteString(fmt.Sprintf("\x1b[%d;1H", tracker.viewportRows)) // Go to bottom row
 			combined.WriteString(historyGap)
 			combined.WriteString("\x1b8") // Restore cursor

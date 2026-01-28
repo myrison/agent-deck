@@ -1249,4 +1249,3 @@ func TestDetectSessionStatusErrorPatternsCaseInsensitive(t *testing.T) {
 		})
 	}
 }
-

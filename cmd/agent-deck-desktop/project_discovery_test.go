@@ -847,8 +847,8 @@ func TestSetScanPaths(t *testing.T) {
 			"/projects/code/",  // trailing slash
 			"  /projects/code", // leading whitespace + duplicate after normalization
 			"/projects/web",
-			"",           // empty
-			"  ",         // whitespace-only
+			"",               // empty
+			"  ",             // whitespace-only
 			"/projects/web/", // duplicate after trailing slash trim
 		})
 		if err != nil {

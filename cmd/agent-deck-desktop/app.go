@@ -635,6 +635,22 @@ func (a *App) SetShowActivityRibbon(enabled bool) error {
 	return nil
 }
 
+// GetFileBasedActivityDetection returns whether file-based activity detection is enabled.
+// Uses session file modification time for more reliable status detection. Enabled by default.
+// Supported for Claude and Gemini. OpenCode uses visual detection only.
+func (a *App) GetFileBasedActivityDetection() bool {
+	enabled, err := a.desktopSettings.GetFileBasedActivityDetection()
+	if err != nil {
+		return true // Default to enabled
+	}
+	return enabled
+}
+
+// SetFileBasedActivityDetection enables or disables file-based activity detection.
+func (a *App) SetFileBasedActivityDetection(enabled bool) error {
+	return a.desktopSettings.SetFileBasedActivityDetection(enabled)
+}
+
 // ==================== SSH Remote Session Methods ====================
 
 // TestSSHConnection tests if a remote host is reachable.

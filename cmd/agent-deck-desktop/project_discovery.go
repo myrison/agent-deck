@@ -27,15 +27,15 @@ type SessionSummary struct {
 type ProjectInfo struct {
 	Path                  string           `json:"path"`
 	Name                  string           `json:"name"`
-	Score                 float64          `json:"score"`                            // Frecency score
-	HasSession            bool             `json:"hasSession"`                       // Has existing session?
-	Tool                  string           `json:"tool"`                             // Tool if session exists (first session for backward compat)
-	SessionID             string           `json:"sessionId"`                        // Session ID if exists (first session for backward compat)
-	SessionCount          int              `json:"sessionCount"`                     // Total number of sessions at this path+host
-	Sessions              []SessionSummary `json:"sessions,omitempty"`               // All sessions at this path+host
-	IsRemote              bool             `json:"isRemote,omitempty"`               // Whether this project group is remote
-	RemoteHost            string           `json:"remoteHost,omitempty"`             // SSH host for remote projects
-	RemoteHostDisplayName string           `json:"remoteHostDisplayName,omitempty"`  // Display name for remote host
+	Score                 float64          `json:"score"`                           // Frecency score
+	HasSession            bool             `json:"hasSession"`                      // Has existing session?
+	Tool                  string           `json:"tool"`                            // Tool if session exists (first session for backward compat)
+	SessionID             string           `json:"sessionId"`                       // Session ID if exists (first session for backward compat)
+	SessionCount          int              `json:"sessionCount"`                    // Total number of sessions at this path+host
+	Sessions              []SessionSummary `json:"sessions,omitempty"`              // All sessions at this path+host
+	IsRemote              bool             `json:"isRemote,omitempty"`              // Whether this project group is remote
+	RemoteHost            string           `json:"remoteHost,omitempty"`            // SSH host for remote projects
+	RemoteHostDisplayName string           `json:"remoteHostDisplayName,omitempty"` // Display name for remote host
 }
 
 // ProjectDiscoverySettings defines settings for discovering projects

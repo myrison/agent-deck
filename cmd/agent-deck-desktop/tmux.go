@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -76,11 +77,11 @@ type groupJSON struct {
 type GroupInfo struct {
 	Name         string `json:"name"`
 	Path         string `json:"path"`
-	SessionCount int    `json:"sessionCount"`          // Direct sessions in this group
-	TotalCount   int    `json:"totalCount"`            // Sessions including subgroups
-	Level        int    `json:"level"`                 // Nesting level (0 for root)
-	HasChildren  bool   `json:"hasChildren"`           // Has subgroups
-	Expanded     bool   `json:"expanded"`              // TUI expand state (default)
+	SessionCount int    `json:"sessionCount"`           // Direct sessions in this group
+	TotalCount   int    `json:"totalCount"`             // Sessions including subgroups
+	Level        int    `json:"level"`                  // Nesting level (0 for root)
+	HasChildren  bool   `json:"hasChildren"`            // Has subgroups
+	Expanded     bool   `json:"expanded"`               // TUI expand state (default)
 	RemoteHostID string `json:"remoteHostId,omitempty"` // SSH host ID for remote host groups
 }
 
@@ -107,6 +108,10 @@ type instanceJSON struct {
 	LaunchConfigName string    `json:"launch_config_name,omitempty"`
 	LoadedMCPNames   []string  `json:"loaded_mcp_names,omitempty"`
 	DangerousMode    bool      `json:"dangerous_mode,omitempty"`
+
+	// Tool session IDs for file-based activity detection
+	ClaudeSessionID string `json:"claude_session_id,omitempty"`
+	GeminiSessionID string `json:"gemini_session_id,omitempty"`
 }
 
 // tmuxBinaryPath is the resolved path to tmux, used by all components.
@@ -482,6 +487,115 @@ func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bo
 	return "idle", true
 }
 
+// detectSessionStatusViaFile checks Claude/Gemini session file modification time.
+// Returns status and whether file-based detection succeeded.
+//
+// Claude Code writes progress events every 1 second during tool execution,
+// making file mtime a reliable "running" indicator.
+//
+// TODO: Enable file-based detection in TUI app (internal/tmux/tmux.go) as well
+func (tm *TmuxManager) detectSessionStatusViaFile(inst *instanceJSON) (string, bool) {
+	// Check if feature is enabled
+	dsm := NewDesktopSettingsManager()
+	enabled, _ := dsm.GetFileBasedActivityDetection()
+	if !enabled {
+		return "", false
+	}
+
+	// Only supported for Claude and Gemini (local sessions only)
+	if inst.Tool != "claude" && inst.Tool != "gemini" {
+		return "", false
+	}
+
+	// Skip remote sessions - file-based detection only works locally
+	if inst.RemoteHost != "" {
+		return "", false
+	}
+
+	var filePath string
+
+	if inst.Tool == "claude" && inst.ClaudeSessionID != "" {
+		filePath = tm.getClaudeJSONLPath(inst)
+	} else if inst.Tool == "gemini" && inst.GeminiSessionID != "" {
+		filePath = tm.getGeminiSessionPath(inst)
+	}
+
+	if filePath == "" {
+		return "", false
+	}
+
+	stat, err := os.Stat(filePath)
+	if err != nil {
+		return "", false
+	}
+
+	// If modified within last 10 seconds, agent is actively working
+	// (Claude writes progress events every 1 second during tool execution)
+	if time.Since(stat.ModTime()) < 10*time.Second {
+		return "running", true
+	}
+
+	return "", false // Fall back to visual detection
+}
+
+// getClaudeJSONLPath returns the path to Claude's session JSONL file.
+// Uses the same logic as internal/session/instance.go:GetJSONLPath()
+func (tm *TmuxManager) getClaudeJSONLPath(inst *instanceJSON) string {
+	if inst.ClaudeSessionID == "" {
+		return ""
+	}
+
+	configDir := session.GetClaudeConfigDir()
+
+	// Resolve symlinks in project path
+	resolvedPath := inst.ProjectPath
+	if resolved, err := filepath.EvalSymlinks(inst.ProjectPath); err == nil {
+		resolvedPath = resolved
+	}
+
+	// Convert to Claude's directory format (non-alphanumeric → hyphens)
+	projectDirName := session.ConvertToClaudeDirName(resolvedPath)
+	sessionFile := filepath.Join(configDir, "projects", projectDirName, inst.ClaudeSessionID+".jsonl")
+
+	if _, err := os.Stat(sessionFile); os.IsNotExist(err) {
+		return ""
+	}
+	return sessionFile
+}
+
+// getGeminiSessionPath returns the path to Gemini's session JSON file.
+func (tm *TmuxManager) getGeminiSessionPath(inst *instanceJSON) string {
+	if inst.GeminiSessionID == "" || inst.ProjectPath == "" {
+		return ""
+	}
+
+	home, _ := os.UserHomeDir()
+
+	// Gemini uses SHA256 hash of project path
+	hash := sha256.Sum256([]byte(inst.ProjectPath))
+	projectHash := hex.EncodeToString(hash[:])
+
+	// Find most recent session file matching the session ID
+	// Gemini session files are named: session-{timestamp}-{sessionID}.json
+	pattern := filepath.Join(home, ".gemini", "tmp", projectHash, "chats", "session-*-"+inst.GeminiSessionID[:8]+"*.json")
+	matches, _ := filepath.Glob(pattern)
+
+	if len(matches) == 0 {
+		return ""
+	}
+
+	// Return most recently modified
+	var newest string
+	var newestTime time.Time
+	for _, m := range matches {
+		if info, err := os.Stat(m); err == nil && info.ModTime().After(newestTime) {
+			newestTime = info.ModTime()
+			newest = m
+		}
+	}
+	return newest
+}
+
 // instanceUpdate tracks status/timestamp changes that need to be persisted
 type instanceUpdate struct {
 	status            string
@@ -533,13 +647,15 @@ func (tm *TmuxManager) convertInstancesToSessionInfos(instances []instanceJSON) 
 
 	// Phase 1: Collect local sessions that need status detection
 	var sessionsToDetect []sessionToDetect
-	for _, inst := range instances {
+	for i := range instances {
+		inst := &instances[i]
 		_, exists := runningTmux[inst.TmuxSession]
 		isRemote := inst.RemoteHost != ""
 		if !isRemote && exists {
 			sessionsToDetect = append(sessionsToDetect, sessionToDetect{
 				tmuxSession: inst.TmuxSession,
 				tool:        inst.Tool,
+				instance:    inst,
 			})
 		}
 	}
@@ -749,10 +865,12 @@ func (tm *TmuxManager) flushPendingUpdates() {
 type sessionToDetect struct {
 	tmuxSession string
 	tool        string
+	instance    *instanceJSON // For file-based activity detection
 }
 
 // detectStatusesParallel detects status for multiple sessions in parallel.
 // Uses a bounded worker pool to limit concurrent tmux subprocess spawning.
+// Tries file-based detection first (for Claude/Gemini), falling back to visual detection.
 func (tm *TmuxManager) detectStatusesParallel(sessions []sessionToDetect) map[string]string {
 	if len(sessions) == 0 {
 		return nil
@@ -767,20 +885,31 @@ func (tm *TmuxManager) detectStatusesParallel(sessions []sessionToDetect) map[st
 
 	for _, sess := range sessions {
 		wg.Add(1)
-		go func(tmuxSession, tool string) {
+		go func(s sessionToDetect) {
 			defer wg.Done()
 
 			// Acquire semaphore slot
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			status, ok := tm.detectSessionStatus(tmuxSession, tool)
+			// Try file-based detection first (for Claude/Gemini)
+			if s.instance != nil {
+				if status, ok := tm.detectSessionStatusViaFile(s.instance); ok {
+					resultsMu.Lock()
+					results[s.tmuxSession] = status
+					resultsMu.Unlock()
+					return
+				}
+			}
+
+			// Fall back to visual detection
+			status, ok := tm.detectSessionStatus(s.tmuxSession, s.tool)
 			if ok {
 				resultsMu.Lock()
-				results[tmuxSession] = status
+				results[s.tmuxSession] = status
 				resultsMu.Unlock()
 			}
-		}(sess.tmuxSession, sess.tool)
+		}(sess)
 	}
 
 	wg.Wait()
@@ -1634,6 +1763,7 @@ func (tm *TmuxManager) RefreshSessionStatuses(sessionIDs []string) ([]StatusUpda
 			sessionsToDetect = append(sessionsToDetect, sessionToDetect{
 				tmuxSession: inst.TmuxSession,
 				tool:        inst.Tool,
+				instance:    inst,
 			})
 		}
 	}
