@@ -219,6 +219,41 @@ describe('createScrollAccumulator', () => {
             expect(lines).toBe(-1);
             expect(acc.getValue()).toBe(-5); // -65 % 60 = -5
         });
+
+        it('handles JavaScript negative modulo correctly', () => {
+            // JavaScript: -65 % 60 = -5 (NOT 55 like some languages)
+            // This test ensures we rely on JS semantics correctly
+            const acc = createScrollAccumulator(100); // threshold = 60
+
+            // Large negative scroll: -130px = -2 lines, remainder = -130 % 60 = -10
+            const lines = acc.accumulate(-130);
+            expect(lines).toBe(-2);
+            expect(acc.getValue()).toBe(-10); // JavaScript modulo preserves sign
+
+            // Verify: if we continue negative, the -10 remainder counts
+            const lines2 = acc.accumulate(-55); // -10 + -55 = -65 = -1 line, remainder -5
+            expect(lines2).toBe(-1);
+            expect(acc.getValue()).toBe(-5);
+        });
+
+        it('handles negative remainder with positive delta (direction change)', () => {
+            const acc = createScrollAccumulator(100);
+
+            // Start with negative remainder
+            acc.accumulate(-75); // -1 line, remainder = -15
+            expect(acc.getValue()).toBe(-15);
+
+            // User changes direction - scroll positive
+            // -15 + 40 = 25 (not enough for positive threshold)
+            const lines = acc.accumulate(40);
+            expect(lines).toBe(0);
+            expect(acc.getValue()).toBe(25);
+
+            // Continue positive to trigger
+            const lines2 = acc.accumulate(50); // 25 + 50 = 75 = 1 line, remainder 15
+            expect(lines2).toBe(1);
+            expect(acc.getValue()).toBe(15);
+        });
     });
 
     describe('different scroll speed settings', () => {
@@ -292,6 +327,27 @@ describe('createScrollAccumulator', () => {
             acc.reset();
 
             expect(acc.getThreshold()).toBe(originalThreshold);
+        });
+
+        it('prevents gesture bleed by clearing sub-line remainder', () => {
+            // Simulates: user scrolls, leaves 45px remainder, pauses (reset called),
+            // then starts a new gesture. The new gesture should NOT inherit the 45px.
+            const acc = createScrollAccumulator(100); // threshold = 60
+
+            // First gesture: scroll 105px = 1 line + 45px remainder
+            const lines1 = acc.accumulate(105);
+            expect(lines1).toBe(1);
+            expect(acc.getValue()).toBe(45); // Sub-line remainder
+
+            // Gesture ends - in Terminal.jsx, this is called after 150ms timeout
+            acc.reset();
+            expect(acc.getValue()).toBe(0);
+
+            // New gesture starts fresh - 30px should NOT trigger
+            // (would have triggered if 45px remainder was still there)
+            const lines2 = acc.accumulate(30);
+            expect(lines2).toBe(0);
+            expect(acc.getValue()).toBe(30);
         });
     });
 

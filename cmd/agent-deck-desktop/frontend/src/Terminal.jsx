@@ -936,6 +936,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 terminalRef.current.removeEventListener('wheel', handleWheel);
             }
             if (scrollSettleTimer) clearTimeout(scrollSettleTimer);
+            if (wheelResetTimer) clearTimeout(wheelResetTimer);
             term.dispose();
             xtermRef.current = null;
             fitAddonRef.current = null;
