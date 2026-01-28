@@ -70,6 +70,10 @@ export function GetExpandedGroups() {
   return window['go']['main']['App']['GetExpandedGroups']();
 }
 
+export function GetFileBasedActivityDetection() {
+  return window['go']['main']['App']['GetFileBasedActivityDetection']();
+}
+
 export function GetFontSize() {
   return window['go']['main']['App']['GetFontSize']();
 }
@@ -272,6 +276,10 @@ export function SetClickToCursorEnabled(arg1) {
 
 export function SetDesktopTheme(arg1) {
   return window['go']['main']['App']['SetDesktopTheme'](arg1);
+}
+
+export function SetFileBasedActivityDetection(arg1) {
+  return window['go']['main']['App']['SetFileBasedActivityDetection'](arg1);
 }
 
 export function SetFontSize(arg1) {

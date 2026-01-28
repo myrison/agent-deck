@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -8,6 +10,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/asheshgoplani/agent-deck/internal/session"
 )
 
 // TestTmuxManagerSessionExists tests session existence checking
@@ -445,14 +450,14 @@ func TestConvertInstancesNormalizesEmptyGroupPathWithProjectPath(t *testing.T) {
 	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
 
 	// Simulate an instance from an older version with empty group_path
-	instances := []instanceJSON{
+	instances := []*session.InstanceData{
 		{
 			ID:          "test-id-001",
 			Title:       "Old Session",
 			ProjectPath: "/Users/jason/hc-repo/agent-deck",
 			GroupPath:   "", // Empty — the scenario this PR fixes
 			Tool:        "claude",
-			Status:      "running",
+			Status:      session.StatusRunning,
 			TmuxSession: sessionName,
 		},
 	}
@@ -490,14 +495,14 @@ func TestConvertInstancesNormalizesEmptyGroupPathWithoutProjectPath(t *testing.T
 	}
 	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
 
-	instances := []instanceJSON{
+	instances := []*session.InstanceData{
 		{
 			ID:          "test-id-002",
 			Title:       "No Path Session",
 			ProjectPath: "", // No project path
 			GroupPath:   "", // No group path
 			Tool:        "claude",
-			Status:      "running",
+			Status:      session.StatusRunning,
 			TmuxSession: sessionName,
 		},
 	}
@@ -623,7 +628,7 @@ func TestUpdateSessionStatus_SessionNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewTmuxManager failed: %v", err)
 	}
-	err := tm.UpdateSessionStatus("nonexistent-id", "running")
+	err = tm.UpdateSessionStatus("nonexistent-id", "running")
 	if err == nil {
 		t.Error("UpdateSessionStatus should return error for nonexistent session ID")
 	}
@@ -784,14 +789,14 @@ func TestConvertInstancesPreservesExistingGroupPath(t *testing.T) {
 	}
 	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
 
-	instances := []instanceJSON{
+	instances := []*session.InstanceData{
 		{
 			ID:          "test-id-003",
 			Title:       "Existing Group Session",
 			ProjectPath: "/Users/jason/hc-repo/agent-deck",
 			GroupPath:   "custom-group", // Already set — should NOT be overridden
 			Tool:        "claude",
-			Status:      "running",
+			Status:      session.StatusRunning,
 			TmuxSession: sessionName,
 		},
 	}
@@ -829,7 +834,7 @@ func TestPersistSessionWritesRemoteTmuxNameForRemote(t *testing.T) {
 	}
 
 	// Persist a remote session
-	err := tm.PersistSession(SessionInfo{
+	err = tm.PersistSession(SessionInfo{
 		ID:          "remote-001",
 		Title:       "Remote Session",
 		ProjectPath: "/home/user/project",
@@ -895,7 +900,7 @@ func TestPersistSessionOmitsRemoteTmuxNameForLocal(t *testing.T) {
 	}
 
 	// Persist a local session (IsRemote defaults to false)
-	err := tm.PersistSession(SessionInfo{
+	err = tm.PersistSession(SessionInfo{
 		ID:          "local-001",
 		Title:       "Local Session",
 		ProjectPath: "/Users/jason/project",
@@ -951,14 +956,14 @@ func TestConvertInstancesMarksLocalSessionWithoutTmuxAsExited(t *testing.T) {
 
 	// Create an instance that references a non-existent tmux session
 	// (simulates a session whose tmux process has ended)
-	instances := []instanceJSON{
+	instances := []*session.InstanceData{
 		{
 			ID:          "exited-test-001",
 			Title:       "Exited Session",
 			ProjectPath: "/Users/jason/project",
 			GroupPath:   "project",
 			Tool:        "claude",
-			Status:      "running", // Stored as "running" in JSON
+			Status:      session.StatusRunning, // Stored as "running" in JSON
 			TmuxSession: "definitely_nonexistent_tmux_session_xyz123",
 		},
 	}
@@ -996,14 +1001,14 @@ func TestConvertInstancesPreservesRunningStatusForActiveTmux(t *testing.T) {
 	}
 	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
 
-	instances := []instanceJSON{
+	instances := []*session.InstanceData{
 		{
 			ID:          "running-test-001",
 			Title:       "Running Session",
 			ProjectPath: tmpDir,
 			GroupPath:   "test",
 			Tool:        "claude",
-			Status:      "running",
+			Status:      session.StatusRunning,
 			TmuxSession: sessionName,
 		},
 	}
@@ -1033,14 +1038,14 @@ func TestConvertInstancesDoesNotMarkRemoteSessionAsExited(t *testing.T) {
 	}
 
 	// Remote session with non-existent local tmux (this is expected for remote sessions)
-	instances := []instanceJSON{
+	instances := []*session.InstanceData{
 		{
 			ID:          "remote-test-001",
 			Title:       "Remote Session",
 			ProjectPath: "/home/user/project",
 			GroupPath:   "remote/server",
 			Tool:        "claude",
-			Status:      "running",
+			Status:      session.StatusRunning,
 			TmuxSession: "nonexistent_remote_tmux",
 			RemoteHost:  "my-server", // This makes it a remote session
 		},
@@ -1090,7 +1095,7 @@ func TestUpdateSessionStatusAcceptsExitedStatus(t *testing.T) {
 	}
 
 	// Updating to "exited" should succeed (it's in validSessionStatuses)
-	err := tm.UpdateSessionStatus("abc-123", "exited")
+	err = tm.UpdateSessionStatus("abc-123", "exited")
 	if err != nil {
 		t.Fatalf("UpdateSessionStatus should accept 'exited' as valid status, got error: %v", err)
 	}
@@ -1114,7 +1119,7 @@ func TestDetectSessionStatusReturnsErrorForSSHConnectionFailures(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, _ := NewTmuxManager()
 
 	// Error patterns that should trigger "error" status
 	errorPatterns := []struct {
@@ -1177,7 +1182,7 @@ func TestDetectSessionStatusErrorTakesPriorityOverPrompt(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, _ := NewTmuxManager()
 	sessionName := "test_error_priority"
 	tmpDir := t.TempDir()
 
@@ -1223,7 +1228,7 @@ func TestDetectSessionStatusReturnsWaitingWhenNoError(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, _ := NewTmuxManager()
 	sessionName := "test_waiting_status"
 	tmpDir := t.TempDir()
 
@@ -1266,7 +1271,7 @@ func TestDetectSessionStatusErrorPatternsCaseInsensitive(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, _ := NewTmuxManager()
 
 	// Test various case combinations
 	testCases := []struct {
@@ -1304,6 +1309,493 @@ func TestDetectSessionStatusErrorPatternsCaseInsensitive(t *testing.T) {
 				t.Errorf("Case-insensitive error detection failed for %q, got status %q", tc.name, status)
 			}
 		})
+	}
+}
+
+// =============================================================================
+// File-Based Activity Detection Tests
+// =============================================================================
+
+// TestDetectSessionStatusViaFileReturnsRunningForRecentlyModifiedFile verifies
+// that detectSessionStatusViaFile returns "running" when the session file was
+// modified within the last 10 seconds. This is the core detection mechanism for
+// reliable activity status.
+func TestDetectSessionStatusViaFileReturnsRunningForRecentlyModifiedFile(t *testing.T) {
+	// Set up temp HOME so settings and session paths are isolated
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	// Create the Claude session file structure
+	// Path: ~/.claude/projects/{project-dir-name}/{session-id}.jsonl
+	claudeDir := filepath.Join(tmpHome, ".claude", "projects", "-tmp-test-project")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatalf("Failed to create Claude session dir: %v", err)
+	}
+
+	sessionFile := filepath.Join(claudeDir, "test-session-123.jsonl")
+	if err := os.WriteFile(sessionFile, []byte(`{"event":"test"}`), 0644); err != nil {
+		t.Fatalf("Failed to create session file: %v", err)
+	}
+
+	// Create instance with matching Claude session ID
+	inst := &session.InstanceData{
+		ID:              "test-id",
+		Tool:            "claude",
+		ProjectPath:     "/tmp/test-project",
+		ClaudeSessionID: "test-session-123",
+	}
+
+	// File was just created (mtime is recent), should return "running"
+	// Pass fileBasedEnabled=true to enable detection
+	status, ok := tm.detectSessionStatusViaFile(inst, true)
+	if !ok {
+		t.Fatal("detectSessionStatusViaFile should return ok=true for valid Claude session file")
+	}
+	if status != "running" {
+		t.Errorf("Expected status 'running' for recently modified file, got %q", status)
+	}
+}
+
+// TestDetectSessionStatusViaFileFallsBackForOldFile verifies that when a session
+// file exists but was modified more than 10 seconds ago, detectSessionStatusViaFile
+// returns ok=false so the caller falls back to visual detection.
+func TestDetectSessionStatusViaFileFallsBackForOldFile(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	// Create Claude session file structure
+	claudeDir := filepath.Join(tmpHome, ".claude", "projects", "-tmp-old-project")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatalf("Failed to create Claude session dir: %v", err)
+	}
+
+	sessionFile := filepath.Join(claudeDir, "old-session-456.jsonl")
+	if err := os.WriteFile(sessionFile, []byte(`{"event":"test"}`), 0644); err != nil {
+		t.Fatalf("Failed to create session file: %v", err)
+	}
+
+	// Set file mtime to 30 seconds ago (older than 10-second threshold)
+	oldTime := time.Now().Add(-30 * time.Second)
+	if err := os.Chtimes(sessionFile, oldTime, oldTime); err != nil {
+		t.Fatalf("Failed to set file mtime: %v", err)
+	}
+
+	inst := &session.InstanceData{
+		ID:              "test-id",
+		Tool:            "claude",
+		ProjectPath:     "/tmp/old-project",
+		ClaudeSessionID: "old-session-456",
+	}
+
+	// File is old, should fall back (ok=false)
+	_, ok := tm.detectSessionStatusViaFile(inst, true)
+	if ok {
+		t.Error("detectSessionStatusViaFile should return ok=false for files older than 10 seconds")
+	}
+}
+
+// TestDetectSessionStatusViaFileRespectsFeatureToggle verifies that when
+// file-based activity detection is disabled (fileBasedEnabled=false),
+// detectSessionStatusViaFile returns ok=false immediately without checking the file.
+func TestDetectSessionStatusViaFileRespectsFeatureToggle(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	// Create a fresh session file (would return "running" if feature was enabled)
+	claudeDir := filepath.Join(tmpHome, ".claude", "projects", "-tmp-toggle-project")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatalf("Failed to create Claude session dir: %v", err)
+	}
+	sessionFile := filepath.Join(claudeDir, "toggle-session.jsonl")
+	if err := os.WriteFile(sessionFile, []byte(`{"event":"test"}`), 0644); err != nil {
+		t.Fatalf("Failed to create session file: %v", err)
+	}
+
+	inst := &session.InstanceData{
+		ID:              "test-id",
+		Tool:            "claude",
+		ProjectPath:     "/tmp/toggle-project",
+		ClaudeSessionID: "toggle-session",
+	}
+
+	// Feature is disabled (fileBasedEnabled=false), should return ok=false even with fresh file
+	_, ok := tm.detectSessionStatusViaFile(inst, false)
+	if ok {
+		t.Error("detectSessionStatusViaFile should return ok=false when feature is disabled")
+	}
+}
+
+// TestDetectSessionStatusViaFileSkipsOpenCode verifies that file-based detection
+// is not attempted for OpenCode sessions (only Claude and Gemini are supported).
+func TestDetectSessionStatusViaFileSkipsOpenCode(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	inst := &session.InstanceData{
+		ID:          "test-id",
+		Tool:        "opencode", // Not supported for file-based detection
+		ProjectPath: "/tmp/opencode-project",
+	}
+
+	_, ok := tm.detectSessionStatusViaFile(inst, true)
+	if ok {
+		t.Error("detectSessionStatusViaFile should return ok=false for OpenCode sessions")
+	}
+}
+
+// TestDetectSessionStatusViaFileSkipsRemoteSessions verifies that file-based
+// detection is not attempted for remote sessions (file would be on remote host).
+func TestDetectSessionStatusViaFileSkipsRemoteSessions(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	inst := &session.InstanceData{
+		ID:              "test-id",
+		Tool:            "claude",
+		ProjectPath:     "/home/user/project",
+		ClaudeSessionID: "remote-session-123",
+		RemoteHost:      "dev-server", // This makes it a remote session
+	}
+
+	_, ok := tm.detectSessionStatusViaFile(inst, true)
+	if ok {
+		t.Error("detectSessionStatusViaFile should return ok=false for remote sessions")
+	}
+}
+
+// TestGetGeminiSessionPathReturnsNewestMatch verifies that getGeminiSessionPath
+// returns the most recently modified session file when multiple matches exist.
+func TestGetGeminiSessionPathReturnsNewestMatch(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	projectPath := "/test/gemini-project"
+
+	// Gemini uses SHA256 hash of project path for directory name
+	hash := sha256.Sum256([]byte(projectPath))
+	projectHash := hex.EncodeToString(hash[:])
+
+	// Create Gemini session directory structure
+	geminiDir := filepath.Join(tmpHome, ".gemini", "tmp", projectHash, "chats")
+	if err := os.MkdirAll(geminiDir, 0755); err != nil {
+		t.Fatalf("Failed to create Gemini session dir: %v", err)
+	}
+
+	// Create two session files with the same session ID prefix
+	sessionID := "abcd1234-5678"
+	olderFile := filepath.Join(geminiDir, "session-1000-"+sessionID[:8]+".json")
+	newerFile := filepath.Join(geminiDir, "session-2000-"+sessionID[:8]+".json")
+
+	if err := os.WriteFile(olderFile, []byte(`{"session":"older"}`), 0644); err != nil {
+		t.Fatalf("Failed to create older session file: %v", err)
+	}
+	// Set older file mtime to past
+	oldTime := time.Now().Add(-1 * time.Hour)
+	os.Chtimes(olderFile, oldTime, oldTime)
+
+	if err := os.WriteFile(newerFile, []byte(`{"session":"newer"}`), 0644); err != nil {
+		t.Fatalf("Failed to create newer session file: %v", err)
+	}
+
+	inst := &session.InstanceData{
+		GeminiSessionID: sessionID,
+		ProjectPath:     projectPath,
+	}
+
+	result := tm.getGeminiSessionPath(inst)
+	if result != newerFile {
+		t.Errorf("Expected newest file %q, got %q", newerFile, result)
+	}
+}
+
+// TestGetGeminiSessionPathReturnsEmptyForNoMatches verifies that
+// getGeminiSessionPath returns empty string when no matching files exist.
+func TestGetGeminiSessionPathReturnsEmptyForNoMatches(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	// Don't create any session files
+	inst := &session.InstanceData{
+		GeminiSessionID: "nonexistent-session",
+		ProjectPath:     "/nonexistent/project",
+	}
+
+	result := tm.getGeminiSessionPath(inst)
+	if result != "" {
+		t.Errorf("Expected empty string for nonexistent session, got %q", result)
+	}
+}
+
+// TestGetClaudeJSONLPathReturnsEmptyForNonexistentFile verifies that
+// getClaudeJSONLPath returns empty string when the session file doesn't exist.
+func TestGetClaudeJSONLPathReturnsEmptyForNonexistentFile(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	// Create the directory structure but not the session file
+	claudeDir := filepath.Join(tmpHome, ".claude", "projects", "-tmp-project")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatalf("Failed to create Claude dir: %v", err)
+	}
+
+	inst := &session.InstanceData{
+		ClaudeSessionID: "nonexistent-session",
+		ProjectPath:     "/tmp/project",
+	}
+
+	result := tm.getClaudeJSONLPath(inst)
+	if result != "" {
+		t.Errorf("Expected empty for nonexistent file, got %q", result)
+	}
+}
+
+// =============================================================================
+// updateWaitingSinceTracking Tests (PR #91)
+// =============================================================================
+
+// TestUpdateWaitingSinceTrackingSetsTimestampWhenEnteringWaiting verifies that
+// when a session transitions to "waiting" status and has no existing timestamp,
+// updateWaitingSinceTracking sets waitingSince to the current time and adds the
+// update to the pending updates map.
+func TestUpdateWaitingSinceTrackingSetsTimestampWhenEnteringWaiting(t *testing.T) {
+	updates := make(map[string]session.FieldUpdate)
+	instID := "test-session-001"
+
+	// Session entering waiting status with no prior timestamp
+	result := updateWaitingSinceTracking(instID, "waiting", time.Time{}, updates)
+
+	// waitingSince should be set to approximately now
+	if result.IsZero() {
+		t.Error("Expected waitingSince to be set when entering waiting status")
+	}
+	if time.Since(result) > 2*time.Second {
+		t.Errorf("waitingSince should be recent, got %v", result)
+	}
+
+	// Update should be queued for persistence
+	update, ok := updates[instID]
+	if !ok {
+		t.Fatal("Expected update to be added to pending updates map")
+	}
+	if update.WaitingSince == nil {
+		t.Error("Expected WaitingSince field to be set in update")
+	}
+}
+
+// TestUpdateWaitingSinceTrackingPreservesExistingTimestamp verifies that when
+// a session is already in "waiting" status and has an existing timestamp,
+// the function preserves that timestamp rather than overwriting it.
+func TestUpdateWaitingSinceTrackingPreservesExistingTimestamp(t *testing.T) {
+	updates := make(map[string]session.FieldUpdate)
+	instID := "test-session-002"
+	existingTime := time.Now().Add(-5 * time.Minute) // Session has been waiting for 5 minutes
+
+	result := updateWaitingSinceTracking(instID, "waiting", existingTime, updates)
+
+	// Should preserve the original timestamp
+	if !result.Equal(existingTime) {
+		t.Errorf("Expected existing timestamp %v to be preserved, got %v", existingTime, result)
+	}
+
+	// No update should be queued (timestamp already exists)
+	if _, ok := updates[instID]; ok {
+		t.Error("Should not add update when timestamp already exists")
+	}
+}
+
+// TestUpdateWaitingSinceTrackingClearsTimestampWhenLeavingWaiting verifies that
+// when a session transitions from "waiting" to another status (e.g., "running"),
+// the function clears the waitingSince timestamp and queues a ClearWaitingSince update.
+func TestUpdateWaitingSinceTrackingClearsTimestampWhenLeavingWaiting(t *testing.T) {
+	updates := make(map[string]session.FieldUpdate)
+	instID := "test-session-003"
+	existingTime := time.Now().Add(-10 * time.Minute)
+
+	// Session transitions from waiting to running
+	result := updateWaitingSinceTracking(instID, "running", existingTime, updates)
+
+	// waitingSince should be cleared (zero value)
+	if !result.IsZero() {
+		t.Errorf("Expected waitingSince to be cleared when leaving waiting, got %v", result)
+	}
+
+	// Update should queue ClearWaitingSince=true
+	update, ok := updates[instID]
+	if !ok {
+		t.Fatal("Expected update to be added for clearing waitingSince")
+	}
+	if !update.ClearWaitingSince {
+		t.Error("Expected ClearWaitingSince=true in update")
+	}
+}
+
+// TestUpdateWaitingSinceTrackingMergesWithExistingUpdate verifies that when
+// an update already exists for the session in the updates map, the function
+// merges the WaitingSince change into it rather than overwriting.
+func TestUpdateWaitingSinceTrackingMergesWithExistingUpdate(t *testing.T) {
+	instID := "test-session-005"
+
+	// Pre-existing update with status change
+	status := "waiting"
+	updates := map[string]session.FieldUpdate{
+		instID: {Status: &status},
+	}
+
+	// Should merge WaitingSince into the existing update
+	updateWaitingSinceTracking(instID, "waiting", time.Time{}, updates)
+
+	update := updates[instID]
+	if update.Status == nil || *update.Status != "waiting" {
+		t.Error("Expected Status to be preserved in merged update")
+	}
+	if update.WaitingSince == nil {
+		t.Error("Expected WaitingSince to be added to merged update")
+	}
+}
+
+// TestUpdateWaitingSinceTrackingClearMergesWithExistingUpdate verifies that when
+// clearing waitingSince, it correctly merges ClearWaitingSince into an existing update.
+func TestUpdateWaitingSinceTrackingClearMergesWithExistingUpdate(t *testing.T) {
+	instID := "test-session-006"
+	existingTime := time.Now().Add(-5 * time.Minute)
+
+	// Pre-existing update with status change to running
+	status := "running"
+	updates := map[string]session.FieldUpdate{
+		instID: {Status: &status},
+	}
+
+	// Should merge ClearWaitingSince into the existing update
+	updateWaitingSinceTracking(instID, "running", existingTime, updates)
+
+	update := updates[instID]
+	if update.Status == nil || *update.Status != "running" {
+		t.Error("Expected Status to be preserved in merged update")
+	}
+	if !update.ClearWaitingSince {
+		t.Error("Expected ClearWaitingSince to be set in merged update")
+	}
+}
+
+// =============================================================================
+// Gemini Session Path Edge Cases (PR #91)
+// =============================================================================
+
+// TestGetGeminiSessionPathRejectsShortSessionID verifies that getGeminiSessionPath
+// returns empty string for session IDs shorter than 8 characters. This guards
+// against index out of bounds when slicing the session ID for glob pattern.
+func TestGetGeminiSessionPathRejectsShortSessionID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	testCases := []struct {
+		name      string
+		sessionID string
+	}{
+		{"empty", ""},
+		{"one char", "a"},
+		{"seven chars", "abcdefg"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			inst := &session.InstanceData{
+				GeminiSessionID: tc.sessionID,
+				ProjectPath:     "/test/project",
+			}
+
+			result := tm.getGeminiSessionPath(inst)
+			if result != "" {
+				t.Errorf("Expected empty for short session ID %q, got %q", tc.sessionID, result)
+			}
+		})
+	}
+}
+
+// TestGetGeminiSessionPathRejectsEmptyProjectPath verifies that getGeminiSessionPath
+// returns empty string when ProjectPath is empty, even with a valid session ID.
+func TestGetGeminiSessionPathRejectsEmptyProjectPath(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	inst := &session.InstanceData{
+		GeminiSessionID: "abcd1234-5678-valid-session-id",
+		ProjectPath:     "", // Empty
+	}
+
+	result := tm.getGeminiSessionPath(inst)
+	if result != "" {
+		t.Errorf("Expected empty for empty project path, got %q", result)
 	}
 }
 

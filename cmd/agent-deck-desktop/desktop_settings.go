@@ -43,6 +43,9 @@ type TerminalConfig struct {
 	// ShowActivityRibbon shows a thin indicator below each tab displaying wait time
 	// Shows how long the agent has been waiting for input. Default: true
 	ShowActivityRibbon *bool `toml:"show_activity_ribbon"`
+	// FileBasedActivityDetection uses Claude/Gemini session file modification time
+	// to detect "running" status instead of terminal output parsing. Default: true
+	FileBasedActivityDetection *bool `toml:"file_based_activity_detection"`
 }
 
 // DesktopSettingsManager manages desktop-specific settings in config.toml
@@ -64,9 +67,10 @@ type fullConfig struct {
 	// Other sections are preserved as raw TOML
 }
 
-// loadDesktopSettings loads the desktop section from config.toml
-func (dsm *DesktopSettingsManager) loadDesktopSettings() (*DesktopConfig, error) {
-	defaults := &DesktopConfig{
+// newDefaultDesktopConfig returns the default desktop configuration.
+// Centralized to avoid duplication across Set* methods.
+func newDefaultDesktopConfig() *DesktopConfig {
+	return &DesktopConfig{
 		Theme: "dark",
 		Terminal: TerminalConfig{
 			SoftNewline: "both", // Both Shift+Enter and Alt+Enter by default
@@ -74,6 +78,11 @@ func (dsm *DesktopSettingsManager) loadDesktopSettings() (*DesktopConfig, error)
 			ScrollSpeed: 100,    // Default scroll speed (100%)
 		},
 	}
+}
+
+// loadDesktopSettings loads the desktop section from config.toml
+func (dsm *DesktopSettingsManager) loadDesktopSettings() (*DesktopConfig, error) {
+	defaults := newDefaultDesktopConfig()
 
 	data, err := os.ReadFile(dsm.configPath)
 	if err != nil {
@@ -136,6 +145,12 @@ func (dsm *DesktopSettingsManager) loadDesktopSettings() (*DesktopConfig, error)
 		config.Desktop.Terminal.ShowActivityRibbon = &enabled
 	}
 
+	// Apply default for FileBasedActivityDetection (enabled by default)
+	if config.Desktop.Terminal.FileBasedActivityDetection == nil {
+		enabled := true
+		config.Desktop.Terminal.FileBasedActivityDetection = &enabled
+	}
+
 	return &config.Desktop, nil
 }
 
@@ -164,6 +179,9 @@ func (dsm *DesktopSettingsManager) saveDesktopSettings(desktop *DesktopConfig) e
 	}
 	if desktop.Terminal.ShowActivityRibbon != nil {
 		terminalConfig["show_activity_ribbon"] = *desktop.Terminal.ShowActivityRibbon
+	}
+	if desktop.Terminal.FileBasedActivityDetection != nil {
+		terminalConfig["file_based_activity_detection"] = *desktop.Terminal.FileBasedActivityDetection
 	}
 
 	// Update the desktop section
@@ -246,14 +264,7 @@ func (dsm *DesktopSettingsManager) SetSoftNewline(mode string) error {
 
 	config, err := dsm.loadDesktopSettings()
 	if err != nil {
-		config = &DesktopConfig{
-			Theme: "dark",
-			Terminal: TerminalConfig{
-				SoftNewline: "both",
-				FontSize:    14,
-				ScrollSpeed: 100,
-			},
-		}
+		config = newDefaultDesktopConfig()
 	}
 
 	config.Terminal.SoftNewline = mode
@@ -291,14 +302,7 @@ func (dsm *DesktopSettingsManager) SetFontSize(size int) error {
 
 	config, err := dsm.loadDesktopSettings()
 	if err != nil {
-		config = &DesktopConfig{
-			Theme: "dark",
-			Terminal: TerminalConfig{
-				SoftNewline: "both",
-				FontSize:    14,
-				ScrollSpeed: 100,
-			},
-		}
+		config = newDefaultDesktopConfig()
 	}
 
 	config.Terminal.FontSize = size
@@ -327,14 +331,7 @@ func (dsm *DesktopSettingsManager) SetScrollSpeed(speed int) error {
 
 	config, err := dsm.loadDesktopSettings()
 	if err != nil {
-		config = &DesktopConfig{
-			Theme: "dark",
-			Terminal: TerminalConfig{
-				SoftNewline: "both",
-				FontSize:    14,
-				ScrollSpeed: 100,
-			},
-		}
+		config = newDefaultDesktopConfig()
 	}
 
 	config.Terminal.ScrollSpeed = speed
@@ -355,14 +352,7 @@ func (dsm *DesktopSettingsManager) GetClickToCursor() (bool, error) {
 func (dsm *DesktopSettingsManager) SetClickToCursor(enabled bool) error {
 	config, err := dsm.loadDesktopSettings()
 	if err != nil {
-		config = &DesktopConfig{
-			Theme: "dark",
-			Terminal: TerminalConfig{
-				SoftNewline: "both",
-				FontSize:    14,
-				ScrollSpeed: 100,
-			},
-		}
+		config = newDefaultDesktopConfig()
 	}
 
 	config.Terminal.ClickToCursor = enabled
@@ -383,14 +373,7 @@ func (dsm *DesktopSettingsManager) GetAutoCopyOnSelect() (bool, error) {
 func (dsm *DesktopSettingsManager) SetAutoCopyOnSelect(enabled bool) error {
 	config, err := dsm.loadDesktopSettings()
 	if err != nil {
-		config = &DesktopConfig{
-			Theme: "dark",
-			Terminal: TerminalConfig{
-				SoftNewline: "both",
-				FontSize:    14,
-				ScrollSpeed: 100,
-			},
-		}
+		config = newDefaultDesktopConfig()
 	}
 
 	config.Terminal.AutoCopyOnSelect = enabled
@@ -414,17 +397,35 @@ func (dsm *DesktopSettingsManager) GetShowActivityRibbon() (bool, error) {
 func (dsm *DesktopSettingsManager) SetShowActivityRibbon(enabled bool) error {
 	config, err := dsm.loadDesktopSettings()
 	if err != nil {
-		config = &DesktopConfig{
-			Theme: "dark",
-			Terminal: TerminalConfig{
-				SoftNewline: "both",
-				FontSize:    14,
-				ScrollSpeed: 100,
-			},
-		}
+		config = newDefaultDesktopConfig()
 	}
 
 	config.Terminal.ShowActivityRibbon = &enabled
+	return dsm.saveDesktopSettings(config)
+}
+
+// GetFileBasedActivityDetection returns whether file-based activity detection is enabled.
+// When enabled, Claude/Gemini session file modification times are used to detect "running"
+// status instead of terminal output parsing. Enabled by default.
+func (dsm *DesktopSettingsManager) GetFileBasedActivityDetection() (bool, error) {
+	config, err := dsm.loadDesktopSettings()
+	if err != nil {
+		return true, err // Default to enabled
+	}
+	if config.Terminal.FileBasedActivityDetection == nil {
+		return true, nil // Default to enabled
+	}
+	return *config.Terminal.FileBasedActivityDetection, nil
+}
+
+// SetFileBasedActivityDetection enables or disables file-based activity detection.
+func (dsm *DesktopSettingsManager) SetFileBasedActivityDetection(enabled bool) error {
+	config, err := dsm.loadDesktopSettings()
+	if err != nil {
+		config = newDefaultDesktopConfig()
+	}
+
+	config.Terminal.FileBasedActivityDetection = &enabled
 	return dsm.saveDesktopSettings(config)
 }
 
@@ -441,14 +442,7 @@ func (dsm *DesktopSettingsManager) GetSetupDismissed() (bool, error) {
 func (dsm *DesktopSettingsManager) SetSetupDismissed(dismissed bool) error {
 	config, err := dsm.loadDesktopSettings()
 	if err != nil {
-		config = &DesktopConfig{
-			Theme: "dark",
-			Terminal: TerminalConfig{
-				SoftNewline: "both",
-				FontSize:    14,
-				ScrollSpeed: 100,
-			},
-		}
+		config = newDefaultDesktopConfig()
 	}
 
 	config.SetupDismissed = dismissed
