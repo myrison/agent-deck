@@ -555,6 +555,11 @@ const SessionList = forwardRef(function SessionList({
                                         color: getStatusColor(session.status),
                                         ...(session.isRemote && sshHostStatus[session.remoteHost]?.connected === false && { opacity: 0.3 }),
                                     }}
+                                    title={
+                                        session.status === 'running' ? 'Running: actively processing' :
+                                        session.status === 'waiting' ? 'Waiting: needs user input' :
+                                        'Idle: no activity'
+                                    }
                                 >
                                     {session.status === 'running' ? '●' : session.status === 'waiting' ? '◐' : '○'}
                                 </span>
