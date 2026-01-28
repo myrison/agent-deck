@@ -1208,3 +1208,63 @@ func TestRemoveEmptyRemoteGroups_CascadeCleanup(t *testing.T) {
 		t.Error("remote should be removed (all children gone)")
 	}
 }
+
+func TestRemoveEmptyRemoteGroups_NoEmptyGroups(t *testing.T) {
+	// Test that function returns 0 when all remote groups have sessions
+	tree := NewGroupTree([]*Instance{})
+
+	// Create remote groups, all with sessions
+	tree.EnsureGroupExists("remote", "remote", 1, true)
+	tree.EnsureGroupExists("remote/host1", "host1", 0, true)
+	tree.EnsureGroupExists("remote/host1/project", "project", 0, true)
+
+	// Add sessions to leaf group
+	session := &Instance{
+		ID:        "test-1",
+		Title:     "Test Session",
+		GroupPath: "remote/host1/project",
+	}
+	tree.AddSession(session)
+
+	// Run cleanup - should remove nothing
+	removed := tree.RemoveEmptyRemoteGroups()
+
+	if removed != 0 {
+		t.Errorf("Expected 0 groups removed (all have sessions or children), got %d", removed)
+	}
+
+	// All groups should still exist
+	if tree.Groups["remote"] == nil {
+		t.Error("remote should still exist")
+	}
+	if tree.Groups["remote/host1"] == nil {
+		t.Error("remote/host1 should still exist")
+	}
+	if tree.Groups["remote/host1/project"] == nil {
+		t.Error("remote/host1/project should still exist")
+	}
+}
+
+func TestRemoveEmptyRemoteGroups_NoRemoteGroups(t *testing.T) {
+	// Test that function handles no remote groups gracefully
+	tree := NewGroupTree([]*Instance{})
+
+	// Only create local groups
+	tree.EnsureGroupExists("local-project", "local-project", 0, true)
+	tree.EnsureGroupExists("my-sessions", "My Sessions", 0, true)
+
+	// Run cleanup - should do nothing
+	removed := tree.RemoveEmptyRemoteGroups()
+
+	if removed != 0 {
+		t.Errorf("Expected 0 groups removed (no remote groups), got %d", removed)
+	}
+
+	// Local groups should still exist
+	if tree.Groups["local-project"] == nil {
+		t.Error("local-project should still exist")
+	}
+	if tree.Groups["my-sessions"] == nil {
+		t.Error("my-sessions should still exist")
+	}
+}
