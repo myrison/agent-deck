@@ -92,6 +92,17 @@ func createAppMenu() *menu.Menu {
 }
 
 func main() {
+	// Ensure UTF-8 locale for macOS .app bundles which don't inherit shell LANG.
+	// Without this, clipboard operations corrupt non-ASCII characters (Wails issue #4132).
+	if runtime.GOOS == "darwin" {
+		if os.Getenv("LANG") == "" {
+			os.Setenv("LANG", "en_US.UTF-8")
+		}
+		if os.Getenv("LC_ALL") == "" {
+			os.Setenv("LC_ALL", "en_US.UTF-8")
+		}
+	}
+
 	// Create an instance of the app structure
 	app := NewApp()
 
