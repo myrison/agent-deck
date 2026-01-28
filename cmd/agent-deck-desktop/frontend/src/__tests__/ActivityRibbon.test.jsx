@@ -12,7 +12,7 @@ import ActivityRibbon from '../ActivityRibbon';
 describe('ActivityRibbon', () => {
     describe('single session (legacy)', () => {
         it('should display active label when running', () => {
-            render(
+            const { container } = render(
                 <ActivityRibbon
                     sessions={undefined}
                     status="running"
@@ -21,12 +21,11 @@ describe('ActivityRibbon', () => {
             );
 
             expect(screen.getByText('active')).toBeInTheDocument();
-            const ribbon = screen.getByText('active').parentElement;
-            expect(ribbon).toHaveClass('tier-running');
+            expect(container.querySelector('.activity-ribbon.tier-running')).toBeInTheDocument();
         });
 
         it('should display exited label when exited', () => {
-            render(
+            const { container } = render(
                 <ActivityRibbon
                     sessions={undefined}
                     status="exited"
@@ -35,12 +34,11 @@ describe('ActivityRibbon', () => {
             );
 
             expect(screen.getByText('exited')).toBeInTheDocument();
-            const ribbon = screen.getByText('exited').parentElement;
-            expect(ribbon).toHaveClass('tier-cold');
+            expect(container.querySelector('.activity-ribbon.tier-cold')).toBeInTheDocument();
         });
 
         it('should display error label when status is error', () => {
-            render(
+            const { container } = render(
                 <ActivityRibbon
                     sessions={undefined}
                     status="error"
@@ -49,15 +47,13 @@ describe('ActivityRibbon', () => {
             );
 
             expect(screen.getByText('error')).toBeInTheDocument();
-            const ribbon = screen.getByText('error').parentElement;
-            expect(ribbon).toHaveClass('tier-cold');
+            expect(container.querySelector('.activity-ribbon.tier-cold')).toBeInTheDocument();
         });
 
         it('should display ready label when waiting with valid time', () => {
             const now = new Date();
             const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
-
-            render(
+            const { container } = render(
                 <ActivityRibbon
                     sessions={undefined}
                     status="waiting"
@@ -66,8 +62,7 @@ describe('ActivityRibbon', () => {
             );
 
             expect(screen.getByText('ready 5m')).toBeInTheDocument();
-            const ribbon = screen.getByText('ready 5m').parentElement;
-            expect(ribbon).toHaveClass('tier-hot');
+            expect(container.querySelector('.activity-ribbon.tier-hot')).toBeInTheDocument();
         });
 
         it('should display idle label when idle status with no time', () => {
@@ -324,7 +319,7 @@ describe('ActivityRibbon', () => {
     });
 
     describe('rendering and memoization', () => {
-        it('should render div with activity-ribbon class', () => {
+        it('should render div with activity-ribbon class and tier', () => {
             const { container } = render(
                 <ActivityRibbon
                     sessions={undefined}
@@ -333,9 +328,8 @@ describe('ActivityRibbon', () => {
                 />
             );
 
-            const ribbon = container.querySelector('.activity-ribbon');
+            const ribbon = container.querySelector('.activity-ribbon.tier-running');
             expect(ribbon).toBeInTheDocument();
-            expect(ribbon).toHaveClass('tier-running');
         });
 
         it('should update when status changes', () => {
@@ -421,8 +415,8 @@ describe('ActivityRibbon', () => {
                 />
             );
 
-            expect(container1.querySelector('.tier-running')).toBeInTheDocument();
-            expect(container1.querySelector('.tier-hot')).not.toBeInTheDocument();
+            expect(container1.querySelector('.activity-ribbon.tier-running')).toBeInTheDocument();
+            expect(container1.querySelector('.activity-ribbon.tier-hot')).not.toBeInTheDocument();
         });
 
         it('should handle transition between tier classes', () => {
@@ -439,7 +433,7 @@ describe('ActivityRibbon', () => {
             );
 
             // 1 minute = hot tier
-            expect(container.querySelector('.tier-hot')).toBeInTheDocument();
+            expect(container.querySelector('.activity-ribbon.tier-hot')).toBeInTheDocument();
 
             rerender(
                 <ActivityRibbon
@@ -450,8 +444,8 @@ describe('ActivityRibbon', () => {
             );
 
             // 20 minutes = warm tier
-            expect(container.querySelector('.tier-warm')).toBeInTheDocument();
-            expect(container.querySelector('.tier-hot')).not.toBeInTheDocument();
+            expect(container.querySelector('.activity-ribbon.tier-warm')).toBeInTheDocument();
+            expect(container.querySelector('.activity-ribbon.tier-hot')).not.toBeInTheDocument();
         });
     });
 
@@ -497,7 +491,7 @@ describe('ActivityRibbon', () => {
                 />
             );
 
-            const ribbon = container.firstChild;
+            const ribbon = container.querySelector('.activity-ribbon');
             expect(ribbon).toBeTruthy();
             expect(ribbon.textContent).toBe('active');
         });
