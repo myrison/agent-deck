@@ -187,14 +187,19 @@ export default function CommandMenu({
             return pinFuse.search(query).map(r => r.item);
         }
 
-        // New session mode: only show projects (for launching new sessions)
+        // New session mode: show projects and layout actions (for launching new sessions)
         if (newSessionMode) {
+            const newSessionItems = [...projectItems, ...allActions];
             if (!query.trim()) {
-                logger.debug('New session mode: showing all projects', { count: projectItems.length });
-                return projectItems;
+                logger.debug('New session mode: showing projects and layout actions', { count: newSessionItems.length });
+                return newSessionItems;
             }
-            const projectFuse = new Fuse(projectItems, {
-                keys: [{ name: 'title', weight: 0.5 }, { name: 'projectPath', weight: 0.5 }],
+            const projectFuse = new Fuse(newSessionItems, {
+                keys: [
+                    { name: 'title', weight: 0.5 },
+                    { name: 'projectPath', weight: 0.3 },
+                    { name: 'description', weight: 0.2 },
+                ],
                 threshold: 0.4,
             });
             return projectFuse.search(query).map(r => r.item);
