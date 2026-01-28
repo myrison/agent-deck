@@ -35,7 +35,8 @@ const BASE_TERMINAL_OPTIONS = {
     scrollback: 10000,
     allowProposedApi: true,
     // xterm.js v6 uses DOM renderer by default, with VS Code-based scrollbar
-    smoothScrollDuration: 0,
+    // Enable smooth scroll animation for visual smoothness (100ms duration)
+    smoothScrollDuration: 100,
     fastScrollModifier: 'alt',
     // Window mode affects wrapping behavior
     windowsMode: false, // Unix-style wrapping (default)
@@ -515,6 +516,11 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // Use scroll accumulator utility for smooth trackpad scrolling
         const scrollAcc = createScrollAccumulator(scrollSpeed);
 
+        // Gesture reset timer: clears accumulator after momentum ends to prevent
+        // "gesture bleed" where leftover pixels from one gesture affect the next
+        let wheelResetTimer = null;
+        const GESTURE_RESET_MS = 150;
+
         const handleWheel = (e) => {
             // Always prevent default to stop browser from scrolling the viewport
             e.preventDefault();
@@ -547,10 +553,29 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             }
 
             // Normal buffer (shell) - use scroll accumulator for smooth trackpad scrolling
-            const linesToScroll = scrollAcc.accumulate(e.deltaY);
+            // Normalize deltaY to pixels based on deltaMode
+            // deltaMode 0 = pixels (most common on macOS)
+            // deltaMode 1 = lines (multiply by ~20px typical line height)
+            // deltaMode 2 = pages (multiply by viewport height, treat as ~400px)
+            let deltaPixels = e.deltaY;
+            if (e.deltaMode === 1) {
+                deltaPixels = e.deltaY * 20; // line mode: ~20px per line
+            } else if (e.deltaMode === 2) {
+                deltaPixels = e.deltaY * 400; // page mode: ~400px per page
+            }
+
+            // Accumulator uses modulo to discard excess (prevents "scroll debt"),
+            // clamping prevents massive jumps. macOS provides momentum via the
+            // event stream itself - we don't simulate it.
+            const linesToScroll = scrollAcc.accumulate(deltaPixels);
             if (linesToScroll !== 0) {
                 term.scrollLines(linesToScroll);
             }
+
+            // Reset accumulator after gesture ends to prevent "gesture bleed"
+            // where leftover sub-line pixels affect the next scroll gesture
+            clearTimeout(wheelResetTimer);
+            wheelResetTimer = setTimeout(() => scrollAcc.reset(), GESTURE_RESET_MS);
         };
 
 

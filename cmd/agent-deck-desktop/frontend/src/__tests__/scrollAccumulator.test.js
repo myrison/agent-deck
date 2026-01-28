@@ -12,6 +12,7 @@ import {
     DEFAULT_SCROLL_SPEED,
     MIN_SCROLL_SPEED,
     MAX_SCROLL_SPEED,
+    MAX_LINES_PER_EVENT,
     calculatePixelsPerLine,
     createScrollAccumulator,
 } from '../utils/scrollAccumulator';
@@ -19,22 +20,22 @@ import {
 describe('calculatePixelsPerLine', () => {
     it('returns default threshold at 100% speed', () => {
         expect(calculatePixelsPerLine(100)).toBe(DEFAULT_PIXELS_PER_LINE);
-        expect(calculatePixelsPerLine(100)).toBe(50);
+        expect(calculatePixelsPerLine(100)).toBe(60);
     });
 
     it('returns higher threshold (slower scroll) at 50% speed', () => {
-        // 50 / (50/100) = 50 / 0.5 = 100
-        expect(calculatePixelsPerLine(50)).toBe(100);
+        // 60 / (50/100) = 60 / 0.5 = 120
+        expect(calculatePixelsPerLine(50)).toBe(120);
     });
 
     it('returns lower threshold (faster scroll) at 200% speed', () => {
-        // 50 / (200/100) = 50 / 2 = 25
-        expect(calculatePixelsPerLine(200)).toBe(25);
+        // 60 / (200/100) = 60 / 2 = 30
+        expect(calculatePixelsPerLine(200)).toBe(30);
     });
 
     it('returns lower threshold (fastest scroll) at 250% speed', () => {
-        // 50 / (250/100) = 50 / 2.5 = 20
-        expect(calculatePixelsPerLine(250)).toBe(20);
+        // 60 / (250/100) = 60 / 2.5 = 24
+        expect(calculatePixelsPerLine(250)).toBe(24);
     });
 
     it('clamps speed below minimum to minimum', () => {
@@ -64,21 +65,21 @@ describe('createScrollAccumulator', () => {
 
         it('uses default threshold at 100% speed', () => {
             const acc = createScrollAccumulator(100);
-            expect(acc.getThreshold()).toBe(50);
+            expect(acc.getThreshold()).toBe(60);
         });
 
         it('uses custom threshold based on scroll speed', () => {
             const acc50 = createScrollAccumulator(50);
             const acc200 = createScrollAccumulator(200);
 
-            expect(acc50.getThreshold()).toBe(100); // Slower = higher threshold
-            expect(acc200.getThreshold()).toBe(25); // Faster = lower threshold
+            expect(acc50.getThreshold()).toBe(120); // Slower = higher threshold
+            expect(acc200.getThreshold()).toBe(30); // Faster = lower threshold
         });
     });
 
     describe('accumulating small deltaY values', () => {
         it('accumulates small values without triggering scroll', () => {
-            const acc = createScrollAccumulator(100); // threshold = 50
+            const acc = createScrollAccumulator(100); // threshold = 60
 
             // Small deltas that don't reach threshold
             expect(acc.accumulate(10)).toBe(0);
@@ -87,8 +88,8 @@ describe('createScrollAccumulator', () => {
             expect(acc.accumulate(15)).toBe(0);
             expect(acc.getValue()).toBe(25);
 
-            expect(acc.accumulate(10)).toBe(0);
-            expect(acc.getValue()).toBe(35);
+            expect(acc.accumulate(20)).toBe(0);
+            expect(acc.getValue()).toBe(45);
         });
 
         it('accumulates negative values correctly', () => {
@@ -117,19 +118,19 @@ describe('createScrollAccumulator', () => {
 
     describe('triggering scroll when threshold is reached', () => {
         it('returns 1 line when exactly reaching threshold (scroll down)', () => {
-            const acc = createScrollAccumulator(100); // threshold = 50
+            const acc = createScrollAccumulator(100); // threshold = 60
 
-            acc.accumulate(25);
-            const lines = acc.accumulate(25); // total = 50, exactly threshold
+            acc.accumulate(30);
+            const lines = acc.accumulate(30); // total = 60, exactly threshold
 
             expect(lines).toBe(1);
         });
 
         it('returns -1 line when exactly reaching negative threshold (scroll up)', () => {
-            const acc = createScrollAccumulator(100); // threshold = 50
+            const acc = createScrollAccumulator(100); // threshold = 60
 
-            acc.accumulate(-25);
-            const lines = acc.accumulate(-25); // total = -50, exactly -threshold
+            acc.accumulate(-30);
+            const lines = acc.accumulate(-30); // total = -60, exactly -threshold
 
             expect(lines).toBe(-1);
         });
@@ -137,7 +138,7 @@ describe('createScrollAccumulator', () => {
         it('returns 1 line when exceeding threshold (scroll down)', () => {
             const acc = createScrollAccumulator(100);
 
-            const lines = acc.accumulate(75); // exceeds threshold of 50
+            const lines = acc.accumulate(75); // exceeds threshold of 60
 
             expect(lines).toBe(1);
         });
@@ -151,9 +152,9 @@ describe('createScrollAccumulator', () => {
         });
 
         it('returns multiple lines for large delta', () => {
-            const acc = createScrollAccumulator(100); // threshold = 50
+            const acc = createScrollAccumulator(100); // threshold = 60
 
-            const lines = acc.accumulate(150); // 3x threshold
+            const lines = acc.accumulate(180); // 3x threshold
 
             expect(lines).toBe(3);
         });
@@ -161,51 +162,42 @@ describe('createScrollAccumulator', () => {
         it('returns multiple lines for large negative delta', () => {
             const acc = createScrollAccumulator(100);
 
-            const lines = acc.accumulate(-120); // More than 2x threshold
+            const lines = acc.accumulate(-130); // More than 2x threshold
 
             expect(lines).toBe(-2);
         });
     });
 
-    describe('remainder handling after scroll', () => {
-        it('preserves positive remainder after scrolling', () => {
-            const acc = createScrollAccumulator(100); // threshold = 50
+    describe('remainder handling after scroll (modulo behavior)', () => {
+        it('preserves sub-line remainder after scrolling (via modulo)', () => {
+            const acc = createScrollAccumulator(100); // threshold = 60
 
-            acc.accumulate(75); // Returns 1, remainder should be 25
+            acc.accumulate(75); // Returns 1, remainder = 75 % 60 = 15
 
-            expect(acc.getValue()).toBe(25);
+            expect(acc.getValue()).toBe(15);
         });
 
-        it('preserves negative remainder after scrolling', () => {
+        it('preserves negative sub-line remainder after scrolling', () => {
             const acc = createScrollAccumulator(100);
 
-            acc.accumulate(-75); // Returns -1, remainder should be -25
+            acc.accumulate(-75); // Returns -1, remainder = -75 % 60 = -15
 
-            expect(acc.getValue()).toBe(-25);
+            expect(acc.getValue()).toBe(-15);
         });
 
-        it('preserves remainder across multiple scroll triggers', () => {
-            const acc = createScrollAccumulator(100); // threshold = 50
+        it('discards excess lines via modulo (no scroll debt)', () => {
+            const acc = createScrollAccumulator(100); // threshold = 60
 
-            // First trigger: 75 -> 1 line, remainder 25
-            let lines = acc.accumulate(75);
+            // Large delta: 200px = 3.33 lines, returns 3 (under clamp of 5)
+            // Modulo: 200 % 60 = 20 (NOT 200 - 180 = 20, same result here)
+            let lines = acc.accumulate(200);
+            expect(lines).toBe(3);
+            expect(acc.getValue()).toBe(20); // Only sub-line remainder kept
+
+            // Next small event builds on remainder
+            lines = acc.accumulate(50); // 20 + 50 = 70, triggers 1 line
             expect(lines).toBe(1);
-            expect(acc.getValue()).toBe(25);
-
-            // Add more: 25 + 40 = 65 -> 1 line, remainder 15
-            lines = acc.accumulate(40);
-            expect(lines).toBe(1);
-            expect(acc.getValue()).toBe(15);
-
-            // Not enough to trigger: 15 + 30 = 45
-            lines = acc.accumulate(30);
-            expect(lines).toBe(0);
-            expect(acc.getValue()).toBe(45);
-
-            // Trigger again: 45 + 10 = 55 -> 1 line, remainder 5
-            lines = acc.accumulate(10);
-            expect(lines).toBe(1);
-            expect(acc.getValue()).toBe(5);
+            expect(acc.getValue()).toBe(10); // 70 % 60 = 10
         });
 
         it('handles remainder when crossing zero direction', () => {
@@ -216,64 +208,64 @@ describe('createScrollAccumulator', () => {
             expect(acc.getValue()).toBe(30);
 
             // Scroll back past zero
-            acc.accumulate(-50);
-            expect(acc.getValue()).toBe(-20);
+            acc.accumulate(-40);
+            expect(acc.getValue()).toBe(-10);
 
             // Continue negative until threshold
-            const lines = acc.accumulate(-35);
+            const lines = acc.accumulate(-55); // -10 + -55 = -65
             expect(lines).toBe(-1);
-            expect(acc.getValue()).toBe(-5);
+            expect(acc.getValue()).toBe(-5); // -65 % 60 = -5
         });
     });
 
     describe('different scroll speed settings', () => {
         it('scrolls faster at 200% speed (lower threshold)', () => {
-            const acc = createScrollAccumulator(200); // threshold = 25
+            const acc = createScrollAccumulator(200); // threshold = 30
 
-            // 30 pixels should trigger at 200% but not at 100%
-            const lines = acc.accumulate(30);
+            // 35 pixels should trigger at 200%
+            const lines = acc.accumulate(35);
 
             expect(lines).toBe(1);
-            expect(acc.getValue()).toBe(5); // 30 - 25 = 5
+            expect(acc.getValue()).toBe(5); // 35 % 30 = 5
         });
 
         it('scrolls slower at 50% speed (higher threshold)', () => {
-            const acc = createScrollAccumulator(50); // threshold = 100
+            const acc = createScrollAccumulator(50); // threshold = 120
 
-            // 75 pixels should NOT trigger at 50%
-            const lines = acc.accumulate(75);
+            // 80 pixels should NOT trigger at 50%
+            const lines = acc.accumulate(80);
 
             expect(lines).toBe(0);
-            expect(acc.getValue()).toBe(75);
+            expect(acc.getValue()).toBe(80);
 
-            // Need to reach 100
-            const lines2 = acc.accumulate(30); // total = 105
+            // Need to reach 120
+            const lines2 = acc.accumulate(50); // total = 130
 
             expect(lines2).toBe(1);
-            expect(acc.getValue()).toBe(5);
+            expect(acc.getValue()).toBe(10); // 130 % 120 = 10
         });
 
         it('correctly handles 150% speed', () => {
             const acc = createScrollAccumulator(150);
-            // threshold = 50 / 1.5 = 33.33...
+            // threshold = 60 / 1.5 = 40
 
-            expect(acc.getThreshold()).toBeCloseTo(33.33, 1);
+            expect(acc.getThreshold()).toBeCloseTo(40, 1);
 
-            // 40 should trigger one scroll
-            const lines = acc.accumulate(40);
+            // 45 should trigger one scroll
+            const lines = acc.accumulate(45);
             expect(lines).toBe(1);
         });
 
         it('correctly handles 75% speed', () => {
             const acc = createScrollAccumulator(75);
-            // threshold = 50 / 0.75 = 66.67
+            // threshold = 60 / 0.75 = 80
 
-            expect(acc.getThreshold()).toBeCloseTo(66.67, 1);
+            expect(acc.getThreshold()).toBeCloseTo(80, 1);
 
-            // 60 should NOT trigger
-            expect(acc.accumulate(60)).toBe(0);
+            // 75 should NOT trigger
+            expect(acc.accumulate(75)).toBe(0);
 
-            // 10 more should trigger (total 70)
+            // 10 more should trigger (total 85)
             expect(acc.accumulate(10)).toBe(1);
         });
     });
@@ -303,30 +295,30 @@ describe('createScrollAccumulator', () => {
     describe('setScrollSpeed method', () => {
         it('updates threshold when speed changes', () => {
             const acc = createScrollAccumulator(100);
-            expect(acc.getThreshold()).toBe(50);
+            expect(acc.getThreshold()).toBe(60); // 60 / 1.0 = 60
 
             acc.setScrollSpeed(200);
-            expect(acc.getThreshold()).toBe(25);
+            expect(acc.getThreshold()).toBe(30); // 60 / 2.0 = 30
 
             acc.setScrollSpeed(50);
-            expect(acc.getThreshold()).toBe(100);
+            expect(acc.getThreshold()).toBe(120); // 60 / 0.5 = 120
         });
 
         it('preserves accumulator value when speed changes', () => {
             const acc = createScrollAccumulator(100);
 
-            acc.accumulate(30);
-            expect(acc.getValue()).toBe(30);
+            acc.accumulate(25);
+            expect(acc.getValue()).toBe(25);
 
             acc.setScrollSpeed(200);
 
             // Accumulator value preserved (allows smooth transition)
-            expect(acc.getValue()).toBe(30);
+            expect(acc.getValue()).toBe(25);
 
-            // With new threshold of 25, adding 5 more should trigger
-            const lines = acc.accumulate(5); // 35 total, threshold 25
+            // With new threshold of 30, adding 10 more should trigger
+            const lines = acc.accumulate(10); // 35 total, threshold 30
             expect(lines).toBe(1);
-            expect(acc.getValue()).toBe(10); // 35 - 25 = 10
+            expect(acc.getValue()).toBe(5); // 35 % 30 = 5
         });
 
         it('clamps invalid speed values', () => {
@@ -351,134 +343,202 @@ describe('createScrollAccumulator', () => {
         });
 
         it('handles very small deltaY values (sub-pixel)', () => {
-            const acc = createScrollAccumulator(100);
+            const acc = createScrollAccumulator(100); // threshold = 60
 
             // Simulate many small trackpad events
-            for (let i = 0; i < 50; i++) {
+            for (let i = 0; i < 100; i++) {
                 acc.accumulate(0.5);
             }
 
-            // 50 * 0.5 = 25, not enough for threshold
-            expect(acc.getValue()).toBe(25);
+            // 100 * 0.5 = 50, not enough for threshold (60)
+            expect(acc.getValue()).toBe(50);
             expect(acc.accumulate(0)).toBe(0);
 
             // Add more to trigger
-            for (let i = 0; i < 50; i++) {
+            for (let i = 0; i < 20; i++) {
                 acc.accumulate(0.5);
             }
 
-            // Now at 50, should have triggered
-            // After 100 iterations total, we have 50 pixels, which triggers once
+            // Now at 50 + 10 = 60, should have triggered
             // The last iteration would have been the trigger
-            expect(acc.getValue()).toBe(0); // 50 - 50 = 0
+            expect(acc.getValue()).toBe(0); // 60 % 60 = 0
         });
 
         it('handles floating point precision', () => {
-            const acc = createScrollAccumulator(100);
+            const acc = createScrollAccumulator(100); // threshold = 60
 
             // Accumulate values that might cause floating point issues
-            // 16.666... * 3 = 50, which triggers a scroll
-            acc.accumulate(16.666666666666668);
-            acc.accumulate(16.666666666666668);
-            const lines = acc.accumulate(16.666666666666668);
+            // 20 * 3 = 60, which triggers a scroll
+            acc.accumulate(20);
+            acc.accumulate(20);
+            const lines = acc.accumulate(20);
 
-            // Total is ~50 which triggers exactly 1 scroll, remainder ~0
+            // Total is 60 which triggers exactly 1 scroll, remainder 0
             expect(lines).toBe(1);
             expect(acc.getValue()).toBeCloseTo(0, 5);
         });
 
         it('handles maximum speed scroll correctly', () => {
             const acc = createScrollAccumulator(MAX_SCROLL_SPEED); // 250%
-            // threshold = 50 / 2.5 = 20
+            // threshold = 60 / 2.5 = 24
 
-            expect(acc.getThreshold()).toBe(20);
+            expect(acc.getThreshold()).toBe(24);
 
-            // Even small movement triggers scroll
-            expect(acc.accumulate(25)).toBe(1);
-            expect(acc.getValue()).toBe(5);
+            // Moderate movement triggers scroll
+            expect(acc.accumulate(30)).toBe(1);
+            expect(acc.getValue()).toBe(6); // 30 % 24 = 6
         });
 
         it('handles minimum speed scroll correctly', () => {
             const acc = createScrollAccumulator(MIN_SCROLL_SPEED); // 50%
-            // threshold = 50 / 0.5 = 100
+            // threshold = 60 / 0.5 = 120
 
-            expect(acc.getThreshold()).toBe(100);
+            expect(acc.getThreshold()).toBe(120);
 
             // Large movement needed to trigger
-            expect(acc.accumulate(90)).toBe(0);
-            expect(acc.accumulate(20)).toBe(1);
-            expect(acc.getValue()).toBe(10);
+            expect(acc.accumulate(100)).toBe(0);
+            expect(acc.accumulate(30)).toBe(1);
+            expect(acc.getValue()).toBe(10); // 130 % 120 = 10
         });
     });
 
     describe('realistic usage scenarios', () => {
         it('simulates typical trackpad scroll sequence', () => {
-            const acc = createScrollAccumulator(100);
+            const acc = createScrollAccumulator(100); // threshold = 60
 
             // Typical trackpad generates many small events
-            const deltas = [2, 4, 8, 12, 10, 8, 6, 4, 2, 1];
+            const deltas = [5, 10, 20, 30, 25, 20, 15, 10, 5, 2];
             let totalLines = 0;
 
             for (const delta of deltas) {
                 totalLines += acc.accumulate(delta);
             }
 
-            // Total delta = 57, should scroll 1 line with 7 remainder
-            expect(totalLines).toBe(1);
-            expect(acc.getValue()).toBe(7);
+            // Total delta = 142, with threshold 60 = 2 lines, remainder 142 % 60 = 22
+            expect(totalLines).toBe(2);
+            expect(acc.getValue()).toBe(22);
         });
 
         it('simulates mouse wheel scroll (larger discrete steps)', () => {
-            const acc = createScrollAccumulator(100);
+            const acc = createScrollAccumulator(100); // threshold = 60
 
             // Mouse wheel typically sends larger, discrete values
-            expect(acc.accumulate(100)).toBe(2); // 2 lines
-            expect(acc.getValue()).toBe(0);
+            // With threshold 60: 250 / 60 = 4.16, = 4 lines, remainder 250 % 60 = 10
+            expect(acc.accumulate(250)).toBe(4); // 4 lines
+            expect(acc.getValue()).toBe(10);
 
-            expect(acc.accumulate(-100)).toBe(-2); // 2 lines up
-            expect(acc.getValue()).toBe(0);
+            expect(acc.accumulate(-250)).toBe(-4); // 4 lines up
+            // 10 + (-250) = -240, -240 / 60 = -4 lines, remainder -240 % 60 = -0
+            // Use toBeCloseTo to handle JavaScript's -0 vs 0 quirk
+            expect(acc.getValue()).toBeCloseTo(0, 5);
         });
 
         it('simulates rapid bidirectional scrolling', () => {
-            const acc = createScrollAccumulator(100);
+            const acc = createScrollAccumulator(100); // threshold = 60
 
             // User scrolls down then quickly up
-            acc.accumulate(30);
-            acc.accumulate(25);
-            // Now at 55, should have scrolled 1 line, remainder 5
+            acc.accumulate(70); // triggers 1, remainder 10
+            acc.accumulate(60); // 10 + 60 = 70, triggers 1, remainder 10
+            // Now should have scrolled 2 lines, remainder 10
 
-            expect(acc.getValue()).toBe(5);
+            expect(acc.getValue()).toBe(10);
 
             // Now quickly scroll up
-            acc.accumulate(-60);
-            // 5 - 60 = -55, should scroll -1 line, remainder -5
+            acc.accumulate(-140);
+            // 10 - 140 = -130, -130 / 60 = -2 lines, remainder -130 % 60 = -10
 
-            expect(acc.getValue()).toBe(-5);
+            expect(acc.getValue()).toBe(-10);
         });
 
         it('simulates user changing scroll speed mid-session', () => {
-            const acc = createScrollAccumulator(100);
+            const acc = createScrollAccumulator(100); // threshold = 60
 
-            // Start scrolling
-            acc.accumulate(30);
-            expect(acc.getValue()).toBe(30);
+            // Start scrolling (but don't trigger yet)
+            acc.accumulate(25);
+            expect(acc.getValue()).toBe(25);
 
             // User goes to settings and increases scroll speed
-            acc.setScrollSpeed(200); // threshold now 25
+            acc.setScrollSpeed(200); // threshold now 30
 
             // Continue scrolling - should trigger immediately
-            const lines = acc.accumulate(5);
-            expect(lines).toBe(1); // 35 > 25
-            expect(acc.getValue()).toBe(10);
+            const lines = acc.accumulate(10); // 35 total, threshold 30
+            expect(lines).toBe(1); // 35 > 30
+            expect(acc.getValue()).toBe(5); // 35 % 30 = 5
         });
     });
 });
 
 describe('constant exports', () => {
     it('exports correct default values', () => {
-        expect(DEFAULT_PIXELS_PER_LINE).toBe(50);
+        expect(DEFAULT_PIXELS_PER_LINE).toBe(60);
         expect(DEFAULT_SCROLL_SPEED).toBe(100);
         expect(MIN_SCROLL_SPEED).toBe(50);
         expect(MAX_SCROLL_SPEED).toBe(250);
+        expect(MAX_LINES_PER_EVENT).toBe(5);
+    });
+});
+
+describe('inertial scroll clamping', () => {
+    it('clamps large positive deltas to MAX_LINES_PER_EVENT', () => {
+        const acc = createScrollAccumulator(100); // threshold = 60
+
+        // Simulate macOS inertial burst: 2000 pixels would normally be ~33 lines
+        const lines = acc.accumulate(2000);
+
+        expect(lines).toBe(MAX_LINES_PER_EVENT); // Clamped to 5
+    });
+
+    it('clamps large negative deltas to -MAX_LINES_PER_EVENT', () => {
+        const acc = createScrollAccumulator(100);
+
+        const lines = acc.accumulate(-2000);
+
+        expect(lines).toBe(-MAX_LINES_PER_EVENT); // Clamped to -5
+    });
+
+    it('discards excess via modulo (no scroll debt)', () => {
+        const acc = createScrollAccumulator(100); // threshold = 60
+
+        // 2000 pixels = 33.33 lines, but we only scroll 5 (clamped) and
+        // use modulo to keep just sub-line remainder: 2000 % 60 = 20
+        // This prevents "scroll debt" - the OS provides momentum via subsequent events
+        acc.accumulate(2000);
+        expect(acc.getValue()).toBe(2000 % 60); // 20
+
+        // Next event with 0 delta: accumulator is just 20, below threshold
+        const lines2 = acc.accumulate(0);
+        expect(lines2).toBe(0); // No scroll debt to drain
+        expect(acc.getValue()).toBe(20);
+    });
+
+    it('simulates macOS trackpad flick with momentum', () => {
+        const acc = createScrollAccumulator(100); // threshold = 60
+
+        // Simulate a trackpad flick: initial burst followed by decay
+        // macOS provides momentum via these decreasing events
+        const flickSequence = [2000, 1500, 1000, 500, 200, 50];
+        let totalLines = 0;
+
+        for (const delta of flickSequence) {
+            totalLines += acc.accumulate(delta);
+        }
+
+        // With modulo behavior, each event is clamped independently
+        // and excess is discarded, preventing runaway scrolling
+        expect(totalLines).toBeGreaterThan(0);
+        expect(totalLines).toBeLessThanOrEqual(flickSequence.length * MAX_LINES_PER_EVENT);
+
+        // Most importantly: no single call returned more than 5
+        // (verified by the clamping logic itself)
+    });
+
+    it('does not clamp small scrolls within limit', () => {
+        const acc = createScrollAccumulator(100); // threshold = 60
+
+        // 300 pixels = 5 lines, which equals MAX_LINES_PER_EVENT
+        const lines = acc.accumulate(300);
+
+        expect(lines).toBe(5); // Exactly at limit, not clamped down
+        expect(acc.getValue()).toBe(0); // 300 % 60 = 0
     });
 });
