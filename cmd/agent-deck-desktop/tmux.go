@@ -565,7 +565,7 @@ func (tm *TmuxManager) getClaudeJSONLPath(inst *instanceJSON) string {
 
 // getGeminiSessionPath returns the path to Gemini's session JSON file.
 func (tm *TmuxManager) getGeminiSessionPath(inst *instanceJSON) string {
-	if inst.GeminiSessionID == "" || inst.ProjectPath == "" {
+	if inst.GeminiSessionID == "" || len(inst.GeminiSessionID) < 8 || inst.ProjectPath == "" {
 		return ""
 	}
 
