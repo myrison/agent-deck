@@ -436,14 +436,18 @@ func (tm *TmuxManager) getGeminiSessionPath(inst *session.InstanceData) string {
 }
 
 // updateWaitingSinceTracking adjusts waitingSince based on status transitions.
-// Sets waitingSince to now if status is "waiting" and timestamp is missing.
-// Clears waitingSince if status is no longer "waiting".
+// Sets waitingSince to now if status is "waiting" or "idle" and timestamp is missing.
+// Only clears waitingSince when session becomes "running" (activity detected).
+// This preserves the timestamp for "idle" sessions so the frontend can show elapsed wait time
+// (e.g., "ready 5m" → "ready 1h" → "idle 4h" progression).
 // Updates the updates map for persistence and returns the effective waitingSince.
 func updateWaitingSinceTracking(instID string, status string, currentWaitingSince time.Time, updates map[string]session.FieldUpdate) time.Time {
 	waitingSince := currentWaitingSince
 
-	// Set waitingSince if session is waiting and timestamp is missing
-	if status == "waiting" && waitingSince.IsZero() {
+	// Set waitingSince if session is waiting/idle and timestamp is missing.
+	// Both "waiting" and "idle" represent inactive states where we want to track
+	// how long the session has been waiting for user input.
+	if (status == "waiting" || status == "idle") && waitingSince.IsZero() {
 		waitingSince = time.Now()
 		if u, ok := updates[instID]; ok {
 			u.WaitingSince = &waitingSince
@@ -453,8 +457,10 @@ func updateWaitingSinceTracking(instID string, status string, currentWaitingSinc
 		}
 	}
 
-	// Clear waitingSince if session is no longer waiting
-	if status != "waiting" && !currentWaitingSince.IsZero() {
+	// Only clear waitingSince when session becomes "running" (activity detected).
+	// Don't clear for "idle" - the frontend uses waitingSince to show elapsed time
+	// progression (ready 1m → ready 5m → ready 1h → idle 4h).
+	if status == "running" && !currentWaitingSince.IsZero() {
 		waitingSince = time.Time{}
 		if u, ok := updates[instID]; ok {
 			u.ClearWaitingSince = true
