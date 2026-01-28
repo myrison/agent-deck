@@ -306,3 +306,114 @@ func TestStorageAdapterFlushBeforeDebounce(t *testing.T) {
 		t.Errorf("expected status 'running', got %q", loaded.Instances[0].Status)
 	}
 }
+
+// TestStorageAdapterUpdateNonexistentSession verifies that scheduling an update
+// for a session ID that doesn't exist is handled gracefully (no crash, no error).
+// The update is simply ignored during flush since there's no instance to update.
+func TestStorageAdapterUpdateNonexistentSession(t *testing.T) {
+	adapter, cleanup := setupTestAdapter(t, 50*time.Millisecond)
+	defer cleanup()
+
+	// Create storage with one session
+	data := &StorageData{
+		Instances: []*InstanceData{
+			{ID: "existing-session", Title: "S1", ProjectPath: "/p1", GroupPath: "g1", Tool: "claude", Status: StatusIdle},
+		},
+	}
+	if err := adapter.SaveStorageData(data); err != nil {
+		t.Fatalf("SaveStorageData failed: %v", err)
+	}
+
+	// Schedule update for a nonexistent session
+	status := "running"
+	adapter.ScheduleUpdate("nonexistent-session", FieldUpdate{Status: &status})
+
+	// Flush should not panic or corrupt data
+	adapter.FlushPendingUpdates()
+
+	// Verify existing session is unchanged
+	loaded, err := adapter.LoadStorageData()
+	if err != nil {
+		t.Fatalf("LoadStorageData failed: %v", err)
+	}
+	if len(loaded.Instances) != 1 {
+		t.Errorf("expected 1 instance, got %d", len(loaded.Instances))
+	}
+	if loaded.Instances[0].Status != StatusIdle {
+		t.Errorf("existing session status changed unexpectedly: got %q", loaded.Instances[0].Status)
+	}
+}
+
+// TestStorageAdapterFlushEmptyPendingUpdates verifies that flushing when there
+// are no pending updates is handled gracefully without errors or panics.
+func TestStorageAdapterFlushEmptyPendingUpdates(t *testing.T) {
+	adapter, cleanup := setupTestAdapter(t, 50*time.Millisecond)
+	defer cleanup()
+
+	// Create initial data
+	data := &StorageData{
+		Instances: []*InstanceData{
+			{ID: "session-1", Title: "S1", ProjectPath: "/p1", GroupPath: "g1", Tool: "claude", Status: StatusIdle},
+		},
+	}
+	if err := adapter.SaveStorageData(data); err != nil {
+		t.Fatalf("SaveStorageData failed: %v", err)
+	}
+
+	// Verify no pending updates before flush
+	if adapter.HasPendingUpdates() {
+		t.Fatal("Expected no pending updates before flush")
+	}
+
+	// Flush with no pending updates - should not panic or error
+	adapter.FlushPendingUpdates()
+
+	// Verify still no pending updates and data intact
+	if adapter.HasPendingUpdates() {
+		t.Error("Expected no pending updates after flush")
+	}
+	loaded, err := adapter.LoadStorageData()
+	if err != nil {
+		t.Fatalf("LoadStorageData failed: %v", err)
+	}
+	if len(loaded.Instances) != 1 {
+		t.Errorf("expected 1 instance, got %d", len(loaded.Instances))
+	}
+}
+
+// TestStorageAdapterLastAccessedAtUpdate verifies that the LastAccessedAt field
+// can be updated through the debounced update mechanism.
+func TestStorageAdapterLastAccessedAtUpdate(t *testing.T) {
+	adapter, cleanup := setupTestAdapter(t, 50*time.Millisecond)
+	defer cleanup()
+
+	// Create initial data
+	data := &StorageData{
+		Instances: []*InstanceData{
+			{ID: "session-1", Title: "S1", ProjectPath: "/p1", GroupPath: "g1", Tool: "claude", Status: StatusIdle},
+		},
+	}
+	if err := adapter.SaveStorageData(data); err != nil {
+		t.Fatalf("SaveStorageData failed: %v", err)
+	}
+
+	// Update LastAccessedAt
+	accessTime := time.Now()
+	adapter.ScheduleUpdate("session-1", FieldUpdate{LastAccessedAt: &accessTime})
+	adapter.FlushPendingUpdates()
+
+	// Verify LastAccessedAt was set
+	loaded, err := adapter.LoadStorageData()
+	if err != nil {
+		t.Fatalf("LoadStorageData failed: %v", err)
+	}
+	if loaded.Instances[0].LastAccessedAt.IsZero() {
+		t.Error("expected LastAccessedAt to be set")
+	}
+	// Allow small time drift
+	if loaded.Instances[0].LastAccessedAt.Sub(accessTime) > time.Second {
+		t.Errorf("LastAccessedAt differs too much: got %v, want ~%v",
+			loaded.Instances[0].LastAccessedAt, accessTime)
+	}
+}
+

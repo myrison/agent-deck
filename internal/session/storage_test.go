@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -852,6 +853,301 @@ func TestStorageCustomLabelPersistence(t *testing.T) {
 		t.Errorf("CustomLabel not persisted: got %q, want %q", loaded[0].CustomLabel, original.CustomLabel)
 	}
 }
+
+// =============================================================================
+// LoadStorageData / SaveStorageData Tests (PR #85: unified-storage-layer)
+// =============================================================================
+
+// TestStorageDataLoadNonexistentFile verifies that LoadStorageData returns
+// empty data (not an error) when the storage file doesn't exist.
+// This is important for first-run scenarios and fresh profiles.
+func TestStorageDataLoadNonexistentFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	storagePath := filepath.Join(tmpDir, "nonexistent.json")
+
+	s := &Storage{path: storagePath, profile: "_test"}
+
+	data, err := s.LoadStorageData()
+	if err != nil {
+		t.Fatalf("LoadStorageData should not error for nonexistent file: %v", err)
+	}
+
+	if data == nil {
+		t.Fatal("LoadStorageData returned nil data")
+	}
+	if len(data.Instances) != 0 {
+		t.Errorf("expected 0 instances, got %d", len(data.Instances))
+	}
+	if len(data.Groups) != 0 {
+		t.Errorf("expected 0 groups, got %d", len(data.Groups))
+	}
+}
+
+// TestStorageDataSaveAndLoad verifies round-trip persistence of StorageData
+// without the Instance conversion that LoadWithGroups performs.
+// This is the API used by the desktop app.
+func TestStorageDataSaveAndLoad(t *testing.T) {
+	tmpDir := t.TempDir()
+	storagePath := filepath.Join(tmpDir, "sessions.json")
+
+	s := &Storage{path: storagePath, profile: "_test"}
+
+	// Create test data
+	now := time.Now()
+	original := &StorageData{
+		Instances: []*InstanceData{
+			{
+				ID:          "test-1",
+				Title:       "Desktop Session",
+				ProjectPath: "/home/user/project",
+				GroupPath:   "work",
+				Tool:        "claude",
+				Status:      StatusWaiting,
+				CreatedAt:   now,
+				CustomLabel: "My Custom Label",
+			},
+		},
+		Groups: []*GroupData{
+			{Name: "Work", Path: "work", Expanded: true, Order: 1},
+		},
+	}
+
+	// Save
+	if err := s.SaveStorageData(original); err != nil {
+		t.Fatalf("SaveStorageData failed: %v", err)
+	}
+
+	// Load back
+	loaded, err := s.LoadStorageData()
+	if err != nil {
+		t.Fatalf("LoadStorageData failed: %v", err)
+	}
+
+	// Verify instance data
+	if len(loaded.Instances) != 1 {
+		t.Fatalf("expected 1 instance, got %d", len(loaded.Instances))
+	}
+	inst := loaded.Instances[0]
+	if inst.ID != "test-1" {
+		t.Errorf("ID: got %q, want %q", inst.ID, "test-1")
+	}
+	if inst.CustomLabel != "My Custom Label" {
+		t.Errorf("CustomLabel: got %q, want %q", inst.CustomLabel, "My Custom Label")
+	}
+	if inst.Status != StatusWaiting {
+		t.Errorf("Status: got %q, want %q", inst.Status, StatusWaiting)
+	}
+
+	// Verify group data
+	if len(loaded.Groups) != 1 {
+		t.Fatalf("expected 1 group, got %d", len(loaded.Groups))
+	}
+	if loaded.Groups[0].Path != "work" {
+		t.Errorf("Group path: got %q, want %q", loaded.Groups[0].Path, "work")
+	}
+
+	// Verify UpdatedAt was set
+	if loaded.UpdatedAt.IsZero() {
+		t.Error("UpdatedAt should not be zero after save")
+	}
+}
+
+// TestStorageDataSaveValidationDuplicateID verifies that SaveStorageData rejects
+// data with duplicate instance IDs.
+func TestStorageDataSaveValidationDuplicateID(t *testing.T) {
+	tmpDir := t.TempDir()
+	storagePath := filepath.Join(tmpDir, "sessions.json")
+
+	s := &Storage{path: storagePath, profile: "_test"}
+
+	data := &StorageData{
+		Instances: []*InstanceData{
+			{ID: "dup-id", Title: "First", ProjectPath: "/p1", GroupPath: "g", Tool: "claude", Status: StatusIdle},
+			{ID: "dup-id", Title: "Second", ProjectPath: "/p2", GroupPath: "g", Tool: "claude", Status: StatusIdle},
+		},
+	}
+
+	err := s.SaveStorageData(data)
+	if err == nil {
+		t.Fatal("SaveStorageData should reject duplicate IDs")
+	}
+	if !strings.Contains(err.Error(), "duplicate") {
+		t.Errorf("error should mention 'duplicate': %v", err)
+	}
+}
+
+// TestStorageDataSaveValidationEmptyID verifies that SaveStorageData rejects
+// instances with empty IDs.
+func TestStorageDataSaveValidationEmptyID(t *testing.T) {
+	tmpDir := t.TempDir()
+	storagePath := filepath.Join(tmpDir, "sessions.json")
+
+	s := &Storage{path: storagePath, profile: "_test"}
+
+	data := &StorageData{
+		Instances: []*InstanceData{
+			{ID: "", Title: "No ID", ProjectPath: "/p1", GroupPath: "g", Tool: "claude", Status: StatusIdle},
+		},
+	}
+
+	err := s.SaveStorageData(data)
+	if err == nil {
+		t.Fatal("SaveStorageData should reject empty ID")
+	}
+	if !strings.Contains(err.Error(), "empty ID") {
+		t.Errorf("error should mention 'empty ID': %v", err)
+	}
+}
+
+// TestStorageDataSaveValidationDuplicateGroupPath verifies that SaveStorageData
+// rejects data with duplicate group paths.
+func TestStorageDataSaveValidationDuplicateGroupPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	storagePath := filepath.Join(tmpDir, "sessions.json")
+
+	s := &Storage{path: storagePath, profile: "_test"}
+
+	data := &StorageData{
+		Groups: []*GroupData{
+			{Name: "First", Path: "dup-path", Expanded: true},
+			{Name: "Second", Path: "dup-path", Expanded: false},
+		},
+	}
+
+	err := s.SaveStorageData(data)
+	if err == nil {
+		t.Fatal("SaveStorageData should reject duplicate group paths")
+	}
+	if !strings.Contains(err.Error(), "duplicate") {
+		t.Errorf("error should mention 'duplicate': %v", err)
+	}
+}
+
+// TestStorageDataLoadCorruptedFileRecovery verifies that LoadStorageData
+// recovers from backup when the main file is corrupted.
+func TestStorageDataLoadCorruptedFileRecovery(t *testing.T) {
+	tmpDir := t.TempDir()
+	storagePath := filepath.Join(tmpDir, "sessions.json")
+	backupPath := storagePath + ".bak"
+
+	s := &Storage{path: storagePath, profile: "_test"}
+
+	// Create valid backup first
+	validData := &StorageData{
+		Instances: []*InstanceData{
+			{ID: "backup-session", Title: "From Backup", ProjectPath: "/backup", GroupPath: "g", Tool: "claude", Status: StatusIdle},
+		},
+	}
+	validJSON, _ := json.MarshalIndent(validData, "", "  ")
+	if err := os.WriteFile(backupPath, validJSON, 0600); err != nil {
+		t.Fatalf("Failed to write backup: %v", err)
+	}
+
+	// Write corrupted main file
+	if err := os.WriteFile(storagePath, []byte("{ invalid json"), 0600); err != nil {
+		t.Fatalf("Failed to write corrupted file: %v", err)
+	}
+
+	// LoadStorageData should recover from backup
+	loaded, err := s.LoadStorageData()
+	if err != nil {
+		t.Fatalf("LoadStorageData should recover from backup: %v", err)
+	}
+
+	if len(loaded.Instances) != 1 {
+		t.Fatalf("expected 1 instance from backup, got %d", len(loaded.Instances))
+	}
+	if loaded.Instances[0].ID != "backup-session" {
+		t.Errorf("expected ID 'backup-session' from backup, got %q", loaded.Instances[0].ID)
+	}
+}
+
+// TestStorageDataLoadAllBackupsCorrupted verifies that LoadStorageData returns
+// an error when the main file and all backups are corrupted.
+func TestStorageDataLoadAllBackupsCorrupted(t *testing.T) {
+	tmpDir := t.TempDir()
+	storagePath := filepath.Join(tmpDir, "sessions.json")
+
+	s := &Storage{path: storagePath, profile: "_test"}
+
+	// Write corrupted main file
+	if err := os.WriteFile(storagePath, []byte("{ invalid json"), 0600); err != nil {
+		t.Fatalf("Failed to write corrupted file: %v", err)
+	}
+
+	// Write corrupted backup files
+	for _, suffix := range []string{".bak", ".bak.1", ".bak.2"} {
+		if err := os.WriteFile(storagePath+suffix, []byte("also corrupted {"), 0600); err != nil {
+			t.Fatalf("Failed to write corrupted backup %s: %v", suffix, err)
+		}
+	}
+
+	// LoadStorageData should fail when all files are corrupted
+	_, err := s.LoadStorageData()
+	if err == nil {
+		t.Fatal("LoadStorageData should return error when all files are corrupted")
+	}
+	if !strings.Contains(err.Error(), "no valid backup") {
+		t.Errorf("error should mention backup recovery failure: %v", err)
+	}
+}
+
+// TestStorageDataSaveCreatesBackup verifies that SaveStorageData rotates backups
+// when overwriting an existing file.
+func TestStorageDataSaveCreatesBackup(t *testing.T) {
+	tmpDir := t.TempDir()
+	storagePath := filepath.Join(tmpDir, "sessions.json")
+	backupPath := storagePath + ".bak"
+
+	s := &Storage{path: storagePath, profile: "_test"}
+
+	// Save initial data
+	initial := &StorageData{
+		Instances: []*InstanceData{
+			{ID: "v1", Title: "Version 1", ProjectPath: "/p1", GroupPath: "g", Tool: "claude", Status: StatusIdle},
+		},
+	}
+	if err := s.SaveStorageData(initial); err != nil {
+		t.Fatalf("First save failed: %v", err)
+	}
+
+	// Backup should not exist yet (first save)
+	if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
+		t.Log("Note: backup exists after first save (may be from previous test state)")
+	}
+
+	// Save second version - this should create a backup of v1
+	second := &StorageData{
+		Instances: []*InstanceData{
+			{ID: "v2", Title: "Version 2", ProjectPath: "/p2", GroupPath: "g", Tool: "claude", Status: StatusIdle},
+		},
+	}
+	if err := s.SaveStorageData(second); err != nil {
+		t.Fatalf("Second save failed: %v", err)
+	}
+
+	// Backup should now exist with v1 content
+	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+		t.Fatal("Backup file should exist after second save")
+	}
+
+	// Read backup and verify it contains v1
+	backupJSON, err := os.ReadFile(backupPath)
+	if err != nil {
+		t.Fatalf("Failed to read backup: %v", err)
+	}
+	var backupData StorageData
+	if err := json.Unmarshal(backupJSON, &backupData); err != nil {
+		t.Fatalf("Failed to unmarshal backup: %v", err)
+	}
+	if len(backupData.Instances) != 1 || backupData.Instances[0].ID != "v1" {
+		t.Errorf("Backup should contain v1 data, got: %v", backupData.Instances)
+	}
+}
+
+// =============================================================================
+// End LoadStorageData / SaveStorageData Tests
+// =============================================================================
 
 // TestStorageRemoteTmuxRecoveryMultiCycle verifies that a remote session's
 // tmux identity is stable across multiple save/load cycles, even when the
