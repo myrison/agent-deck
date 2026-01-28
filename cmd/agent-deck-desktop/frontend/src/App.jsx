@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useTooltip } from './Tooltip';
 import { useTheme } from './context/ThemeContext';
+import { useInputPaste } from './hooks/useInputPaste';
 import './App.css';
 import Search from './Search';
 import SessionSelector from './SessionSelector';
@@ -162,6 +163,9 @@ function App() {
     const [pendingHostSelection, setPendingHostSelection] = useState(null);
     // SSH host display names (hostId -> friendly name like "MacBook" or "Docker")
     const [sshHostDisplayNames, setSSHHostDisplayNames] = useState({});
+
+    // Enable paste from native menu (Cmd+V) for text inputs in modals
+    useInputPaste();
 
     // Cycle through status filter modes: all -> active -> idle -> all
     const handleCycleStatusFilter = useCallback(() => {
