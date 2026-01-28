@@ -309,6 +309,14 @@ func DiscoverRemoteSessionsForHost(hostID string, existing []*Instance) ([]*Inst
 				log.Printf("[REMOTE-DISCOVERY] Backfilled RemoteTmuxName: %s on %s", rs.Name, hostID)
 			}
 
+			// Repair tmux session if it was lost (e.g., due to SSH failure at save/load time)
+			if existingInst.GetTmuxSession() == nil {
+				tmuxSess := tmux.ReconnectSessionWithExecutor(rs.Name, existingInst.Title, existingInst.ProjectPath, "", sshExec)
+				tmuxSess.InstanceID = existingInst.ID
+				existingInst.SetTmuxSession(tmuxSess)
+				log.Printf("[REMOTE-DISCOVERY] Repaired tmux session for %s on %s", rs.Name, hostID)
+			}
+
 			// Session exists - check if group path or tool needs updating based on remote's current state
 			if remoteSnapshot != nil {
 				remoteGroupPath := remoteSnapshot.SessionGroupPaths[rs.Name]

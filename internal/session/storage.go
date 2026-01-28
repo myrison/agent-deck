@@ -223,6 +223,11 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 		if inst.tmuxSession != nil {
 			tmuxName = inst.tmuxSession.Name
 		}
+		// For remote sessions, preserve RemoteTmuxName even if tmuxSession is nil
+		// (prevents losing the tmux name due to transient SSH failures)
+		if tmuxName == "" && inst.RemoteHost != "" && inst.RemoteTmuxName != "" {
+			tmuxName = inst.RemoteTmuxName
+		}
 		data.Instances[i] = &InstanceData{
 			ID:                 inst.ID,
 			Title:              inst.Title,
@@ -512,7 +517,16 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 		// Recreate tmux session object from stored name
 		// Use ReconnectSessionWithStatus to restore the exact status state
 		var tmuxSess *tmux.Session
-		if instData.TmuxSession != "" {
+
+		// For remote sessions, fall back to RemoteTmuxName if TmuxSession was lost
+		// (can happen if tmuxSession was nil at save time due to SSH failure)
+		tmuxSessionName := instData.TmuxSession
+		if tmuxSessionName == "" && instData.RemoteHost != "" && instData.RemoteTmuxName != "" {
+			tmuxSessionName = instData.RemoteTmuxName
+			log.Printf("Recovery: Using RemoteTmuxName for %s: %s", instData.ID, tmuxSessionName)
+		}
+
+		if tmuxSessionName != "" {
 			// Convert Status enum to string for tmux package
 			// This restores the exact status across app restarts
 			previousStatus := statusToString(instData.Status)
@@ -523,7 +537,7 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 				// This prevents slow startup when remote hosts are unreachable or slow
 				// The executor will be created on first access (preview, attach, status update)
 				tmuxSess = tmux.ReconnectSessionWithStatusAndExecutor(
-					instData.TmuxSession,
+					tmuxSessionName,
 					instData.Title,
 					instData.ProjectPath,
 					instData.Command,
@@ -535,7 +549,7 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			} else {
 				// Local session
 				tmuxSess = tmux.ReconnectSessionWithStatus(
-					instData.TmuxSession,
+					tmuxSessionName,
 					instData.Title,
 					instData.ProjectPath,
 					instData.Command,
