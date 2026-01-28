@@ -808,6 +808,51 @@ func TestStorageLoadFallsBackToRemoteTmuxName(t *testing.T) {
 	}
 }
 
+// TestStorageCustomLabelPersistence verifies that CustomLabel field survives save/load cycles.
+// This tests the behavioral contract: a user-provided label from the desktop app should be
+// preserved when the TUI reads and writes sessions.json.
+func TestStorageCustomLabelPersistence(t *testing.T) {
+	tmpDir := t.TempDir()
+	storagePath := filepath.Join(tmpDir, "sessions.json")
+
+	s := &Storage{
+		path:    storagePath,
+		profile: "_test",
+	}
+
+	// SETUP: Create instance with a custom label (simulates desktop app setting a label)
+	original := &Instance{
+		ID:          "test-custom-label",
+		Title:       "Agent Deck",
+		ProjectPath: "/tmp/agent-deck",
+		GroupPath:   "hc-repo",
+		Command:     "claude",
+		Tool:        "claude",
+		Status:      StatusIdle,
+		CreatedAt:   time.Now(),
+		CustomLabel: "My Custom Session Name", // The label we want to persist
+	}
+
+	// EXECUTE: Save, then load back
+	if err := s.SaveWithGroups([]*Instance{original}, nil); err != nil {
+		t.Fatalf("SaveWithGroups failed: %v", err)
+	}
+
+	loaded, _, err := s.LoadWithGroups()
+	if err != nil {
+		t.Fatalf("LoadWithGroups failed: %v", err)
+	}
+
+	// VERIFY: The custom label survives the round trip
+	if len(loaded) != 1 {
+		t.Fatalf("Expected 1 instance, got %d", len(loaded))
+	}
+
+	if loaded[0].CustomLabel != original.CustomLabel {
+		t.Errorf("CustomLabel not persisted: got %q, want %q", loaded[0].CustomLabel, original.CustomLabel)
+	}
+}
+
 // TestStorageRemoteTmuxRecoveryMultiCycle verifies that a remote session's
 // tmux identity is stable across multiple save/load cycles, even when the
 // initial save occurred with a nil tmuxSession. This tests a scenario beyond

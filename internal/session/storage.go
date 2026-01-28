@@ -58,9 +58,10 @@ type StorageData struct {
 
 // InstanceData represents the serializable session data
 type InstanceData struct {
-	ID              string    `json:"id"`
-	Title           string    `json:"title"`
-	ProjectPath     string    `json:"project_path"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	CustomLabel string `json:"custom_label,omitempty"` // User-provided label (from desktop app)
+	ProjectPath string `json:"project_path"`
 	GroupPath       string    `json:"group_path"`
 	ParentSessionID string    `json:"parent_session_id,omitempty"` // Links to parent session (sub-session support)
 	Command         string    `json:"command"`
@@ -242,9 +243,10 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 		}
 
 		data.Instances[i] = &InstanceData{
-			ID:                 inst.ID,
-			Title:              inst.Title,
-			ProjectPath:        inst.ProjectPath,
+			ID:          inst.ID,
+			Title:       inst.Title,
+			CustomLabel: inst.CustomLabel,
+			ProjectPath: inst.ProjectPath,
 			GroupPath:          inst.GroupPath,
 			ParentSessionID:    inst.ParentSessionID,
 			Command:            inst.Command,
@@ -657,9 +659,10 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 		projectPath := expandTilde(instData.ProjectPath)
 
 		inst := &Instance{
-			ID:                 instData.ID,
-			Title:              instData.Title,
-			ProjectPath:        projectPath,
+			ID:          instData.ID,
+			Title:       instData.Title,
+			CustomLabel: instData.CustomLabel,
+			ProjectPath: projectPath,
 			GroupPath:          groupPath,
 			ParentSessionID:    instData.ParentSessionID,
 			Command:            instData.Command,

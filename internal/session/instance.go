@@ -41,9 +41,10 @@ const (
 
 // Instance represents a single agent/shell session
 type Instance struct {
-	ID                string `json:"id"`
-	Title             string `json:"title"`
-	ProjectPath       string `json:"project_path"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	CustomLabel string `json:"custom_label,omitempty"` // User-provided label (from desktop app)
+	ProjectPath string `json:"project_path"`
 	GroupPath         string `json:"group_path"`                    // e.g., "projects/devops"
 	ParentSessionID   string `json:"parent_session_id,omitempty"`   // Links to parent session (makes this a sub-session)
 	ParentProjectPath string `json:"parent_project_path,omitempty"` // Parent's project path (for --add-dir access)
