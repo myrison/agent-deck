@@ -1605,3 +1605,197 @@ func TestGetClaudeJSONLPathReturnsEmptyForNonexistentFile(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// updateWaitingSinceTracking Tests (PR #91)
+// =============================================================================
+
+// TestUpdateWaitingSinceTrackingSetsTimestampWhenEnteringWaiting verifies that
+// when a session transitions to "waiting" status and has no existing timestamp,
+// updateWaitingSinceTracking sets waitingSince to the current time and adds the
+// update to the pending updates map.
+func TestUpdateWaitingSinceTrackingSetsTimestampWhenEnteringWaiting(t *testing.T) {
+	updates := make(map[string]session.FieldUpdate)
+	instID := "test-session-001"
+
+	// Session entering waiting status with no prior timestamp
+	result := updateWaitingSinceTracking(instID, "waiting", time.Time{}, updates)
+
+	// waitingSince should be set to approximately now
+	if result.IsZero() {
+		t.Error("Expected waitingSince to be set when entering waiting status")
+	}
+	if time.Since(result) > 2*time.Second {
+		t.Errorf("waitingSince should be recent, got %v", result)
+	}
+
+	// Update should be queued for persistence
+	update, ok := updates[instID]
+	if !ok {
+		t.Fatal("Expected update to be added to pending updates map")
+	}
+	if update.WaitingSince == nil {
+		t.Error("Expected WaitingSince field to be set in update")
+	}
+}
+
+// TestUpdateWaitingSinceTrackingPreservesExistingTimestamp verifies that when
+// a session is already in "waiting" status and has an existing timestamp,
+// the function preserves that timestamp rather than overwriting it.
+func TestUpdateWaitingSinceTrackingPreservesExistingTimestamp(t *testing.T) {
+	updates := make(map[string]session.FieldUpdate)
+	instID := "test-session-002"
+	existingTime := time.Now().Add(-5 * time.Minute) // Session has been waiting for 5 minutes
+
+	result := updateWaitingSinceTracking(instID, "waiting", existingTime, updates)
+
+	// Should preserve the original timestamp
+	if !result.Equal(existingTime) {
+		t.Errorf("Expected existing timestamp %v to be preserved, got %v", existingTime, result)
+	}
+
+	// No update should be queued (timestamp already exists)
+	if _, ok := updates[instID]; ok {
+		t.Error("Should not add update when timestamp already exists")
+	}
+}
+
+// TestUpdateWaitingSinceTrackingClearsTimestampWhenLeavingWaiting verifies that
+// when a session transitions from "waiting" to another status (e.g., "running"),
+// the function clears the waitingSince timestamp and queues a ClearWaitingSince update.
+func TestUpdateWaitingSinceTrackingClearsTimestampWhenLeavingWaiting(t *testing.T) {
+	updates := make(map[string]session.FieldUpdate)
+	instID := "test-session-003"
+	existingTime := time.Now().Add(-10 * time.Minute)
+
+	// Session transitions from waiting to running
+	result := updateWaitingSinceTracking(instID, "running", existingTime, updates)
+
+	// waitingSince should be cleared (zero value)
+	if !result.IsZero() {
+		t.Errorf("Expected waitingSince to be cleared when leaving waiting, got %v", result)
+	}
+
+	// Update should queue ClearWaitingSince=true
+	update, ok := updates[instID]
+	if !ok {
+		t.Fatal("Expected update to be added for clearing waitingSince")
+	}
+	if !update.ClearWaitingSince {
+		t.Error("Expected ClearWaitingSince=true in update")
+	}
+}
+
+// TestUpdateWaitingSinceTrackingMergesWithExistingUpdate verifies that when
+// an update already exists for the session in the updates map, the function
+// merges the WaitingSince change into it rather than overwriting.
+func TestUpdateWaitingSinceTrackingMergesWithExistingUpdate(t *testing.T) {
+	instID := "test-session-005"
+
+	// Pre-existing update with status change
+	status := "waiting"
+	updates := map[string]session.FieldUpdate{
+		instID: {Status: &status},
+	}
+
+	// Should merge WaitingSince into the existing update
+	updateWaitingSinceTracking(instID, "waiting", time.Time{}, updates)
+
+	update := updates[instID]
+	if update.Status == nil || *update.Status != "waiting" {
+		t.Error("Expected Status to be preserved in merged update")
+	}
+	if update.WaitingSince == nil {
+		t.Error("Expected WaitingSince to be added to merged update")
+	}
+}
+
+// TestUpdateWaitingSinceTrackingClearMergesWithExistingUpdate verifies that when
+// clearing waitingSince, it correctly merges ClearWaitingSince into an existing update.
+func TestUpdateWaitingSinceTrackingClearMergesWithExistingUpdate(t *testing.T) {
+	instID := "test-session-006"
+	existingTime := time.Now().Add(-5 * time.Minute)
+
+	// Pre-existing update with status change to running
+	status := "running"
+	updates := map[string]session.FieldUpdate{
+		instID: {Status: &status},
+	}
+
+	// Should merge ClearWaitingSince into the existing update
+	updateWaitingSinceTracking(instID, "running", existingTime, updates)
+
+	update := updates[instID]
+	if update.Status == nil || *update.Status != "running" {
+		t.Error("Expected Status to be preserved in merged update")
+	}
+	if !update.ClearWaitingSince {
+		t.Error("Expected ClearWaitingSince to be set in merged update")
+	}
+}
+
+// =============================================================================
+// Gemini Session Path Edge Cases (PR #91)
+// =============================================================================
+
+// TestGetGeminiSessionPathRejectsShortSessionID verifies that getGeminiSessionPath
+// returns empty string for session IDs shorter than 8 characters. This guards
+// against index out of bounds when slicing the session ID for glob pattern.
+func TestGetGeminiSessionPathRejectsShortSessionID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	testCases := []struct {
+		name      string
+		sessionID string
+	}{
+		{"empty", ""},
+		{"one char", "a"},
+		{"seven chars", "abcdefg"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			inst := &session.InstanceData{
+				GeminiSessionID: tc.sessionID,
+				ProjectPath:     "/test/project",
+			}
+
+			result := tm.getGeminiSessionPath(inst)
+			if result != "" {
+				t.Errorf("Expected empty for short session ID %q, got %q", tc.sessionID, result)
+			}
+		})
+	}
+}
+
+// TestGetGeminiSessionPathRejectsEmptyProjectPath verifies that getGeminiSessionPath
+// returns empty string when ProjectPath is empty, even with a valid session ID.
+func TestGetGeminiSessionPathRejectsEmptyProjectPath(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	inst := &session.InstanceData{
+		GeminiSessionID: "abcd1234-5678-valid-session-id",
+		ProjectPath:     "", // Empty
+	}
+
+	result := tm.getGeminiSessionPath(inst)
+	if result != "" {
+		t.Errorf("Expected empty for empty project path, got %q", result)
+	}
+}
+
