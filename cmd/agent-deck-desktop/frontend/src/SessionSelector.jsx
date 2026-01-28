@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, useMemo } from 'react';
 import { UpdateSessionCustomLabel, MarkSessionAccessed, DeleteSession } from '../wailsjs/go/main/App';
 import './SessionSelector.css';
 import { createLogger } from './logger';
@@ -11,7 +11,7 @@ import SessionPreview from './SessionPreview';
 
 const logger = createLogger('SessionSelector');
 
-const SessionSelector = forwardRef(function SessionSelector({ onSelect, onNewTerminal, statusFilter = 'all', onCycleFilter, onOpenPalette, onOpenHelp, onSessionDeleted }, ref) {
+const SessionSelector = forwardRef(function SessionSelector({ onSelect, onNewTerminal, statusFilter = 'all', onCycleFilter, onOpenPalette, onOpenHelp, onSessionDeleted, externalModalOpen = false }, ref) {
     const [previewSession, setPreviewSession] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
     const [labelingSession, setLabelingSession] = useState(null);
@@ -130,6 +130,12 @@ const SessionSelector = forwardRef(function SessionSelector({ onSelect, onNewTer
         },
     }), []);
 
+    // Check if any modal is open - used to pause background polling
+    // Includes both local modals (context menu, rename, delete) and external modals (CommandMenu from App.jsx)
+    const anyModalOpen = useMemo(() => {
+        return !!(contextMenu || labelingSession || deletingSession || externalModalOpen);
+    }, [contextMenu, labelingSession, deletingSession, externalModalOpen]);
+
     return (
         <div className="session-selector" ref={containerRef}>
             <div className="session-selector-header">
@@ -144,6 +150,7 @@ const SessionSelector = forwardRef(function SessionSelector({ onSelect, onNewTer
                     selectedSessionId={previewSession?.id}
                     statusFilter={statusFilter}
                     onCycleFilter={onCycleFilter}
+                    pausePolling={anyModalOpen}
                 />
 
                 <div className="session-selector-divider" />

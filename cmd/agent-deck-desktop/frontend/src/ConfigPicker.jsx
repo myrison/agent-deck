@@ -4,6 +4,7 @@ import { GetLaunchConfigsForTool } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { TOOLS } from './utils/tools';
 import { withKeyboardIsolation } from './utils/keyboardIsolation';
+import { saveFocus } from './utils/focusManagement';
 
 const logger = createLogger('ConfigPicker');
 
@@ -12,6 +13,17 @@ export default function ConfigPicker({ tool, projectPath, projectName, onSelect,
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [loading, setLoading] = useState(true);
     const containerRef = useRef(null);
+    const restoreFocusRef = useRef(null);
+
+    // Save focus on mount for restoration when picker closes
+    useEffect(() => {
+        restoreFocusRef.current = saveFocus();
+        return () => {
+            if (restoreFocusRef.current) {
+                restoreFocusRef.current();
+            }
+        };
+    }, []);
 
     // Get tool info for display
     const toolInfo = TOOLS.find(t => t.id === tool) || { name: tool, icon: '?', color: '#666' };

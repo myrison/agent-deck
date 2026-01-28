@@ -1,16 +1,28 @@
 import { useEffect, useRef } from 'react';
 import './DeleteSessionDialog.css';
 import { withKeyboardIsolation } from './utils/keyboardIsolation';
+import { saveFocus } from './utils/focusManagement';
 
 // Confirmation dialog for deleting a session
 export default function DeleteSessionDialog({ session, onConfirm, onCancel }) {
     const cancelRef = useRef(null);
+    const restoreFocusRef = useRef(null);
 
     useEffect(() => {
+        // Save previous focus for restoration
+        restoreFocusRef.current = saveFocus();
+
         // Focus cancel button on mount (safer default)
         if (cancelRef.current) {
             cancelRef.current.focus();
         }
+
+        // Restore focus when dialog unmounts
+        return () => {
+            if (restoreFocusRef.current) {
+                restoreFocusRef.current();
+            }
+        };
     }, []);
 
     const handleKeyDown = withKeyboardIsolation((e) => {

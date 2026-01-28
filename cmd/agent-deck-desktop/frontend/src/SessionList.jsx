@@ -15,6 +15,7 @@ const SessionList = forwardRef(function SessionList({
     selectedSessionId,
     statusFilter = 'all',
     onCycleFilter,
+    pausePolling = false, // When true, skip background polling (e.g., when modals are open)
 }, ref) {
     const [sessions, setSessions] = useState([]);
     const [groups, setGroups] = useState([]);
@@ -37,7 +38,13 @@ const SessionList = forwardRef(function SessionList({
     }, []);
 
     // Poll session list every 10 seconds to pick up new/removed sessions
+    // Skip polling when modals are open to prevent focus disruption
     useEffect(() => {
+        if (pausePolling) {
+            logger.debug('Session polling paused (modal open)');
+            return;
+        }
+
         const interval = setInterval(async () => {
             try {
                 const result = await ListSessionsWithGroups();
@@ -48,7 +55,7 @@ const SessionList = forwardRef(function SessionList({
             }
         }, 10000);
         return () => clearInterval(interval);
-    }, []);
+    }, [pausePolling]);
 
     const loadExpandedGroups = useCallback(async () => {
         try {

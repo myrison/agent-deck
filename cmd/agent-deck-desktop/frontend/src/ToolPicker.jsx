@@ -4,16 +4,28 @@ import { createLogger } from './logger';
 import { TOOLS } from './utils/tools';
 import ToolIcon from './ToolIcon';
 import { withKeyboardIsolation } from './utils/keyboardIsolation';
+import { saveFocus } from './utils/focusManagement';
 
 const logger = createLogger('ToolPicker');
 
 export default function ToolPicker({ projectPath, projectName, onSelect, onSelectWithConfig, onCancel }) {
     const [selectedIndex, setSelectedIndex] = useState(0);
     const containerRef = useRef(null);
+    const restoreFocusRef = useRef(null);
 
     useEffect(() => {
+        // Save previous focus for restoration
+        restoreFocusRef.current = saveFocus();
+
         logger.info('Tool picker opened', { projectPath, projectName });
         containerRef.current?.focus();
+
+        // Restore focus when picker unmounts
+        return () => {
+            if (restoreFocusRef.current) {
+                restoreFocusRef.current();
+            }
+        };
     }, [projectPath, projectName]);
 
     const handleKeyDown = withKeyboardIsolation((e) => {

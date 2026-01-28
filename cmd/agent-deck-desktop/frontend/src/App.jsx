@@ -2140,6 +2140,7 @@ function App() {
                     onOpenPalette={() => setShowCommandMenu(true)}
                     onOpenHelp={handleOpenHelp}
                     onSessionDeleted={handleSessionDeleted}
+                    externalModalOpen={showCommandMenu || showToolPicker || showConfigPicker || showHostPicker || showRemotePathInput || !!sessionPickerProject || showSettings || showHelpModal || showScanPathSetup}
                 />
                 {showCommandMenu && (
                     <CommandMenu
