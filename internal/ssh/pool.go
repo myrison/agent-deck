@@ -175,25 +175,105 @@ type Status struct {
 	LastCheck time.Time
 }
 
-// Status returns the status of all connections
+// statusCheckCacheDuration is how long a connection status check is considered fresh
+const statusCheckCacheDuration = 30 * time.Second
+
+// Status returns the status of all connections, testing untested or stale connections.
+// Connections are tested in parallel for performance.
 func (p *Pool) Status() []Status {
 	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	statuses := make([]Status, 0, len(p.configs))
+	hostIDs := make([]string, 0, len(p.configs))
 	for hostID := range p.configs {
-		status := Status{
-			HostID: hostID,
-		}
-		if conn, exists := p.connections[hostID]; exists {
-			status.Connected = conn.IsConnected()
-			status.LastError = conn.LastError()
-			conn.mu.Lock()
-			status.LastCheck = conn.lastCheck
-			conn.mu.Unlock()
-		}
-		statuses = append(statuses, status)
+		hostIDs = append(hostIDs, hostID)
 	}
+	p.mu.RUnlock()
+
+	if len(hostIDs) == 0 {
+		return nil
+	}
+
+	// Check each host in parallel
+	type statusResult struct {
+		hostID    string
+		connected bool
+		lastError error
+		lastCheck time.Time
+	}
+
+	results := make(chan statusResult, len(hostIDs))
+	var wg sync.WaitGroup
+
+	for _, hostID := range hostIDs {
+		wg.Add(1)
+		go func(hid string) {
+			defer wg.Done()
+
+			result := statusResult{hostID: hid}
+
+			// Check if we have a recent cached status
+			p.mu.RLock()
+			conn, exists := p.connections[hid]
+			p.mu.RUnlock()
+
+			if exists {
+				conn.mu.Lock()
+				lastCheck := conn.lastCheck
+				conn.mu.Unlock()
+
+				// If recently checked and connected, use cached status
+				if time.Since(lastCheck) < statusCheckCacheDuration {
+					result.connected = conn.IsConnected()
+					result.lastError = conn.LastError()
+					conn.mu.Lock()
+					result.lastCheck = conn.lastCheck
+					conn.mu.Unlock()
+					results <- result
+					return
+				}
+			}
+
+			// Test the connection (Get creates and tests if needed)
+			_, err := p.Get(hid)
+
+			// After Get, re-read the connection state
+			p.mu.RLock()
+			conn, exists = p.connections[hid]
+			p.mu.RUnlock()
+
+			if exists {
+				result.connected = conn.IsConnected()
+				result.lastError = conn.LastError()
+				conn.mu.Lock()
+				result.lastCheck = conn.lastCheck
+				conn.mu.Unlock()
+			} else if err != nil {
+				// Get failed but didn't create a connection (config missing, etc.)
+				result.connected = false
+				result.lastError = err
+				result.lastCheck = time.Now()
+			}
+
+			results <- result
+		}(hostID)
+	}
+
+	// Close results channel when all goroutines complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results
+	statuses := make([]Status, 0, len(hostIDs))
+	for result := range results {
+		statuses = append(statuses, Status{
+			HostID:    result.hostID,
+			Connected: result.connected,
+			LastError: result.lastError,
+			LastCheck: result.lastCheck,
+		})
+	}
+
 	return statuses
 }
 
