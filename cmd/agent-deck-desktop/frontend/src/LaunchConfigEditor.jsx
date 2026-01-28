@@ -176,6 +176,9 @@ export default function LaunchConfigEditor({ config, tool, onSave, onCancel }) {
                         onChange={(e) => setName(e.target.value)}
                         placeholder="e.g., Minimal MCPs, Full Stack, etc."
                         autoFocus
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
                     />
                 </div>
 
@@ -194,6 +197,9 @@ export default function LaunchConfigEditor({ config, tool, onSave, onCancel }) {
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
                         placeholder="Optional description"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
                     />
                 </div>
 
@@ -233,6 +239,9 @@ export default function LaunchConfigEditor({ config, tool, onSave, onCancel }) {
                         value={mcpConfigPath}
                         onChange={(e) => setMcpConfigPath(e.target.value)}
                         placeholder="~/.config/custom-mcps.json"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
                     />
                     {mcpConfigPath.trim() && (
                         <div className={`editor-mcp-preview ${mcpValidation.valid ? 'valid' : 'invalid'}`}>
@@ -264,6 +273,9 @@ export default function LaunchConfigEditor({ config, tool, onSave, onCancel }) {
                         value={extraArgs}
                         onChange={(e) => setExtraArgs(e.target.value)}
                         placeholder="--model opus --resume"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
                     />
                     <div className="editor-hint">
                         Additional CLI arguments (space-separated)
