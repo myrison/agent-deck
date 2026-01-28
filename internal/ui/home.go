@@ -1616,6 +1616,11 @@ func (h *Home) runRemoteDiscovery() {
 	if needsSave && h.groupTree != nil {
 		h.instancesMu.RLock()
 		h.groupTree.SyncWithInstances(h.instances)
+		// Clean up empty remote groups. Remote groups are mirrors of remote host
+		// configurations, so empty ones should be removed automatically.
+		if removed := h.groupTree.RemoveEmptyRemoteGroups(); removed > 0 {
+			log.Printf("[REMOTE-DISCOVERY] Removed %d empty remote groups", removed)
+		}
 		h.instancesMu.RUnlock()
 	}
 
