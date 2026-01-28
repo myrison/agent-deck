@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './SettingsModal.css';
 import LaunchConfigEditor from './LaunchConfigEditor';
-import { GetLaunchConfigs, DeleteLaunchConfig, GetSoftNewlineMode, SetSoftNewlineMode, SetFontSize, GetScrollSpeed, SetScrollSpeed, ResetGroupSettings, GetAutoCopyOnSelectEnabled, SetAutoCopyOnSelectEnabled, GetShowActivityRibbon, SetShowActivityRibbon, GetScanPaths, AddScanPath, RemoveScanPath, GetScanMaxDepth, SetScanMaxDepth, BrowseLocalDirectory } from '../wailsjs/go/main/App';
+import { GetLaunchConfigs, DeleteLaunchConfig, GetSoftNewlineMode, SetSoftNewlineMode, SetFontSize, GetScrollSpeed, SetScrollSpeed, ResetGroupSettings, GetAutoCopyOnSelectEnabled, SetAutoCopyOnSelectEnabled, GetShowActivityRibbon, SetShowActivityRibbon, GetFileBasedActivityDetection, SetFileBasedActivityDetection, GetScanPaths, AddScanPath, RemoveScanPath, GetScanMaxDepth, SetScanMaxDepth, BrowseLocalDirectory } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { TOOLS } from './utils/tools';
 import ToolIcon from './ToolIcon';
@@ -22,6 +22,7 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
     const [softNewlineMode, setSoftNewlineMode] = useState('both');
     const [autoCopyOnSelect, setAutoCopyOnSelect] = useState(false);
     const [showActivityRibbon, setShowActivityRibbon] = useState(true);
+    const [fileBasedActivityDetection, setFileBasedActivityDetection] = useState(true);
     const [scanPaths, setScanPaths] = useState([]);
     const [scanMaxDepth, setScanMaxDepth] = useState(2);
     const { themePreference, setTheme } = useTheme();
@@ -65,6 +66,14 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
             logger.info('Loaded activity ribbon setting:', ribbonEnabled);
         } catch (err) {
             logger.error('Failed to load activity ribbon setting:', err);
+        }
+
+        try {
+            const fileBasedEnabled = await GetFileBasedActivityDetection();
+            setFileBasedActivityDetection(fileBasedEnabled);
+            logger.info('Loaded file-based activity detection:', fileBasedEnabled);
+        } catch (err) {
+            logger.error('Failed to load file-based activity detection:', err);
         }
     };
 
@@ -157,6 +166,17 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
             logger.info('Set activity ribbon:', enabled);
         } catch (err) {
             logger.error('Failed to save activity ribbon setting:', err);
+            alert('Failed to save setting: ' + err.message);
+        }
+    };
+
+    const handleFileBasedActivityDetectionChange = async (enabled) => {
+        try {
+            await SetFileBasedActivityDetection(enabled);
+            setFileBasedActivityDetection(enabled);
+            logger.info('Set file-based activity detection:', enabled);
+        } catch (err) {
+            logger.error('Failed to save file-based activity detection:', err);
             alert('Failed to save setting: ' + err.message);
         }
     };
@@ -357,6 +377,20 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
                             </label>
                             <p className="settings-input-description">
                                 Display waiting time indicator below each session tab.
+                            </p>
+                        </div>
+                        <div className="settings-checkbox-item settings-appearance-checkbox">
+                            <label className="settings-checkbox-label">
+                                <input
+                                    type="checkbox"
+                                    checked={fileBasedActivityDetection}
+                                    onChange={(e) => handleFileBasedActivityDetectionChange(e.target.checked)}
+                                />
+                                File-based activity detection
+                            </label>
+                            <p className="settings-input-description">
+                                Use Claude/Gemini session file timestamps to detect running status.
+                                More reliable than terminal output parsing.
                             </p>
                         </div>
                     </div>

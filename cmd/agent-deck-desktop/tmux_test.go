@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -8,6 +10,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/asheshgoplani/agent-deck/internal/session"
 )
 
 // TestTmuxManagerSessionExists tests session existence checking
@@ -445,14 +450,14 @@ func TestConvertInstancesNormalizesEmptyGroupPathWithProjectPath(t *testing.T) {
 	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
 
 	// Simulate an instance from an older version with empty group_path
-	instances := []instanceJSON{
+	instances := []*session.InstanceData{
 		{
 			ID:          "test-id-001",
 			Title:       "Old Session",
 			ProjectPath: "/Users/jason/hc-repo/agent-deck",
 			GroupPath:   "", // Empty — the scenario this PR fixes
 			Tool:        "claude",
-			Status:      "running",
+			Status:      session.StatusRunning,
 			TmuxSession: sessionName,
 		},
 	}
@@ -490,14 +495,14 @@ func TestConvertInstancesNormalizesEmptyGroupPathWithoutProjectPath(t *testing.T
 	}
 	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
 
-	instances := []instanceJSON{
+	instances := []*session.InstanceData{
 		{
 			ID:          "test-id-002",
 			Title:       "No Path Session",
 			ProjectPath: "", // No project path
 			GroupPath:   "", // No group path
 			Tool:        "claude",
-			Status:      "running",
+			Status:      session.StatusRunning,
 			TmuxSession: sessionName,
 		},
 	}
@@ -623,7 +628,7 @@ func TestUpdateSessionStatus_SessionNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewTmuxManager failed: %v", err)
 	}
-	err := tm.UpdateSessionStatus("nonexistent-id", "running")
+	err = tm.UpdateSessionStatus("nonexistent-id", "running")
 	if err == nil {
 		t.Error("UpdateSessionStatus should return error for nonexistent session ID")
 	}
@@ -784,14 +789,14 @@ func TestConvertInstancesPreservesExistingGroupPath(t *testing.T) {
 	}
 	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
 
-	instances := []instanceJSON{
+	instances := []*session.InstanceData{
 		{
 			ID:          "test-id-003",
 			Title:       "Existing Group Session",
 			ProjectPath: "/Users/jason/hc-repo/agent-deck",
 			GroupPath:   "custom-group", // Already set — should NOT be overridden
 			Tool:        "claude",
-			Status:      "running",
+			Status:      session.StatusRunning,
 			TmuxSession: sessionName,
 		},
 	}
@@ -829,7 +834,7 @@ func TestPersistSessionWritesRemoteTmuxNameForRemote(t *testing.T) {
 	}
 
 	// Persist a remote session
-	err := tm.PersistSession(SessionInfo{
+	err = tm.PersistSession(SessionInfo{
 		ID:          "remote-001",
 		Title:       "Remote Session",
 		ProjectPath: "/home/user/project",
@@ -895,7 +900,7 @@ func TestPersistSessionOmitsRemoteTmuxNameForLocal(t *testing.T) {
 	}
 
 	// Persist a local session (IsRemote defaults to false)
-	err := tm.PersistSession(SessionInfo{
+	err = tm.PersistSession(SessionInfo{
 		ID:          "local-001",
 		Title:       "Local Session",
 		ProjectPath: "/Users/jason/project",
@@ -951,14 +956,14 @@ func TestConvertInstancesMarksLocalSessionWithoutTmuxAsExited(t *testing.T) {
 
 	// Create an instance that references a non-existent tmux session
 	// (simulates a session whose tmux process has ended)
-	instances := []instanceJSON{
+	instances := []*session.InstanceData{
 		{
 			ID:          "exited-test-001",
 			Title:       "Exited Session",
 			ProjectPath: "/Users/jason/project",
 			GroupPath:   "project",
 			Tool:        "claude",
-			Status:      "running", // Stored as "running" in JSON
+			Status:      session.StatusRunning, // Stored as "running" in JSON
 			TmuxSession: "definitely_nonexistent_tmux_session_xyz123",
 		},
 	}
@@ -996,14 +1001,14 @@ func TestConvertInstancesPreservesRunningStatusForActiveTmux(t *testing.T) {
 	}
 	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
 
-	instances := []instanceJSON{
+	instances := []*session.InstanceData{
 		{
 			ID:          "running-test-001",
 			Title:       "Running Session",
 			ProjectPath: tmpDir,
 			GroupPath:   "test",
 			Tool:        "claude",
-			Status:      "running",
+			Status:      session.StatusRunning,
 			TmuxSession: sessionName,
 		},
 	}
@@ -1033,14 +1038,14 @@ func TestConvertInstancesDoesNotMarkRemoteSessionAsExited(t *testing.T) {
 	}
 
 	// Remote session with non-existent local tmux (this is expected for remote sessions)
-	instances := []instanceJSON{
+	instances := []*session.InstanceData{
 		{
 			ID:          "remote-test-001",
 			Title:       "Remote Session",
 			ProjectPath: "/home/user/project",
 			GroupPath:   "remote/server",
 			Tool:        "claude",
-			Status:      "running",
+			Status:      session.StatusRunning,
 			TmuxSession: "nonexistent_remote_tmux",
 			RemoteHost:  "my-server", // This makes it a remote session
 		},
@@ -1090,7 +1095,7 @@ func TestUpdateSessionStatusAcceptsExitedStatus(t *testing.T) {
 	}
 
 	// Updating to "exited" should succeed (it's in validSessionStatuses)
-	err := tm.UpdateSessionStatus("abc-123", "exited")
+	err = tm.UpdateSessionStatus("abc-123", "exited")
 	if err != nil {
 		t.Fatalf("UpdateSessionStatus should accept 'exited' as valid status, got error: %v", err)
 	}
@@ -1114,7 +1119,7 @@ func TestDetectSessionStatusReturnsErrorForSSHConnectionFailures(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, _ := NewTmuxManager()
 
 	// Error patterns that should trigger "error" status
 	errorPatterns := []struct {
@@ -1177,7 +1182,7 @@ func TestDetectSessionStatusErrorTakesPriorityOverPrompt(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, _ := NewTmuxManager()
 	sessionName := "test_error_priority"
 	tmpDir := t.TempDir()
 
@@ -1223,7 +1228,7 @@ func TestDetectSessionStatusReturnsWaitingWhenNoError(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, _ := NewTmuxManager()
 	sessionName := "test_waiting_status"
 	tmpDir := t.TempDir()
 
@@ -1266,7 +1271,7 @@ func TestDetectSessionStatusErrorPatternsCaseInsensitive(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, _ := NewTmuxManager()
 
 	// Test various case combinations
 	testCases := []struct {

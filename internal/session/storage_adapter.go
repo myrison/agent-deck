@@ -14,6 +14,7 @@ type FieldUpdate struct {
 	ClearWaitingSince bool       // Set to true to clear WaitingSince
 	CustomLabel       *string    // New custom label (empty string to remove)
 	LastAccessedAt    *time.Time // When session was last accessed
+	ClaudeSessionID   *string    // Discovered Claude session ID (from lazy detection)
 }
 
 // StorageAdapter wraps Storage with desktop-specific features like debounced writes.
@@ -101,6 +102,9 @@ func (a *StorageAdapter) ScheduleUpdate(instanceID string, update FieldUpdate) {
 		if update.LastAccessedAt != nil {
 			existing.LastAccessedAt = update.LastAccessedAt
 		}
+		if update.ClaudeSessionID != nil {
+			existing.ClaudeSessionID = update.ClaudeSessionID
+		}
 		a.pendingUpdates[instanceID] = existing
 	} else {
 		a.pendingUpdates[instanceID] = update
@@ -174,6 +178,11 @@ func (a *StorageAdapter) applyUpdates(updates map[string]FieldUpdate) {
 		}
 		if update.LastAccessedAt != nil {
 			inst.LastAccessedAt = *update.LastAccessedAt
+			modified = true
+		}
+		if update.ClaudeSessionID != nil && *update.ClaudeSessionID != inst.ClaudeSessionID {
+			log.Printf("[storage-adapter] %s: discovered ClaudeSessionID %s", inst.ID, *update.ClaudeSessionID)
+			inst.ClaudeSessionID = *update.ClaudeSessionID
 			modified = true
 		}
 	}
