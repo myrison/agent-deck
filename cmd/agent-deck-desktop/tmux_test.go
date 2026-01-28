@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -8,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestTmuxManagerSessionExists tests session existence checking
@@ -1198,6 +1201,290 @@ How can I help you today?
 	}
 	if status != "waiting" {
 		t.Errorf("Normal prompt should return 'waiting' status, got %q", status)
+	}
+}
+
+// TestDetectSessionStatusViaFileReturnsRunningForRecentlyModifiedFile verifies
+// that detectSessionStatusViaFile returns "running" when the session file was
+// modified within the last 10 seconds. This is the core detection mechanism that
+// PR #89 introduces for reliable activity status.
+func TestDetectSessionStatusViaFileReturnsRunningForRecentlyModifiedFile(t *testing.T) {
+	// Set up temp HOME so settings and session paths are isolated
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm := NewTmuxManager()
+
+	// Create the Claude session file structure
+	// Path: ~/.claude/projects/{project-dir-name}/{session-id}.jsonl
+	claudeDir := filepath.Join(tmpHome, ".claude", "projects", "-tmp-test-project")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatalf("Failed to create Claude session dir: %v", err)
+	}
+
+	sessionFile := filepath.Join(claudeDir, "test-session-123.jsonl")
+	if err := os.WriteFile(sessionFile, []byte(`{"event":"test"}`), 0644); err != nil {
+		t.Fatalf("Failed to create session file: %v", err)
+	}
+
+	// Enable file-based detection in settings
+	dsm := NewDesktopSettingsManager()
+	dsm.SetFileBasedActivityDetection(true)
+
+	// Create instance with matching Claude session ID
+	inst := &instanceJSON{
+		ID:              "test-id",
+		Tool:            "claude",
+		ProjectPath:     "/tmp/test-project",
+		ClaudeSessionID: "test-session-123",
+	}
+
+	// File was just created (mtime is recent), should return "running"
+	status, ok := tm.detectSessionStatusViaFile(inst)
+	if !ok {
+		t.Fatal("detectSessionStatusViaFile should return ok=true for valid Claude session file")
+	}
+	if status != "running" {
+		t.Errorf("Expected status 'running' for recently modified file, got %q", status)
+	}
+}
+
+// TestDetectSessionStatusViaFileFallsBackForOldFile verifies that when a session
+// file exists but was modified more than 10 seconds ago, detectSessionStatusViaFile
+// returns ok=false so the caller falls back to visual detection.
+func TestDetectSessionStatusViaFileFallsBackForOldFile(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm := NewTmuxManager()
+
+	// Create Claude session file structure
+	claudeDir := filepath.Join(tmpHome, ".claude", "projects", "-tmp-old-project")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatalf("Failed to create Claude session dir: %v", err)
+	}
+
+	sessionFile := filepath.Join(claudeDir, "old-session-456.jsonl")
+	if err := os.WriteFile(sessionFile, []byte(`{"event":"test"}`), 0644); err != nil {
+		t.Fatalf("Failed to create session file: %v", err)
+	}
+
+	// Set file mtime to 30 seconds ago (older than 10-second threshold)
+	oldTime := time.Now().Add(-30 * time.Second)
+	if err := os.Chtimes(sessionFile, oldTime, oldTime); err != nil {
+		t.Fatalf("Failed to set file mtime: %v", err)
+	}
+
+	// Enable file-based detection
+	dsm := NewDesktopSettingsManager()
+	dsm.SetFileBasedActivityDetection(true)
+
+	inst := &instanceJSON{
+		ID:              "test-id",
+		Tool:            "claude",
+		ProjectPath:     "/tmp/old-project",
+		ClaudeSessionID: "old-session-456",
+	}
+
+	// File is old, should fall back (ok=false)
+	_, ok := tm.detectSessionStatusViaFile(inst)
+	if ok {
+		t.Error("detectSessionStatusViaFile should return ok=false for files older than 10 seconds")
+	}
+}
+
+// TestDetectSessionStatusViaFileRespectsFeatureToggle verifies that when
+// file-based activity detection is disabled in settings, detectSessionStatusViaFile
+// returns ok=false immediately without checking the file.
+func TestDetectSessionStatusViaFileRespectsFeatureToggle(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm := NewTmuxManager()
+
+	// Create a fresh session file (would return "running" if feature was enabled)
+	claudeDir := filepath.Join(tmpHome, ".claude", "projects", "-tmp-toggle-project")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatalf("Failed to create Claude session dir: %v", err)
+	}
+	sessionFile := filepath.Join(claudeDir, "toggle-session.jsonl")
+	if err := os.WriteFile(sessionFile, []byte(`{"event":"test"}`), 0644); err != nil {
+		t.Fatalf("Failed to create session file: %v", err)
+	}
+
+	// Disable file-based detection
+	dsm := NewDesktopSettingsManager()
+	dsm.SetFileBasedActivityDetection(false)
+
+	inst := &instanceJSON{
+		ID:              "test-id",
+		Tool:            "claude",
+		ProjectPath:     "/tmp/toggle-project",
+		ClaudeSessionID: "toggle-session",
+	}
+
+	// Feature is disabled, should return ok=false even with fresh file
+	_, ok := tm.detectSessionStatusViaFile(inst)
+	if ok {
+		t.Error("detectSessionStatusViaFile should return ok=false when feature is disabled")
+	}
+}
+
+// TestDetectSessionStatusViaFileSkipsOpenCode verifies that file-based detection
+// is not attempted for OpenCode sessions (only Claude and Gemini are supported).
+func TestDetectSessionStatusViaFileSkipsOpenCode(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm := NewTmuxManager()
+
+	// Enable file-based detection
+	dsm := NewDesktopSettingsManager()
+	dsm.SetFileBasedActivityDetection(true)
+
+	inst := &instanceJSON{
+		ID:          "test-id",
+		Tool:        "opencode", // Not supported for file-based detection
+		ProjectPath: "/tmp/opencode-project",
+	}
+
+	_, ok := tm.detectSessionStatusViaFile(inst)
+	if ok {
+		t.Error("detectSessionStatusViaFile should return ok=false for OpenCode sessions")
+	}
+}
+
+// TestDetectSessionStatusViaFileSkipsRemoteSessions verifies that file-based
+// detection is not attempted for remote sessions (file would be on remote host).
+func TestDetectSessionStatusViaFileSkipsRemoteSessions(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm := NewTmuxManager()
+
+	// Enable file-based detection
+	dsm := NewDesktopSettingsManager()
+	dsm.SetFileBasedActivityDetection(true)
+
+	inst := &instanceJSON{
+		ID:              "test-id",
+		Tool:            "claude",
+		ProjectPath:     "/home/user/project",
+		ClaudeSessionID: "remote-session-123",
+		RemoteHost:      "dev-server", // This makes it a remote session
+	}
+
+	_, ok := tm.detectSessionStatusViaFile(inst)
+	if ok {
+		t.Error("detectSessionStatusViaFile should return ok=false for remote sessions")
+	}
+}
+
+// TestGetGeminiSessionPathReturnsNewestMatch verifies that getGeminiSessionPath
+// returns the most recently modified session file when multiple matches exist.
+func TestGetGeminiSessionPathReturnsNewestMatch(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm := NewTmuxManager()
+
+	projectPath := "/test/gemini-project"
+
+	// Gemini uses SHA256 hash of project path for directory name
+	hash := sha256.Sum256([]byte(projectPath))
+	projectHash := hex.EncodeToString(hash[:])
+
+	// Create Gemini session directory structure
+	geminiDir := filepath.Join(tmpHome, ".gemini", "tmp", projectHash, "chats")
+	if err := os.MkdirAll(geminiDir, 0755); err != nil {
+		t.Fatalf("Failed to create Gemini session dir: %v", err)
+	}
+
+	// Create two session files with the same session ID prefix
+	sessionID := "abcd1234-5678"
+	olderFile := filepath.Join(geminiDir, "session-1000-"+sessionID[:8]+".json")
+	newerFile := filepath.Join(geminiDir, "session-2000-"+sessionID[:8]+".json")
+
+	if err := os.WriteFile(olderFile, []byte(`{"session":"older"}`), 0644); err != nil {
+		t.Fatalf("Failed to create older session file: %v", err)
+	}
+	// Set older file mtime to past
+	oldTime := time.Now().Add(-1 * time.Hour)
+	os.Chtimes(olderFile, oldTime, oldTime)
+
+	if err := os.WriteFile(newerFile, []byte(`{"session":"newer"}`), 0644); err != nil {
+		t.Fatalf("Failed to create newer session file: %v", err)
+	}
+
+	inst := &instanceJSON{
+		GeminiSessionID: sessionID,
+		ProjectPath:     projectPath,
+	}
+
+	result := tm.getGeminiSessionPath(inst)
+	if result != newerFile {
+		t.Errorf("Expected newest file %q, got %q", newerFile, result)
+	}
+}
+
+// TestGetGeminiSessionPathReturnsEmptyForNoMatches verifies that
+// getGeminiSessionPath returns empty string when no matching files exist.
+func TestGetGeminiSessionPathReturnsEmptyForNoMatches(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm := NewTmuxManager()
+
+	// Don't create any session files
+	inst := &instanceJSON{
+		GeminiSessionID: "nonexistent-session",
+		ProjectPath:     "/nonexistent/project",
+	}
+
+	result := tm.getGeminiSessionPath(inst)
+	if result != "" {
+		t.Errorf("Expected empty string for nonexistent session, got %q", result)
+	}
+}
+
+// TestGetClaudeJSONLPathReturnsEmptyForNonexistentFile verifies that
+// getClaudeJSONLPath returns empty string when the session file doesn't exist.
+func TestGetClaudeJSONLPathReturnsEmptyForNonexistentFile(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	tm := NewTmuxManager()
+
+	// Create the directory structure but not the session file
+	claudeDir := filepath.Join(tmpHome, ".claude", "projects", "-tmp-project")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatalf("Failed to create Claude dir: %v", err)
+	}
+
+	inst := &instanceJSON{
+		ClaudeSessionID: "nonexistent-session",
+		ProjectPath:     "/tmp/project",
+	}
+
+	result := tm.getClaudeJSONLPath(inst)
+	if result != "" {
+		t.Errorf("Expected empty for nonexistent file, got %q", result)
 	}
 }
 

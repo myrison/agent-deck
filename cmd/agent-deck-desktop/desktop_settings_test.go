@@ -307,3 +307,107 @@ func TestSetupDismissedPreservesOtherSettings(t *testing.T) {
 		t.Error("Expected SetupDismissed still true after verifying theme")
 	}
 }
+
+// TestFileBasedActivityDetectionDefaultEnabled verifies that file-based activity
+// detection defaults to enabled when no config exists. This is the default state
+// PR #89 introduces for better status detection reliability.
+func TestFileBasedActivityDetectionDefaultEnabled(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	dsm := &DesktopSettingsManager{configPath: configPath}
+
+	// Default should be true (enabled)
+	enabled, err := dsm.GetFileBasedActivityDetection()
+	if err != nil {
+		t.Fatalf("GetFileBasedActivityDetection failed: %v", err)
+	}
+	if !enabled {
+		t.Error("Expected default FileBasedActivityDetection to be true (enabled)")
+	}
+}
+
+// TestFileBasedActivityDetectionRoundTrip verifies that the setting can be
+// toggled on and off and persists correctly across manager instances.
+func TestFileBasedActivityDetectionRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	dsm := &DesktopSettingsManager{configPath: configPath}
+
+	// Disable the feature
+	err := dsm.SetFileBasedActivityDetection(false)
+	if err != nil {
+		t.Fatalf("SetFileBasedActivityDetection(false) failed: %v", err)
+	}
+
+	enabled, err := dsm.GetFileBasedActivityDetection()
+	if err != nil {
+		t.Fatalf("GetFileBasedActivityDetection failed: %v", err)
+	}
+	if enabled {
+		t.Error("Expected FileBasedActivityDetection to be false after disabling")
+	}
+
+	// Re-enable the feature
+	err = dsm.SetFileBasedActivityDetection(true)
+	if err != nil {
+		t.Fatalf("SetFileBasedActivityDetection(true) failed: %v", err)
+	}
+
+	enabled, _ = dsm.GetFileBasedActivityDetection()
+	if !enabled {
+		t.Error("Expected FileBasedActivityDetection to be true after re-enabling")
+	}
+}
+
+// TestFileBasedActivityDetectionPersistence verifies that the setting persists
+// across manager instances (simulating app restart).
+func TestFileBasedActivityDetectionPersistence(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	// First manager: disable the feature
+	dsm1 := &DesktopSettingsManager{configPath: configPath}
+	err := dsm1.SetFileBasedActivityDetection(false)
+	if err != nil {
+		t.Fatalf("SetFileBasedActivityDetection failed: %v", err)
+	}
+
+	// Second manager (simulating app restart): verify setting persisted
+	dsm2 := &DesktopSettingsManager{configPath: configPath}
+	enabled, err := dsm2.GetFileBasedActivityDetection()
+	if err != nil {
+		t.Fatalf("GetFileBasedActivityDetection failed: %v", err)
+	}
+	if enabled {
+		t.Error("Expected FileBasedActivityDetection to remain false after 'restart'")
+	}
+}
+
+// TestFileBasedActivityDetectionPreservesOtherSettings verifies that toggling
+// this setting doesn't affect other settings like theme or font size.
+func TestFileBasedActivityDetectionPreservesOtherSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	dsm := &DesktopSettingsManager{configPath: configPath}
+
+	// Set theme and font size first
+	dsm.SetTheme("light")
+	dsm.SetFontSize(18)
+
+	// Toggle file-based detection
+	dsm.SetFileBasedActivityDetection(false)
+
+	// Verify other settings preserved
+	theme, _ := dsm.GetTheme()
+	if theme != "light" {
+		t.Errorf("Expected theme 'light' preserved, got '%s'", theme)
+	}
+
+	fontSize, _ := dsm.GetFontSize()
+	if fontSize != 18 {
+		t.Errorf("Expected fontSize 18 preserved, got %d", fontSize)
+	}
+}
