@@ -367,9 +367,11 @@ func (tm *TmuxManager) detectSessionStatusViaFile(inst *session.InstanceData, fi
 		return "", false
 	}
 
-	// If modified within last 10 seconds, agent is actively working
-	// (Claude writes progress events every 1 second during tool execution)
-	if time.Since(stat.ModTime()) < 10*time.Second {
+	// If modified within last 90 seconds, agent is actively working.
+	// Claude writes progress events every 1 second during tool execution,
+	// but during extended thinking (API calls, reasoning) it may not write
+	// for 2-3 minutes. 90 seconds provides a reasonable buffer.
+	if time.Since(stat.ModTime()) < 90*time.Second {
 		return "running", true
 	}
 
