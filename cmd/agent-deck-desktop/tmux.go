@@ -493,12 +493,12 @@ func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bo
 // Claude Code writes progress events every 1 second during tool execution,
 // making file mtime a reliable "running" indicator.
 //
+// The fileBasedEnabled parameter should be pre-checked by the caller to avoid
+// creating a new DesktopSettingsManager for each session during parallel detection.
+//
 // TODO: Enable file-based detection in TUI app (internal/tmux/tmux.go) as well
-func (tm *TmuxManager) detectSessionStatusViaFile(inst *instanceJSON) (string, bool) {
-	// Check if feature is enabled
-	dsm := NewDesktopSettingsManager()
-	enabled, _ := dsm.GetFileBasedActivityDetection()
-	if !enabled {
+func (tm *TmuxManager) detectSessionStatusViaFile(inst *instanceJSON, fileBasedEnabled bool) (string, bool) {
+	if !fileBasedEnabled {
 		return "", false
 	}
 
@@ -513,6 +513,17 @@ func (tm *TmuxManager) detectSessionStatusViaFile(inst *instanceJSON) (string, b
 	}
 
 	var filePath string
+
+	// Lazy discovery: if ClaudeSessionID is empty, try to discover it from Claude's files
+	if inst.Tool == "claude" && inst.ClaudeSessionID == "" && inst.ProjectPath != "" {
+		if discoveredID, err := session.GetClaudeSessionID(inst.ProjectPath); err == nil && discoveredID != "" {
+			inst.ClaudeSessionID = discoveredID
+			// Persist the discovered ID so future checks don't need to rediscover
+			go tm.updateSessionField(inst.ID, func(data map[string]interface{}) {
+				data["claude_session_id"] = discoveredID
+			})
+		}
+	}
 
 	if inst.Tool == "claude" && inst.ClaudeSessionID != "" {
 		filePath = tm.getClaudeJSONLPath(inst)
@@ -876,6 +887,10 @@ func (tm *TmuxManager) detectStatusesParallel(sessions []sessionToDetect) map[st
 		return nil
 	}
 
+	// Check file-based detection setting once for all sessions
+	dsm := NewDesktopSettingsManager()
+	fileBasedEnabled, _ := dsm.GetFileBasedActivityDetection()
+
 	results := make(map[string]string)
 	resultsMu := sync.Mutex{}
 
@@ -894,7 +909,7 @@ func (tm *TmuxManager) detectStatusesParallel(sessions []sessionToDetect) map[st
 
 			// Try file-based detection first (for Claude/Gemini)
 			if s.instance != nil {
-				if status, ok := tm.detectSessionStatusViaFile(s.instance); ok {
+				if status, ok := tm.detectSessionStatusViaFile(s.instance, fileBasedEnabled); ok {
 					resultsMu.Lock()
 					results[s.tmuxSession] = status
 					resultsMu.Unlock()
