@@ -1,6 +1,7 @@
 package ssh
 
 import (
+	"errors"
 	"sync"
 	"time"
 )
@@ -175,25 +176,120 @@ type Status struct {
 	LastCheck time.Time
 }
 
-// Status returns the status of all connections
+// statusCheckCacheDuration is how long a connection status check is considered fresh.
+// 30 seconds balances UI responsiveness against SSH overhead.
+const statusCheckCacheDuration = 30 * time.Second
+
+// statusCheckTimeout is the maximum time to wait for a single SSH connection test.
+// This prevents hanging goroutines if SSH connections are slow or unresponsive.
+const statusCheckTimeout = 15 * time.Second
+
+// Status returns the status of all connections, testing untested or stale connections.
+// Connections are tested in parallel for performance.
 func (p *Pool) Status() []Status {
 	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	statuses := make([]Status, 0, len(p.configs))
+	hostIDs := make([]string, 0, len(p.configs))
 	for hostID := range p.configs {
-		status := Status{
-			HostID: hostID,
-		}
-		if conn, exists := p.connections[hostID]; exists {
-			status.Connected = conn.IsConnected()
-			status.LastError = conn.LastError()
-			conn.mu.Lock()
-			status.LastCheck = conn.lastCheck
-			conn.mu.Unlock()
-		}
-		statuses = append(statuses, status)
+		hostIDs = append(hostIDs, hostID)
 	}
+	p.mu.RUnlock()
+
+	if len(hostIDs) == 0 {
+		return nil
+	}
+
+	// Check each host in parallel
+	type statusResult struct {
+		hostID    string
+		connected bool
+		lastError error
+		lastCheck time.Time
+	}
+
+	results := make(chan statusResult, len(hostIDs))
+	var wg sync.WaitGroup
+
+	for _, hostID := range hostIDs {
+		wg.Add(1)
+		go func(hid string) {
+			defer wg.Done()
+
+			result := statusResult{hostID: hid}
+
+			// Check if we have a recent cached status
+			p.mu.RLock()
+			conn, exists := p.connections[hid]
+			p.mu.RUnlock()
+
+			if exists {
+				// Use atomic snapshot to get consistent state
+				connected, lastError, lastCheck := conn.GetStatusSnapshot()
+
+				// If recently checked, use cached status
+				if time.Since(lastCheck) < statusCheckCacheDuration {
+					result.connected = connected
+					result.lastError = lastError
+					result.lastCheck = lastCheck
+					results <- result
+					return
+				}
+			}
+
+			// Test the connection with timeout to prevent hanging
+			type getResult struct {
+				conn *Connection
+				err  error
+			}
+			done := make(chan getResult, 1)
+			go func() {
+				c, err := p.Get(hid)
+				done <- getResult{c, err}
+			}()
+
+			var err error
+			select {
+			case gr := <-done:
+				err = gr.err
+			case <-time.After(statusCheckTimeout):
+				err = errors.New("connection test timeout")
+			}
+
+			// After Get (or timeout), re-read the connection state
+			p.mu.RLock()
+			conn, exists = p.connections[hid]
+			p.mu.RUnlock()
+
+			if exists {
+				// Use atomic snapshot for consistent state
+				result.connected, result.lastError, result.lastCheck = conn.GetStatusSnapshot()
+			} else if err != nil {
+				// Get failed but didn't create a connection (config missing, etc.)
+				result.connected = false
+				result.lastError = err
+				result.lastCheck = time.Now()
+			}
+
+			results <- result
+		}(hostID)
+	}
+
+	// Close results channel when all goroutines complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results
+	statuses := make([]Status, 0, len(hostIDs))
+	for result := range results {
+		statuses = append(statuses, Status{
+			HostID:    result.hostID,
+			Connected: result.connected,
+			LastError: result.lastError,
+			LastCheck: result.lastCheck,
+		})
+	}
+
 	return statuses
 }
 
