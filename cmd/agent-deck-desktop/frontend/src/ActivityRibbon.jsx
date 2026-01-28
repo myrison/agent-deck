@@ -1,17 +1,18 @@
 import { useMemo } from 'react';
 import './ActivityRibbon.css';
+import { getStatusLabel } from './utils/statusLabel';
 
 /**
- * ActivityRibbon displays a status indicator below session tabs.
+ * ActivityRibbon displays a status indicator above session tabs.
  * Shows how long the agent has been waiting for input.
  *
  * For multi-pane tabs, shows the most urgent status across all sessions.
  *
  * Tiers:
- * - running: "working..." (green)
- * - hot (<10 min): "waiting Xm" (bright green)
- * - warm (10-60 min): "waiting Xm" (yellow)
- * - amber (1-4 hours): "waiting Xh" (orange)
+ * - running: "active" (green)
+ * - hot (<10 min): "ready Xm" (bright green)
+ * - warm (10-60 min): "ready Xm" (yellow)
+ * - amber (1-4 hours): "ready Xh" (orange)
  * - cold (>4 hours): "idle Xh" (faded gray)
  * - exited: "exited" (gray)
  */
@@ -74,62 +75,7 @@ export default function ActivityRibbon({ sessions, status, waitingSince }) {
     }, [sessions, status, waitingSince]);
 
     const { label, tier } = useMemo(() => {
-        // Handle running status
-        if (activeStatus === 'running') {
-            return { label: 'working', tier: 'running' };
-        }
-
-        // Handle exited sessions
-        if (activeStatus === 'exited') {
-            return { label: 'exited', tier: 'cold' };
-        }
-
-        // Check if we have valid waitingSince data
-        let hasValidTime = false;
-        let diffMin = 0;
-        let diffHour = 0;
-
-        if (activeWaitingSince) {
-            const now = new Date();
-            const since = new Date(activeWaitingSince);
-
-            // Valid if parseable and after 2020 (filters Go zero time)
-            if (!isNaN(since.getTime()) && since.getFullYear() >= 2020) {
-                const diffMs = now - since;
-                if (diffMs >= 0) {
-                    hasValidTime = true;
-                    diffMin = Math.floor(diffMs / 60000);
-                    diffHour = Math.floor(diffMin / 60);
-                }
-            }
-        }
-
-        // Determine tier and label based on status and wait time
-        if (hasValidTime) {
-            if (diffMin < 1) {
-                return { label: 'waiting <1m', tier: 'hot' };
-            } else if (diffMin < 10) {
-                return { label: `waiting ${diffMin}m`, tier: 'hot' };
-            } else if (diffMin < 60) {
-                return { label: `waiting ${diffMin}m`, tier: 'warm' };
-            } else if (diffHour < 4) {
-                return { label: `waiting ${diffHour}h`, tier: 'amber' };
-            } else {
-                return { label: `idle ${diffHour}h`, tier: 'cold' };
-            }
-        }
-
-        // No valid time data - show status-based label
-        if (activeStatus === 'waiting') {
-            return { label: 'waiting', tier: 'warm' };
-        } else if (activeStatus === 'idle') {
-            return { label: 'idle', tier: 'cold' };
-        } else if (activeStatus === 'error') {
-            return { label: 'error', tier: 'cold' };
-        }
-
-        // Unknown status - show generic
-        return { label: activeStatus || 'unknown', tier: 'cold' };
+        return getStatusLabel(activeStatus, activeWaitingSince);
     }, [activeStatus, activeWaitingSince]);
 
     return (

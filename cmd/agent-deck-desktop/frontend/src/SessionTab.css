@@ -1,10 +1,21 @@
-/* Session Tab Wrapper - contains tab button and activity ribbon */
+/* Session Tab Wrapper - contains activity ribbon above tab button */
 .session-tab-wrapper {
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 2px;
+    gap: 0;
     flex-shrink: 0;
+}
+
+/* When ribbon is present, tab gets rounded bottom corners only */
+.session-tab-wrapper.has-ribbon .session-tab {
+    border-radius: 0 0 4px 4px;
+    border-top: none;
+}
+
+/* Adjust accent bar radius when ribbon above */
+.session-tab-wrapper.has-ribbon .tab-accent {
+    border-radius: 0 0 0 4px;
 }
 
 /* Session Tab Component */
@@ -21,7 +32,7 @@
     font-size: var(--font-base);
     transition: background 0.1s, border-color 0.1s;
     flex-shrink: 0;
-    max-width: 180px;
+    max-width: 216px;
     position: relative;
 }
 
@@ -92,6 +103,11 @@
     overflow: hidden;
     text-overflow: ellipsis;
     line-height: 1;
+}
+
+/* Larger subtitle in 3-line view (ribbon + custom label) */
+.session-tab-wrapper.has-ribbon .session-tab.has-label .tab-tool-subtitle {
+    font-size: 11px;
 }
 
 /* Close button - hidden by default, shown on hover */
@@ -207,29 +223,42 @@
     font-size: 11px;
 }
 
-/* Drag-and-drop tab reordering */
-.session-tab.dragging {
-    opacity: 0.4;
+/* Drag-and-drop tab reordering - applied to wrapper */
+.session-tab-wrapper {
+    position: relative;
+    cursor: grab;
+    -webkit-user-drag: element;
 }
 
-.session-tab.drag-over-left::before {
+.session-tab-wrapper.dragging {
+    opacity: 0.4;
+    cursor: grabbing;
+}
+
+/* Prevent button from interfering with wrapper drag */
+.session-tab-wrapper .session-tab {
+    cursor: inherit;
+    -webkit-user-drag: none;
+}
+
+.session-tab-wrapper.drag-over-left::before {
     content: '';
     position: absolute;
     left: -3px;
-    top: 2px;
-    bottom: 2px;
+    top: 0;
+    bottom: 0;
     width: 2px;
     background: var(--accent-primary);
     border-radius: 1px;
     z-index: 1;
 }
 
-.session-tab.drag-over-right::after {
+.session-tab-wrapper.drag-over-right::after {
     content: '';
     position: absolute;
     right: -3px;
-    top: 2px;
-    bottom: 2px;
+    top: 0;
+    bottom: 0;
     width: 2px;
     background: var(--accent-primary);
     border-radius: 1px;

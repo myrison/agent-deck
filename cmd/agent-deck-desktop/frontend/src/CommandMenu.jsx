@@ -5,6 +5,7 @@ import { createLogger } from './logger';
 import ToolIcon from './ToolIcon';
 import { formatShortcut } from './utils/shortcuts';
 import { withKeyboardIsolation } from './utils/keyboardIsolation';
+import { getStatusLabel } from './utils/statusLabel';
 import RenameDialog from './RenameDialog';
 import DeleteLayoutDialog from './DeleteLayoutDialog';
 
@@ -566,7 +567,7 @@ export default function CommandMenu({
                                             className="menu-status"
                                             style={{ color: getStatusColor(item.status) }}
                                         >
-                                            {item.status}
+                                            {getStatusLabel(item.status, item.waitingSince).label}
                                         </span>
                                     </>
                                 )}
