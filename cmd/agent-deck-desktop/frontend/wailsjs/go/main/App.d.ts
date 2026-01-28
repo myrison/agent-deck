@@ -36,6 +36,8 @@ export function GetDesktopTheme():Promise<string>;
 
 export function GetExpandedGroups():Promise<Record<string, boolean>>;
 
+export function GetFileBasedActivityDetection():Promise<boolean>;
+
 export function GetFontSize():Promise<number>;
 
 export function GetGitBranch(arg1:string):Promise<string>;
@@ -137,6 +139,8 @@ export function SetAutoCopyOnSelectEnabled(arg1:boolean):Promise<void>;
 export function SetClickToCursorEnabled(arg1:boolean):Promise<void>;
 
 export function SetDesktopTheme(arg1:string):Promise<void>;
+
+export function SetFileBasedActivityDetection(arg1:boolean):Promise<void>;
 
 export function SetFontSize(arg1:number):Promise<void>;
 
