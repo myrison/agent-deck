@@ -1,6 +1,7 @@
 package ssh
 
 import (
+	"errors"
 	"sync"
 	"time"
 )
@@ -175,8 +176,13 @@ type Status struct {
 	LastCheck time.Time
 }
 
-// statusCheckCacheDuration is how long a connection status check is considered fresh
+// statusCheckCacheDuration is how long a connection status check is considered fresh.
+// 30 seconds balances UI responsiveness against SSH overhead.
 const statusCheckCacheDuration = 30 * time.Second
+
+// statusCheckTimeout is the maximum time to wait for a single SSH connection test.
+// This prevents hanging goroutines if SSH connections are slow or unresponsive.
+const statusCheckTimeout = 15 * time.Second
 
 // Status returns the status of all connections, testing untested or stale connections.
 // Connections are tested in parallel for performance.
@@ -216,36 +222,46 @@ func (p *Pool) Status() []Status {
 			p.mu.RUnlock()
 
 			if exists {
-				conn.mu.Lock()
-				lastCheck := conn.lastCheck
-				conn.mu.Unlock()
+				// Use atomic snapshot to get consistent state
+				connected, lastError, lastCheck := conn.GetStatusSnapshot()
 
-				// If recently checked and connected, use cached status
+				// If recently checked, use cached status
 				if time.Since(lastCheck) < statusCheckCacheDuration {
-					result.connected = conn.IsConnected()
-					result.lastError = conn.LastError()
-					conn.mu.Lock()
-					result.lastCheck = conn.lastCheck
-					conn.mu.Unlock()
+					result.connected = connected
+					result.lastError = lastError
+					result.lastCheck = lastCheck
 					results <- result
 					return
 				}
 			}
 
-			// Test the connection (Get creates and tests if needed)
-			_, err := p.Get(hid)
+			// Test the connection with timeout to prevent hanging
+			type getResult struct {
+				conn *Connection
+				err  error
+			}
+			done := make(chan getResult, 1)
+			go func() {
+				c, err := p.Get(hid)
+				done <- getResult{c, err}
+			}()
 
-			// After Get, re-read the connection state
+			var err error
+			select {
+			case gr := <-done:
+				err = gr.err
+			case <-time.After(statusCheckTimeout):
+				err = errors.New("connection test timeout")
+			}
+
+			// After Get (or timeout), re-read the connection state
 			p.mu.RLock()
 			conn, exists = p.connections[hid]
 			p.mu.RUnlock()
 
 			if exists {
-				result.connected = conn.IsConnected()
-				result.lastError = conn.LastError()
-				conn.mu.Lock()
-				result.lastCheck = conn.lastCheck
-				conn.mu.Unlock()
+				// Use atomic snapshot for consistent state
+				result.connected, result.lastError, result.lastCheck = conn.GetStatusSnapshot()
 			} else if err != nil {
 				// Get failed but didn't create a connection (config missing, etc.)
 				result.connected = false
