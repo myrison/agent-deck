@@ -341,7 +341,10 @@ func (tm *TmuxManager) detectSessionStatusViaFile(inst *session.InstanceData, fi
 
 	var filePath string
 
-	// Lazy discovery: if ClaudeSessionID is empty, try to discover it from Claude's files
+	// Lazy discovery: if ClaudeSessionID is empty, try to discover it from Claude's files.
+	// Thread safety: This mutation is safe because detectStatusesParallel uses a
+	// single-owner-per-instance pattern - each instance pointer is passed to exactly
+	// one goroutine, with no concurrent access to the same instance.
 	if inst.Tool == "claude" && inst.ClaudeSessionID == "" && inst.ProjectPath != "" {
 		if discoveredID, err := session.GetClaudeSessionID(inst.ProjectPath); err == nil && discoveredID != "" {
 			inst.ClaudeSessionID = discoveredID

@@ -5,7 +5,7 @@ import { createLogger } from './logger';
 import ToolIcon from './ToolIcon';
 import { formatShortcut } from './utils/shortcuts';
 import { withKeyboardIsolation } from './utils/keyboardIsolation';
-import { saveFocus } from './utils/focusManagement';
+import { useFocusManagement } from './utils/focusManagement';
 import { getStatusLabel } from './utils/statusLabel';
 import RenameDialog from './RenameDialog';
 import DeleteLayoutDialog from './DeleteLayoutDialog';
@@ -223,23 +223,12 @@ export default function CommandMenu({
         setSelectedIndex(0);
     }, [results]);
 
-    // Save previous focus and restore on unmount
-    const restoreFocusRef = useRef(null);
+    // Save focus on mount and restore on unmount
+    useFocusManagement(true);
 
-    // Focus input on mount, save previous focus for restoration
+    // Focus input on mount
     useEffect(() => {
-        // Save the previously focused element
-        restoreFocusRef.current = saveFocus();
-
-        // Focus the input
         inputRef.current?.focus();
-
-        // Restore focus when menu closes
-        return () => {
-            if (restoreFocusRef.current) {
-                restoreFocusRef.current();
-            }
-        };
     }, []);
 
     // Scroll selected item into view

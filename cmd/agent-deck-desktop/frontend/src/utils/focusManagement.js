@@ -86,24 +86,3 @@ export function useFocusManagement(isOpen, fallbackRef = null) {
         };
     }, []);
 }
-
-/**
- * Creates a focus trap that returns focus when the trap is released.
- * Useful for modals that need to ensure focus stays within them.
- *
- * @param {HTMLElement} container - The modal container element
- * @returns {{ release: Function }} Object with release function
- */
-export function createFocusTrap(container) {
-    const previouslyFocused = document.activeElement;
-
-    return {
-        release: () => {
-            if (previouslyFocused && document.contains(previouslyFocused)) {
-                if (typeof previouslyFocused.focus === 'function') {
-                    previouslyFocused.focus();
-                }
-            }
-        }
-    };
-}

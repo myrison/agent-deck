@@ -1,30 +1,22 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './RenameDialog.css';
 import { withKeyboardIsolation } from './utils/keyboardIsolation';
-import { saveFocus } from './utils/focusManagement';
+import { useFocusManagement } from './utils/focusManagement';
 
 // Shared dialog component for renaming favorites or adding labels
 export default function RenameDialog({ currentName, title = 'Rename', placeholder = 'Enter text...', onSave, onCancel }) {
     const [name, setName] = useState(currentName);
     const inputRef = useRef(null);
-    const restoreFocusRef = useRef(null);
 
+    // Save focus on mount and restore on unmount
+    useFocusManagement(true);
+
+    // Focus and select all text on mount
     useEffect(() => {
-        // Save focus when dialog opens
-        restoreFocusRef.current = saveFocus();
-
-        // Focus and select all text on mount
         if (inputRef.current) {
             inputRef.current.focus();
             inputRef.current.select();
         }
-
-        // Restore focus when dialog unmounts
-        return () => {
-            if (restoreFocusRef.current) {
-                restoreFocusRef.current();
-            }
-        };
     }, []);
 
     const handleKeyDown = withKeyboardIsolation((e) => {

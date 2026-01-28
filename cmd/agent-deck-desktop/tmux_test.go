@@ -1119,7 +1119,10 @@ func TestDetectSessionStatusReturnsErrorForSSHConnectionFailures(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm, _ := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("Failed to create TmuxManager: %v", err)
+	}
 
 	// Error patterns that should trigger "error" status
 	errorPatterns := []struct {
@@ -1182,7 +1185,10 @@ func TestDetectSessionStatusErrorTakesPriorityOverPrompt(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm, _ := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("Failed to create TmuxManager: %v", err)
+	}
 	sessionName := "test_error_priority"
 	tmpDir := t.TempDir()
 
@@ -1228,7 +1234,10 @@ func TestDetectSessionStatusReturnsWaitingWhenNoError(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm, _ := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("Failed to create TmuxManager: %v", err)
+	}
 	sessionName := "test_waiting_status"
 	tmpDir := t.TempDir()
 
@@ -1271,7 +1280,10 @@ func TestDetectSessionStatusErrorPatternsCaseInsensitive(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm, _ := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("Failed to create TmuxManager: %v", err)
+	}
 
 	// Test various case combinations
 	testCases := []struct {

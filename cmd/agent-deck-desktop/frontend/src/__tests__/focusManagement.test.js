@@ -6,11 +6,10 @@
  * 2. The returned restore function correctly returns focus
  * 3. Focus restoration handles edge cases (element removed, not focusable)
  * 4. useFocusManagement hook integrates with React lifecycle
- * 5. createFocusTrap provides focus trapping for modals
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { saveFocus, createFocusTrap } from '../utils/focusManagement';
+import { saveFocus } from '../utils/focusManagement';
 
 describe('focusManagement', () => {
     // Mock document and DOM elements
@@ -223,80 +222,6 @@ describe('focusManagement', () => {
 
             // Focus should have been called 3 times
             expect(element.focus).toHaveBeenCalledTimes(3);
-
-            document.contains = originalContains;
-        });
-    });
-
-    describe('createFocusTrap()', () => {
-        it('returns an object with a release function', () => {
-            const trap = createFocusTrap(document.body);
-            expect(trap).toHaveProperty('release');
-            expect(typeof trap.release).toBe('function');
-        });
-
-        it('captures the currently focused element when trap is created', () => {
-            const focusedElement = { focus: vi.fn() };
-            Object.defineProperty(document, 'activeElement', {
-                get: () => focusedElement,
-                configurable: true,
-            });
-
-            const originalContains = document.contains;
-            document.contains = vi.fn(() => true);
-
-            const trap = createFocusTrap(document.body);
-            trap.release();
-
-            expect(focusedElement.focus).toHaveBeenCalledTimes(1);
-
-            document.contains = originalContains;
-        });
-
-        it('does not restore focus if element is no longer in document', () => {
-            const focusedElement = { focus: vi.fn() };
-            Object.defineProperty(document, 'activeElement', {
-                get: () => focusedElement,
-                configurable: true,
-            });
-
-            const originalContains = document.contains;
-            document.contains = vi.fn(() => false);
-
-            const trap = createFocusTrap(document.body);
-            trap.release();
-
-            expect(focusedElement.focus).not.toHaveBeenCalled();
-
-            document.contains = originalContains;
-        });
-
-        it('handles null activeElement gracefully', () => {
-            Object.defineProperty(document, 'activeElement', {
-                get: () => null,
-                configurable: true,
-            });
-
-            const trap = createFocusTrap(document.body);
-
-            // Should not throw
-            expect(() => trap.release()).not.toThrow();
-        });
-
-        it('handles element without focus method gracefully', () => {
-            const elementWithoutFocus = { blur: vi.fn() };
-            Object.defineProperty(document, 'activeElement', {
-                get: () => elementWithoutFocus,
-                configurable: true,
-            });
-
-            const originalContains = document.contains;
-            document.contains = vi.fn(() => true);
-
-            const trap = createFocusTrap(document.body);
-
-            // Should not throw when element has no focus method
-            expect(() => trap.release()).not.toThrow();
 
             document.contains = originalContains;
         });

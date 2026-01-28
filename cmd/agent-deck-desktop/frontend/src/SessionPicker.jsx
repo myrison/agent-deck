@@ -3,7 +3,7 @@ import './SessionPicker.css';
 import { createLogger } from './logger';
 import ToolIcon from './ToolIcon';
 import { withKeyboardIsolation } from './utils/keyboardIsolation';
-import { saveFocus } from './utils/focusManagement';
+import { useFocusManagement } from './utils/focusManagement';
 import { getStatusLabel } from './utils/statusLabel';
 
 const logger = createLogger('SessionPicker');
@@ -14,21 +14,13 @@ export default function SessionPicker({ projectPath, projectName, sessions, onSe
     const [customLabel, setCustomLabel] = useState('');
     const containerRef = useRef(null);
     const labelInputRef = useRef(null);
-    const restoreFocusRef = useRef(null);
 
     // Total options = existing sessions + "New Session" option
     const totalOptions = (sessions?.length || 0) + 1;
     const newSessionIndex = sessions?.length || 0;
 
     // Save focus on mount for restoration when picker closes
-    useEffect(() => {
-        restoreFocusRef.current = saveFocus();
-        return () => {
-            if (restoreFocusRef.current) {
-                restoreFocusRef.current();
-            }
-        };
-    }, []);
+    useFocusManagement(true);
 
     useEffect(() => {
         logger.info('Session picker opened', { projectPath, projectName, sessionCount: sessions?.length || 0 });
