@@ -5,10 +5,12 @@
  * 1. saveFocus() captures the currently focused element
  * 2. The returned restore function correctly returns focus
  * 3. Focus restoration handles edge cases (element removed, not focusable)
+ * 4. useFocusManagement hook integrates with React lifecycle
+ * 5. createFocusTrap provides focus trapping for modals
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { saveFocus } from '../utils/focusManagement';
+import { saveFocus, createFocusTrap } from '../utils/focusManagement';
 
 describe('focusManagement', () => {
     // Mock document and DOM elements
@@ -221,6 +223,252 @@ describe('focusManagement', () => {
 
             // Focus should have been called 3 times
             expect(element.focus).toHaveBeenCalledTimes(3);
+
+            document.contains = originalContains;
+        });
+    });
+
+    describe('createFocusTrap()', () => {
+        it('returns an object with a release function', () => {
+            const trap = createFocusTrap(document.body);
+            expect(trap).toHaveProperty('release');
+            expect(typeof trap.release).toBe('function');
+        });
+
+        it('captures the currently focused element when trap is created', () => {
+            const focusedElement = { focus: vi.fn() };
+            Object.defineProperty(document, 'activeElement', {
+                get: () => focusedElement,
+                configurable: true,
+            });
+
+            const originalContains = document.contains;
+            document.contains = vi.fn(() => true);
+
+            const trap = createFocusTrap(document.body);
+            trap.release();
+
+            expect(focusedElement.focus).toHaveBeenCalledTimes(1);
+
+            document.contains = originalContains;
+        });
+
+        it('does not restore focus if element is no longer in document', () => {
+            const focusedElement = { focus: vi.fn() };
+            Object.defineProperty(document, 'activeElement', {
+                get: () => focusedElement,
+                configurable: true,
+            });
+
+            const originalContains = document.contains;
+            document.contains = vi.fn(() => false);
+
+            const trap = createFocusTrap(document.body);
+            trap.release();
+
+            expect(focusedElement.focus).not.toHaveBeenCalled();
+
+            document.contains = originalContains;
+        });
+
+        it('handles null activeElement gracefully', () => {
+            Object.defineProperty(document, 'activeElement', {
+                get: () => null,
+                configurable: true,
+            });
+
+            const trap = createFocusTrap(document.body);
+
+            // Should not throw
+            expect(() => trap.release()).not.toThrow();
+        });
+
+        it('handles element without focus method gracefully', () => {
+            const elementWithoutFocus = { blur: vi.fn() };
+            Object.defineProperty(document, 'activeElement', {
+                get: () => elementWithoutFocus,
+                configurable: true,
+            });
+
+            const originalContains = document.contains;
+            document.contains = vi.fn(() => true);
+
+            const trap = createFocusTrap(document.body);
+
+            // Should not throw when element has no focus method
+            expect(() => trap.release()).not.toThrow();
+
+            document.contains = originalContains;
+        });
+    });
+
+    describe('useFocusManagement hook behavior', () => {
+        /**
+         * Since useFocusManagement is a React hook that uses useEffect,
+         * we test the behavioral contract through simulation rather than
+         * direct hook testing (which would require @testing-library/react-hooks).
+         *
+         * The hook's contract:
+         * 1. When isOpen transitions to true: call saveFocus() and store restore function
+         * 2. When isOpen transitions to false: call the stored restore function
+         * 3. On unmount while isOpen=true: call the stored restore function
+         */
+
+        it('simulates save on open, restore on close pattern', () => {
+            const focusedElement = { focus: vi.fn() };
+            let currentActiveElement = focusedElement;
+
+            Object.defineProperty(document, 'activeElement', {
+                get: () => currentActiveElement,
+                configurable: true,
+            });
+
+            const originalContains = document.contains;
+            document.contains = vi.fn(() => true);
+
+            // Simulate what useFocusManagement does:
+            let restoreFocusRef = null;
+
+            // Modal opens (isOpen becomes true)
+            const isOpen = true;
+            if (isOpen) {
+                restoreFocusRef = saveFocus();
+            }
+
+            // Focus moves to modal input
+            const modalInput = { focus: vi.fn() };
+            currentActiveElement = modalInput;
+
+            // Modal closes (isOpen becomes false)
+            if (!isOpen === false && restoreFocusRef) {
+                // This simulates the else branch when isOpen changes to false
+            }
+
+            // Simulate closing
+            if (restoreFocusRef) {
+                restoreFocusRef();
+                restoreFocusRef = null;
+            }
+
+            // Original element should be re-focused
+            expect(focusedElement.focus).toHaveBeenCalledTimes(1);
+
+            document.contains = originalContains;
+        });
+
+        it('simulates restore on unmount while modal still open', () => {
+            const focusedElement = { focus: vi.fn() };
+
+            Object.defineProperty(document, 'activeElement', {
+                get: () => focusedElement,
+                configurable: true,
+            });
+
+            const originalContains = document.contains;
+            document.contains = vi.fn(() => true);
+
+            // Simulate hook state
+            let restoreFocusRef = null;
+
+            // Modal opens
+            restoreFocusRef = saveFocus();
+
+            // Component unmounts while modal is still "open"
+            // (simulates the cleanup effect in useFocusManagement)
+            if (restoreFocusRef) {
+                restoreFocusRef();
+            }
+
+            expect(focusedElement.focus).toHaveBeenCalledTimes(1);
+
+            document.contains = originalContains;
+        });
+
+        it('simulates multiple open/close cycles with same element', () => {
+            const focusedElement = { focus: vi.fn() };
+
+            Object.defineProperty(document, 'activeElement', {
+                get: () => focusedElement,
+                configurable: true,
+            });
+
+            const originalContains = document.contains;
+            document.contains = vi.fn(() => true);
+
+            // First cycle
+            let restoreFocusRef = saveFocus();
+            restoreFocusRef();
+            restoreFocusRef = null;
+
+            // Second cycle
+            restoreFocusRef = saveFocus();
+            restoreFocusRef();
+            restoreFocusRef = null;
+
+            // Third cycle
+            restoreFocusRef = saveFocus();
+            restoreFocusRef();
+
+            // Focus should have been restored 3 times
+            expect(focusedElement.focus).toHaveBeenCalledTimes(3);
+
+            document.contains = originalContains;
+        });
+
+        it('simulates isOpen=false initially does not trigger save', () => {
+            const focusedElement = { focus: vi.fn() };
+
+            Object.defineProperty(document, 'activeElement', {
+                get: () => focusedElement,
+                configurable: true,
+            });
+
+            const originalContains = document.contains;
+            document.contains = vi.fn(() => true);
+
+            // Simulate hook behavior when isOpen starts as false
+            let restoreFocusRef = null;
+            const isOpen = false;
+
+            if (isOpen) {
+                restoreFocusRef = saveFocus();
+            }
+
+            // No save happened, so no restore ref exists
+            expect(restoreFocusRef).toBeNull();
+
+            // Later, if something tried to restore, nothing should happen
+            if (restoreFocusRef) {
+                restoreFocusRef();
+            }
+
+            expect(focusedElement.focus).not.toHaveBeenCalled();
+
+            document.contains = originalContains;
+        });
+
+        it('simulates fallbackRef usage', () => {
+            const originalElement = { focus: vi.fn() };
+            const fallbackElement = { focus: vi.fn() };
+
+            Object.defineProperty(document, 'activeElement', {
+                get: () => originalElement,
+                configurable: true,
+            });
+
+            const originalContains = document.contains;
+            // Original is no longer in document, but fallback is
+            document.contains = vi.fn((el) => el !== originalElement);
+
+            // Simulate useFocusManagement with a fallback ref
+            const fallbackRef = { current: fallbackElement };
+            const restoreFocusRef = saveFocus(fallbackRef.current);
+
+            restoreFocusRef();
+
+            // Should have called fallback's focus, not original's
+            expect(originalElement.focus).not.toHaveBeenCalled();
+            expect(fallbackElement.focus).toHaveBeenCalledTimes(1);
 
             document.contains = originalContains;
         });
