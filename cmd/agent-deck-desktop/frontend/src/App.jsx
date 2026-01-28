@@ -36,6 +36,7 @@ import {
     getPaneList,
     findPane,
     updatePaneSession,
+    updateSessionsInLayout,
     countPanes,
     balanceLayout,
     createPresetLayout,
@@ -472,23 +473,17 @@ function App() {
                     });
 
                     // Also update sessions in open tabs (they may hold stale session objects)
+                    // Use immutable update to avoid React state mutation issues
                     setOpenTabs(prevTabs => {
                         const updateMap = new Map(updates.map(u => [u.id, u]));
                         let hasChanges = false;
                         const newTabs = prevTabs.map(tab => {
-                            const panes = getPaneList(tab.layout);
-                            let tabChanged = false;
-                            for (const pane of panes) {
-                                if (pane.session?.id) {
-                                    const update = updateMap.get(pane.session.id);
-                                    if (update && (pane.session.status !== update.status || pane.session.waitingSince !== update.waitingSince)) {
-                                        tabChanged = true;
-                                        pane.session = { ...pane.session, status: update.status, waitingSince: update.waitingSince };
-                                    }
-                                }
+                            const { layout: newLayout, changed } = updateSessionsInLayout(tab.layout, updateMap);
+                            if (changed) {
+                                hasChanges = true;
+                                return { ...tab, layout: newLayout };
                             }
-                            if (tabChanged) hasChanges = true;
-                            return tabChanged ? { ...tab } : tab;
+                            return tab;
                         });
                         return hasChanges ? newTabs : prevTabs;
                     });
