@@ -2010,6 +2010,8 @@ func TestSession_SendCtrlC(t *testing.T) {
 }
 
 func TestSession_SendCommand(t *testing.T) {
+	skipIfNoTmuxServer(t)
+
 	sess := NewSession("send-cmd-test", "/tmp")
 
 	err := sess.Start("")
@@ -2024,17 +2026,22 @@ func TestSession_SendCommand(t *testing.T) {
 		t.Fatalf("SendCommand failed: %v", err)
 	}
 
-	// Give it time to execute
-	time.Sleep(200 * time.Millisecond)
+	// Poll for output with timeout instead of fixed sleep (fixes flakiness)
+	deadline := time.Now().Add(3 * time.Second)
+	var content string
+	for time.Now().Before(deadline) {
+		content, err = sess.CapturePane()
+		if err != nil {
+			t.Fatalf("CapturePane failed: %v", err)
+		}
+		if strings.Contains(content, "hello") {
+			return // Test passed
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 
-	// Capture pane content
-	content, err := sess.CapturePane()
-	if err != nil {
-		t.Fatalf("CapturePane failed: %v", err)
-	}
-	if !strings.Contains(content, "hello") {
-		t.Errorf("Expected 'hello' in output, got: %s", content)
-	}
+	// Timeout reached without finding expected output
+	t.Errorf("Expected 'hello' in output within 3s, got: %s", content)
 }
 
 // =============================================================================

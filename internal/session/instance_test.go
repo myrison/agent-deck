@@ -1178,11 +1178,11 @@ func TestInstance_CanRestart_Gemini(t *testing.T) {
 // Issue #16: Fork command breaks for project paths with spaces
 func TestInstance_Fork_PathWithSpaces(t *testing.T) {
 	inst := &Instance{
-		ID:              "test-123",
-		Title:           "test-session",
-		ProjectPath:     "/tmp/Test Path With Spaces",
-		Tool:            "claude",
-		ClaudeSessionID: "session-abc-123",
+		ID:               "test-123",
+		Title:            "test-session",
+		ProjectPath:      "/tmp/Test Path With Spaces",
+		Tool:             "claude",
+		ClaudeSessionID:  "session-abc-123",
 		ClaudeDetectedAt: time.Now(),
 	}
 
@@ -1290,11 +1290,11 @@ func TestInstance_WorktreeFields(t *testing.T) {
 // Issue #8: Fork command ignores dangerous_mode configuration
 func TestInstance_Fork_RespectsDangerousMode(t *testing.T) {
 	inst := &Instance{
-		ID:              "test-456",
-		Title:           "test-session",
-		ProjectPath:     "/tmp/test",
-		Tool:            "claude",
-		ClaudeSessionID: "session-xyz-789",
+		ID:               "test-456",
+		Title:            "test-session",
+		ProjectPath:      "/tmp/test",
+		Tool:             "claude",
+		ClaudeSessionID:  "session-xyz-789",
 		ClaudeDetectedAt: time.Now(),
 	}
 
@@ -1528,35 +1528,46 @@ func TestClearErrorLockout_AllowsImmediateRecheck(t *testing.T) {
 	}
 	defer func() { _ = inst.Kill() }()
 
-	// Wait for grace period so UpdateStatus runs real detection
-	time.Sleep(2 * time.Second)
-
-	// Confirm session is alive
-	if err := inst.UpdateStatus(); err != nil {
-		t.Fatalf("UpdateStatus failed: %v", err)
+	// Poll for session to become alive (replaces fixed 2s sleep for grace period)
+	// Grace period is 1.5s, so we poll up to 3s to be safe
+	deadline := time.Now().Add(3 * time.Second)
+	var sessionAlive bool
+	for time.Now().Before(deadline) {
+		if err := inst.UpdateStatus(); err != nil {
+			t.Fatalf("UpdateStatus failed: %v", err)
+		}
+		if inst.Status != StatusError && inst.Status != StatusStarting {
+			sessionAlive = true
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	if inst.Status == StatusError {
-		t.Fatal("Session should be alive after start")
+	if !sessionAlive {
+		t.Fatalf("Session should be alive after start, got status: %s", inst.Status)
 	}
 
 	// Kill the tmux session to simulate ghost state
 	_ = inst.Kill()
-	time.Sleep(200 * time.Millisecond)
 
-	// UpdateStatus detects the dead session and records the error + timestamp
-	if err := inst.UpdateStatus(); err != nil {
-		t.Fatalf("UpdateStatus after kill: %v", err)
+	// Poll for session to enter error state (replaces fixed 200ms sleep)
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		// Clear the error lockout to allow immediate recheck
+		inst.ClearErrorLockout()
+		if err := inst.UpdateStatus(); err != nil {
+			t.Fatalf("UpdateStatus after kill: %v", err)
+		}
+		if inst.Status == StatusError {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	if inst.Status != StatusError {
 		t.Fatalf("Session should be error after kill, got: %s", inst.Status)
 	}
 
+	// Now the session is confirmed in error state with lastErrorCheck set.
 	// Call UpdateStatus again immediately - should short-circuit (within 30s lockout).
-	// We can verify this by checking the status is still error even though
-	// the tmux session object reports Exists()=false - the point is the lockout
-	// prevents even the Exists() call from happening, which is the optimization.
-	// To prove the lockout is active, we note that UpdateStatus returns nil and
-	// status stays error without performing the expensive check.
 	statusBefore := inst.Status
 	if err := inst.UpdateStatus(); err != nil {
 		t.Fatalf("UpdateStatus (locked out): %v", err)
@@ -1571,10 +1582,6 @@ func TestClearErrorLockout_AllowsImmediateRecheck(t *testing.T) {
 	// The next UpdateStatus WILL perform a full check (no lockout).
 	// Since the session is still dead, it will set error again - but the important
 	// thing is that it actually performed the check (not skipped).
-	// We can verify this indirectly: if the session were alive, it would recover.
-	// Since it's dead, we get error again, but we know the code path ran because
-	// ClearErrorLockout is the only way to reset the lockout for a session
-	// that was checked < 30s ago.
 	if err := inst.UpdateStatus(); err != nil {
 		t.Fatalf("UpdateStatus after ClearErrorLockout: %v", err)
 	}
@@ -1601,21 +1608,37 @@ func TestClearErrorLockout_RecoveryWithLiveSession(t *testing.T) {
 	tmuxName := inst.GetTmuxSession().Name
 	defer exec.Command("tmux", "kill-session", "-t", tmuxName).Run()
 
-	time.Sleep(2 * time.Second)
-
-	// Confirm alive
-	if err := inst.UpdateStatus(); err != nil {
-		t.Fatalf("UpdateStatus failed: %v", err)
+	// Poll for session to become alive (replaces fixed 2s sleep)
+	deadline := time.Now().Add(3 * time.Second)
+	var sessionAlive bool
+	for time.Now().Before(deadline) {
+		if err := inst.UpdateStatus(); err != nil {
+			t.Fatalf("UpdateStatus failed: %v", err)
+		}
+		if inst.Status != StatusError && inst.Status != StatusStarting {
+			sessionAlive = true
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	if inst.Status == StatusError {
-		t.Fatal("Session should be alive")
+	if !sessionAlive {
+		t.Fatalf("Session should be alive after start, got status: %s", inst.Status)
 	}
 
-	// Kill session, detect error, establish lockout
+	// Kill session
 	_ = inst.Kill()
-	time.Sleep(200 * time.Millisecond)
-	if err := inst.UpdateStatus(); err != nil {
-		t.Fatalf("UpdateStatus after kill: %v", err)
+
+	// Poll for session to enter error state (replaces fixed 200ms sleep)
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		inst.ClearErrorLockout() // Allow immediate recheck
+		if err := inst.UpdateStatus(); err != nil {
+			t.Fatalf("UpdateStatus after kill: %v", err)
+		}
+		if inst.Status == StatusError {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	if inst.Status != StatusError {
 		t.Fatalf("Expected error, got: %s", inst.Status)
@@ -1708,8 +1731,8 @@ func TestParseClaudeSessionData(t *testing.T) {
 			wantPrompt: "Hello from blocks",
 		},
 		{
-			name: "multiline content sanitized",
-			input: `{"message":{"role":"user","content":"Line1\nLine2\n  Line3"}}`,
+			name:       "multiline content sanitized",
+			input:      `{"message":{"role":"user","content":"Line1\nLine2\n  Line3"}}`,
 			wantLabel:  "",
 			wantPrompt: "Line1 Line2 Line3",
 		},
