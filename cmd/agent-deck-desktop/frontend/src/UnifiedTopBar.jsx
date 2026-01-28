@@ -24,6 +24,7 @@ export default function UnifiedTopBar({
     activeTabId = null,
     onSwitchTab,
     onCloseTab,
+    onReorderTab,
     onTabLabelUpdated,
     onSessionDeleted,
 }) {
@@ -34,6 +35,7 @@ export default function UnifiedTopBar({
     const [tabContextMenu, setTabContextMenu] = useState(null); // { x, y, tab }
     const [labelingTab, setLabelingTab] = useState(null);
     const [deletingTab, setDeletingTab] = useState(null); // Tab being deleted (for confirmation dialog)
+    const [dragState, setDragState] = useState(null); // { draggedTabId, overTabId, dropSide }
     const { show: showTooltip, hide: hideTooltip, Tooltip } = useTooltip();
 
     // Load favorites
@@ -257,6 +259,48 @@ export default function UnifiedTopBar({
         }
     }, [tabContextMenu]);
 
+    // Tab drag-and-drop handlers
+    const handleTabDragStart = useCallback((e, tab) => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', tab.id);
+        setDragState({ draggedTabId: tab.id, overTabId: null, dropSide: null });
+    }, []);
+
+    const handleTabDragEnd = useCallback(() => {
+        setDragState(null);
+    }, []);
+
+    const handleTabDragOver = useCallback((e, tab) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (!dragState || tab.id === dragState.draggedTabId) {
+            if (dragState?.overTabId) setDragState(prev => ({ ...prev, overTabId: null, dropSide: null }));
+            return;
+        }
+        const rect = e.currentTarget.getBoundingClientRect();
+        const midX = rect.left + rect.width / 2;
+        const side = e.clientX < midX ? 'left' : 'right';
+        if (dragState.overTabId !== tab.id || dragState.dropSide !== side) {
+            setDragState(prev => ({ ...prev, overTabId: tab.id, dropSide: side }));
+        }
+    }, [dragState]);
+
+    const handleTabDrop = useCallback((e) => {
+        e.preventDefault();
+        if (!dragState?.draggedTabId || !dragState.overTabId || !onReorderTab) {
+            setDragState(null);
+            return;
+        }
+        const overIndex = openTabs.findIndex(t => t.id === dragState.overTabId);
+        if (overIndex === -1) { setDragState(null); return; }
+        const targetIndex = dragState.dropSide === 'right' ? overIndex + 1 : overIndex;
+        // Adjust if dragging from before the target
+        const fromIndex = openTabs.findIndex(t => t.id === dragState.draggedTabId);
+        const adjustedIndex = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
+        onReorderTab(dragState.draggedTabId, adjustedIndex);
+        setDragState(null);
+    }, [dragState, openTabs, onReorderTab]);
+
     const hasFavorites = favorites.length > 0;
 
     return (
@@ -301,7 +345,11 @@ export default function UnifiedTopBar({
             {hasFavorites && <div className="top-bar-divider" />}
 
             {/* Session Tabs Section */}
-            <div className={`session-tabs-section${!hasFavorites ? ' no-favorites' : ''}`}>
+            <div
+                className={`session-tabs-section${!hasFavorites ? ' no-favorites' : ''}`}
+                onDrop={handleTabDrop}
+                onDragOver={(e) => e.preventDefault()}
+            >
                 {openTabs.map((tab, index) => (
                     <SessionTab
                         key={tab.id}
@@ -311,6 +359,11 @@ export default function UnifiedTopBar({
                         onSwitch={() => onSwitchTab?.(tab.id)}
                         onClose={() => onCloseTab?.(tab.id)}
                         onContextMenu={(e) => handleTabContextMenu(e, tab)}
+                        isDragging={dragState?.draggedTabId === tab.id}
+                        dragOverSide={dragState?.overTabId === tab.id ? dragState.dropSide : null}
+                        onDragStart={(e) => handleTabDragStart(e, tab)}
+                        onDragEnd={handleTabDragEnd}
+                        onDragOver={(e) => handleTabDragOver(e, tab)}
                     />
                 ))}
             </div>
