@@ -309,12 +309,12 @@ func TestSetupDismissedPreservesOtherSettings(t *testing.T) {
 }
 
 // =============================================================================
-// File-Based Activity Detection Settings Tests (PR #89)
+// File-Based Activity Detection Settings Tests
 // =============================================================================
 
 // TestFileBasedActivityDetectionDefaultEnabled verifies that file-based activity
-// detection defaults to enabled when no config exists. This is the default state
-// PR #89 introduces for better status detection reliability.
+// detection defaults to enabled when no config exists for better status detection
+// reliability.
 func TestFileBasedActivityDetectionDefaultEnabled(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.toml")

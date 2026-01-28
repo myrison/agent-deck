@@ -341,10 +341,7 @@ func (tm *TmuxManager) detectSessionStatusViaFile(inst *session.InstanceData, fi
 
 	var filePath string
 
-	// Lazy discovery: if ClaudeSessionID is empty, try to discover it from Claude's files.
-	// Thread safety: This mutation is safe because detectStatusesParallel uses a
-	// single-owner-per-instance pattern - each instance pointer is passed to exactly
-	// one goroutine, with no concurrent access to the same instance.
+	// Lazy discovery: if ClaudeSessionID is empty, try to discover it from Claude's files
 	if inst.Tool == "claude" && inst.ClaudeSessionID == "" && inst.ProjectPath != "" {
 		if discoveredID, err := session.GetClaudeSessionID(inst.ProjectPath); err == nil && discoveredID != "" {
 			inst.ClaudeSessionID = discoveredID
@@ -370,9 +367,11 @@ func (tm *TmuxManager) detectSessionStatusViaFile(inst *session.InstanceData, fi
 		return "", false
 	}
 
-	// If modified within last 10 seconds, agent is actively working
-	// (Claude writes progress events every 1 second during tool execution)
-	if time.Since(stat.ModTime()) < 10*time.Second {
+	// If modified within last 90 seconds, agent is actively working.
+	// Claude writes progress events every 1 second during tool execution,
+	// but during extended thinking (API calls, reasoning) it may not write
+	// for 2-3 minutes. 90 seconds provides a reasonable buffer.
+	if time.Since(stat.ModTime()) < 90*time.Second {
 		return "running", true
 	}
 
@@ -406,7 +405,7 @@ func (tm *TmuxManager) getClaudeJSONLPath(inst *session.InstanceData) string {
 
 // getGeminiSessionPath returns the path to Gemini's session JSON file.
 func (tm *TmuxManager) getGeminiSessionPath(inst *session.InstanceData) string {
-	// Length check to prevent panic on short session IDs (bug fix from PR #89)
+	// Length check to prevent panic on short session IDs
 	if inst.GeminiSessionID == "" || len(inst.GeminiSessionID) < 8 || inst.ProjectPath == "" {
 		return ""
 	}
@@ -439,14 +438,18 @@ func (tm *TmuxManager) getGeminiSessionPath(inst *session.InstanceData) string {
 }
 
 // updateWaitingSinceTracking adjusts waitingSince based on status transitions.
-// Sets waitingSince to now if status is "waiting" and timestamp is missing.
-// Clears waitingSince if status is no longer "waiting".
+// Sets waitingSince to now if status is "waiting" or "idle" and timestamp is missing.
+// Only clears waitingSince when session becomes "running" (activity detected).
+// This preserves the timestamp for "idle" sessions so the frontend can show elapsed wait time
+// (e.g., "ready 5m" → "ready 1h" → "idle 4h" progression).
 // Updates the updates map for persistence and returns the effective waitingSince.
 func updateWaitingSinceTracking(instID string, status string, currentWaitingSince time.Time, updates map[string]session.FieldUpdate) time.Time {
 	waitingSince := currentWaitingSince
 
-	// Set waitingSince if session is waiting and timestamp is missing
-	if status == "waiting" && waitingSince.IsZero() {
+	// Set waitingSince if session is waiting/idle and timestamp is missing.
+	// Both "waiting" and "idle" represent inactive states where we want to track
+	// how long the session has been waiting for user input.
+	if (status == "waiting" || status == "idle") && waitingSince.IsZero() {
 		waitingSince = time.Now()
 		if u, ok := updates[instID]; ok {
 			u.WaitingSince = &waitingSince
@@ -456,8 +459,10 @@ func updateWaitingSinceTracking(instID string, status string, currentWaitingSinc
 		}
 	}
 
-	// Clear waitingSince if session is no longer waiting
-	if status != "waiting" && !currentWaitingSince.IsZero() {
+	// Only clear waitingSince when session becomes "running" (activity detected).
+	// Don't clear for "idle" - the frontend uses waitingSince to show elapsed time
+	// progression (ready 1m → ready 5m → ready 1h → idle 4h).
+	if status == "running" && !currentWaitingSince.IsZero() {
 		waitingSince = time.Time{}
 		if u, ok := updates[instID]; ok {
 			u.ClearWaitingSince = true
@@ -1448,6 +1453,7 @@ func (tm *TmuxManager) RefreshSessionStatuses(sessionIDs []string) ([]StatusUpda
 			sessionsToDetect = append(sessionsToDetect, sessionToDetect{
 				tmuxSession: inst.TmuxSession,
 				tool:        inst.Tool,
+				instance:    inst, // For file-based activity detection
 			})
 		}
 	}
