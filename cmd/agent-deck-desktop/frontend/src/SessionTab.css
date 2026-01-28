@@ -227,7 +227,7 @@
 .session-tab-wrapper {
     position: relative;
     cursor: grab;
-    -webkit-user-drag: element;
+    /* Note: -webkit-user-drag was removed to avoid conflicts with HTML5 DnD API in WKWebView */
 }
 
 .session-tab-wrapper.dragging {
@@ -238,7 +238,6 @@
 /* Prevent button from interfering with wrapper drag */
 .session-tab-wrapper .session-tab {
     cursor: inherit;
-    -webkit-user-drag: none;
 }
 
 .session-tab-wrapper.drag-over-left::before {

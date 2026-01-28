@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import './SessionTab.css';
 import ToolIcon, { BranchIcon } from './ToolIcon';
 import ActivityRibbon from './ActivityRibbon';
@@ -42,8 +42,9 @@ function getRelativePath(fullPath) {
     return fullPath;
 }
 
-export default function SessionTab({ tab, index, isActive, onSwitch, onClose, onContextMenu, isDragging, dragOverSide, onDragStart, onDragEnd, onDragOver, showActivityRibbon }) {
+export default function SessionTab({ tab, index, isActive, onSwitch, onClose, onContextMenu, isDragging, dragOverSide, onDragStart, onDragEnd, onDragOver, onDrop, showActivityRibbon }) {
     const { show: showTooltip, hide: hideTooltip, Tooltip } = useTooltip();
+    const tabButtonRef = useRef(null);
 
     // Extract session info from the new layout-based tab structure
     // Tab structure: { id, name, layout, activePaneId, openedAt, zoomedPaneId }
@@ -173,6 +174,20 @@ export default function SessionTab({ tab, index, isActive, onSwitch, onClose, on
         onClose?.();
     };
 
+    // Custom drag start handler to set drag image to just the button (not the wrapper with ribbon)
+    const handleDragStart = useCallback((e) => {
+        // Set the drag image to just the tab button, not the entire wrapper
+        if (tabButtonRef.current) {
+            const rect = tabButtonRef.current.getBoundingClientRect();
+            // Calculate offset from mouse position to button's top-left
+            const offsetX = e.clientX - rect.left;
+            const offsetY = e.clientY - rect.top;
+            e.dataTransfer.setDragImage(tabButtonRef.current, offsetX, offsetY);
+        }
+        // Call the parent's onDragStart
+        onDragStart?.(e);
+    }, [onDragStart]);
+
     // Calculate tab title and whether we have a custom label
     const { tabTitle, hasCustomLabel, toolTitle } = useMemo(() => {
         if (!session) {
@@ -204,15 +219,17 @@ export default function SessionTab({ tab, index, isActive, onSwitch, onClose, on
         <div
             className={`session-tab-wrapper${showActivityRibbon && sessions.length > 0 ? ' has-ribbon' : ''}${isDragging ? ' dragging' : ''}${dragOverSide === 'left' ? ' drag-over-left' : ''}${dragOverSide === 'right' ? ' drag-over-right' : ''}`}
             draggable="true"
-            onDragStart={onDragStart}
+            onDragStart={handleDragStart}
             onDragEnd={onDragEnd}
             onDragOver={onDragOver}
+            onDrop={onDrop}
         >
             {/* Activity ribbon positioned ABOVE the tab */}
             {showActivityRibbon && sessions.length > 0 && (
                 <ActivityRibbon sessions={sessions} />
             )}
             <button
+                ref={tabButtonRef}
                 className={`session-tab${isActive ? ' active' : ''}${paneCount > 1 ? ' multi-pane' : ''}${hasCustomLabel ? ' has-label' : ''}${session?.isRemote ? ' is-remote' : ''}`}
                 onClick={onSwitch}
                 onContextMenu={onContextMenu}
