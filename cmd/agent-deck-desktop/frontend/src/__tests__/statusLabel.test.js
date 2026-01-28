@@ -246,17 +246,20 @@ describe('getStatusLabel', () => {
         });
 
         it('should accept year 2020 as valid boundary', () => {
-            const waitingSince = new Date('2020-01-01T00:00:00Z');
-            // Mock time to be after 2020
-            const futureTime = new Date('2024-01-15T10:00:00Z');
+            // Test that year 2020 passes validation (>= 2020)
+            // Use a more recent time from 2020 to verify calculation works
+            const waitingSince = new Date('2020-06-01T00:00:00Z');
+
+            // Mock current time to 2020-06-15 (14 days later)
+            const futureTime = new Date('2020-06-15T00:00:00Z');
             vi.setSystemTime(futureTime);
 
             const result = getStatusLabel('waiting', waitingSince.toISOString());
 
             // Should calculate time diff since it's year 2020 (threshold is >= 2020)
-            // From 2020-01-01 to 2024-01-15 is about 4 years = 8760+ hours
-            expect(result.label).toMatch(/^idle \d+h$/);
-            expect(result.tier).toBe('cold'); // Very old = cold tier
+            // 14 days = 336 hours = idle tier (>= 4 hours)
+            expect(result.label).toBe('idle 336h');
+            expect(result.tier).toBe('cold');
         });
 
         it('should handle future dates gracefully (negative time diff)', () => {

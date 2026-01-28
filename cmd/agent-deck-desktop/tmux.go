@@ -467,6 +467,38 @@ type instanceUpdate struct {
 	clearWaitingSince bool
 }
 
+// updateWaitingSinceTracking adjusts waitingSince based on status transitions.
+// Sets waitingSince to now if status is "waiting" and timestamp is missing.
+// Clears waitingSince if status is no longer "waiting".
+// Updates the updates map for persistence and returns the effective waitingSince.
+func updateWaitingSinceTracking(instID string, status string, currentWaitingSince time.Time, updates map[string]instanceUpdate) time.Time {
+	waitingSince := currentWaitingSince
+
+	// Set waitingSince if session is waiting and timestamp is missing
+	if status == "waiting" && waitingSince.IsZero() {
+		waitingSince = time.Now()
+		if u, ok := updates[instID]; ok {
+			u.waitingSince = waitingSince
+			updates[instID] = u
+		} else {
+			updates[instID] = instanceUpdate{waitingSince: waitingSince}
+		}
+	}
+
+	// Clear waitingSince if session is no longer waiting
+	if status != "waiting" && !currentWaitingSince.IsZero() {
+		waitingSince = time.Time{}
+		if u, ok := updates[instID]; ok {
+			u.clearWaitingSince = true
+			updates[instID] = u
+		} else {
+			updates[instID] = instanceUpdate{clearWaitingSince: true}
+		}
+	}
+
+	return waitingSince
+}
+
 // convertInstancesToSessionInfos converts raw instance data to SessionInfo slice.
 // Includes all sessions, marking local ones without running tmux as "exited".
 // Detects actual status from pane content (in parallel) and updates waitingSince timestamps.
@@ -521,27 +553,8 @@ func (tm *TmuxManager) convertInstancesToSessionInfos(instances []instanceJSON) 
 			}
 		}
 
-		// Set waitingSince if session is waiting and timestamp is missing
-		if status == "waiting" && waitingSince.IsZero() {
-			waitingSince = time.Now()
-			if u, ok := updates[inst.ID]; ok {
-				u.waitingSince = waitingSince
-				updates[inst.ID] = u
-			} else {
-				updates[inst.ID] = instanceUpdate{waitingSince: waitingSince}
-			}
-		}
-
-		// Clear waitingSince if session is no longer waiting
-		if status != "waiting" && !waitingSince.IsZero() {
-			waitingSince = time.Time{}
-			if u, ok := updates[inst.ID]; ok {
-				u.clearWaitingSince = true
-				updates[inst.ID] = u
-			} else {
-				updates[inst.ID] = instanceUpdate{clearWaitingSince: true}
-			}
-		}
+		// Track waitingSince transitions (sets when entering waiting, clears when leaving)
+		waitingSince = updateWaitingSinceTracking(inst.ID, status, waitingSince, updates)
 
 		// Get git info for the project path (only for local sessions with running tmux)
 		// Skip git info for exited sessions (no point checking)
@@ -1639,27 +1652,8 @@ func (tm *TmuxManager) RefreshSessionStatuses(sessionIDs []string) ([]StatusUpda
 		}
 		// For remote sessions, keep stored status (can't capture pane remotely)
 
-		// Update waitingSince if session is waiting and timestamp is missing
-		if status == "waiting" && waitingSince.IsZero() {
-			waitingSince = time.Now()
-			if u, ok := updates[inst.ID]; ok {
-				u.waitingSince = waitingSince
-				updates[inst.ID] = u
-			} else {
-				updates[inst.ID] = instanceUpdate{waitingSince: waitingSince}
-			}
-		}
-
-		// Clear waitingSince if session is no longer waiting
-		if status != "waiting" && !waitingSince.IsZero() {
-			waitingSince = time.Time{}
-			if u, ok := updates[inst.ID]; ok {
-				u.clearWaitingSince = true
-				updates[inst.ID] = u
-			} else {
-				updates[inst.ID] = instanceUpdate{clearWaitingSince: true}
-			}
-		}
+		// Track waitingSince transitions (sets when entering waiting, clears when leaving)
+		waitingSince = updateWaitingSinceTracking(inst.ID, status, waitingSince, updates)
 
 		result = append(result, StatusUpdate{
 			ID:           inst.ID,
