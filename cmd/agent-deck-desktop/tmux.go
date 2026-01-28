@@ -403,7 +403,7 @@ func (tm *TmuxManager) getClaudeJSONLPath(inst *session.InstanceData) string {
 
 // getGeminiSessionPath returns the path to Gemini's session JSON file.
 func (tm *TmuxManager) getGeminiSessionPath(inst *session.InstanceData) string {
-	// Length check to prevent panic on short session IDs (bug fix from PR #89)
+	// Length check to prevent panic on short session IDs
 	if inst.GeminiSessionID == "" || len(inst.GeminiSessionID) < 8 || inst.ProjectPath == "" {
 		return ""
 	}

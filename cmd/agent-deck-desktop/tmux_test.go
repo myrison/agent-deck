@@ -1313,13 +1313,13 @@ func TestDetectSessionStatusErrorPatternsCaseInsensitive(t *testing.T) {
 }
 
 // =============================================================================
-// File-Based Activity Detection Tests (PR #89)
+// File-Based Activity Detection Tests
 // =============================================================================
 
 // TestDetectSessionStatusViaFileReturnsRunningForRecentlyModifiedFile verifies
 // that detectSessionStatusViaFile returns "running" when the session file was
-// modified within the last 10 seconds. This is the core detection mechanism that
-// PR #89 introduces for reliable activity status.
+// modified within the last 10 seconds. This is the core detection mechanism for
+// reliable activity status.
 func TestDetectSessionStatusViaFileReturnsRunningForRecentlyModifiedFile(t *testing.T) {
 	// Set up temp HOME so settings and session paths are isolated
 	origHome := os.Getenv("HOME")
