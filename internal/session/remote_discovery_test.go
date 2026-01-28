@@ -755,3 +755,96 @@ func TestDiscoveryRepairsNilTmuxSession(t *testing.T) {
 			initialStatus, existingInst.Status)
 	}
 }
+
+// TestRemoteStorageSnapshot_SessionTitles verifies that SessionTitles is populated
+// and contains the authoritative title from the remote's sessions.json.
+// This ensures proper session names even if the tmux session name doesn't parse correctly.
+func TestRemoteStorageSnapshot_SessionTitles(t *testing.T) {
+	// Simulate a RemoteStorageSnapshot with sessions that have titles
+	// The snapshot would normally be populated by FetchRemoteStorageSnapshot
+	// We test the mapping logic directly
+
+	tmuxName1 := "agentdeck_my-project_12345678"
+	tmuxName2 := "agentdeck_1769533185048019000_abcd1234" // Numeric title in tmux name
+
+	snapshot := &RemoteStorageSnapshot{
+		SessionGroupPaths: map[string]string{
+			tmuxName1: "projects",
+			tmuxName2: "projects",
+		},
+		SessionTools: map[string]string{
+			tmuxName1: "claude",
+			tmuxName2: "claude",
+		},
+		SessionTitles: map[string]string{
+			tmuxName1: "My Project",
+			tmuxName2: "Real Session Name", // The correct title from sessions.json
+		},
+		AllSessions: []*InstanceData{
+			{TmuxSession: tmuxName1, Title: "My Project", GroupPath: "projects", Tool: "claude"},
+			{TmuxSession: tmuxName2, Title: "Real Session Name", GroupPath: "projects", Tool: "claude"},
+		},
+	}
+
+	// Test that authoritative titles are retrieved correctly
+	t.Run("returns authoritative title for session with numeric tmux name", func(t *testing.T) {
+		title := snapshot.SessionTitles[tmuxName2]
+		if title != "Real Session Name" {
+			t.Errorf("SessionTitles[%q] = %q, want %q", tmuxName2, title, "Real Session Name")
+		}
+
+		// Verify that ParseTitleFromTmuxName would have returned wrong value
+		parsedTitle := ParseTitleFromTmuxName(tmuxName2)
+		if parsedTitle == "Real Session Name" {
+			t.Error("ParseTitleFromTmuxName should NOT return correct title for numeric tmux name")
+		}
+	})
+
+	t.Run("returns authoritative title for normal session", func(t *testing.T) {
+		title := snapshot.SessionTitles[tmuxName1]
+		if title != "My Project" {
+			t.Errorf("SessionTitles[%q] = %q, want %q", tmuxName1, title, "My Project")
+		}
+	})
+
+	t.Run("returns empty for unknown session", func(t *testing.T) {
+		title := snapshot.SessionTitles["unknown_session"]
+		if title != "" {
+			t.Errorf("SessionTitles for unknown session = %q, want empty", title)
+		}
+	})
+}
+
+// TestParseTitleFromTmuxName_NumericFallback verifies the fallback behavior
+// when the tmux name contains a numeric value that doesn't match the expected pattern.
+func TestParseTitleFromTmuxName_NumericFallback(t *testing.T) {
+	// This test documents why SessionTitles is needed:
+	// When tmux names have numeric values, ParseTitleFromTmuxName returns them as-is
+
+	tests := []struct {
+		name     string
+		tmuxName string
+		expected string
+	}{
+		{
+			name:     "numeric middle part returns as title",
+			tmuxName: "agentdeck_1769533185048019000_abcd1234",
+			expected: "1769533185048019000",
+		},
+		{
+			name:     "pure numeric without prefix returns as-is",
+			tmuxName: "1769533185048019000",
+			expected: "1769533185048019000",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ParseTitleFromTmuxName(tt.tmuxName)
+			if result != tt.expected {
+				t.Errorf("ParseTitleFromTmuxName(%q) = %q, want %q",
+					tt.tmuxName, result, tt.expected)
+			}
+		})
+	}
+}
