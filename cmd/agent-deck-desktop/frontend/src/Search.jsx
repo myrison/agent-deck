@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createSearchManager } from './utils/searchUtils';
+import { useFocusManagement } from './utils/focusManagement';
 import './Search.css';
 
 export default function Search({ terminal, searchAddon, onClose, focusTrigger }) {
@@ -7,6 +8,9 @@ export default function Search({ terminal, searchAddon, onClose, focusTrigger })
     const [matchInfo, setMatchInfo] = useState(null); // { total, current }
     const inputRef = useRef(null);
     const searchManagerRef = useRef(null);
+
+    // Save focus on mount for restoration when search closes
+    useFocusManagement(true);
 
     // Initialize search manager when terminal is available
     useEffect(() => {

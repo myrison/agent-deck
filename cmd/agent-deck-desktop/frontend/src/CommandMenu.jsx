@@ -5,6 +5,7 @@ import { createLogger } from './logger';
 import ToolIcon from './ToolIcon';
 import { formatShortcut } from './utils/shortcuts';
 import { withKeyboardIsolation } from './utils/keyboardIsolation';
+import { useFocusManagement } from './utils/focusManagement';
 import { getStatusLabel } from './utils/statusLabel';
 import RenameDialog from './RenameDialog';
 import DeleteLayoutDialog from './DeleteLayoutDialog';
@@ -221,6 +222,9 @@ export default function CommandMenu({
     useEffect(() => {
         setSelectedIndex(0);
     }, [results]);
+
+    // Save focus on mount and restore on unmount
+    useFocusManagement(true);
 
     // Focus input on mount
     useEffect(() => {

@@ -126,6 +126,21 @@ function App() {
         return map;
     }, [savedLayouts]);
 
+    // Memoized flag for whether any app-level modal is open (for passing to SessionSelector)
+    const anyAppModalOpen = useMemo(() => {
+        return [
+            showCommandMenu,
+            showToolPicker,
+            showConfigPicker,
+            showHostPicker,
+            showRemotePathInput,
+            sessionPickerProject,
+            showSettings,
+            showHelpModal,
+            showScanPathSetup,
+        ].some(Boolean);
+    }, [showCommandMenu, showToolPicker, showConfigPicker, showHostPicker, showRemotePathInput, sessionPickerProject, showSettings, showHelpModal, showScanPathSetup]);
+
     const sessionSelectorRef = useRef(null);
     const terminalRefs = useRef({});
     const searchRefs = useRef({});
@@ -2140,6 +2155,7 @@ function App() {
                     onOpenPalette={() => setShowCommandMenu(true)}
                     onOpenHelp={handleOpenHelp}
                     onSessionDeleted={handleSessionDeleted}
+                    externalModalOpen={anyAppModalOpen}
                 />
                 {showCommandMenu && (
                     <CommandMenu

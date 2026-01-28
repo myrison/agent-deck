@@ -1388,8 +1388,8 @@ func TestDetectSessionStatusViaFileFallsBackForOldFile(t *testing.T) {
 		t.Fatalf("Failed to create session file: %v", err)
 	}
 
-	// Set file mtime to 30 seconds ago (older than 10-second threshold)
-	oldTime := time.Now().Add(-30 * time.Second)
+	// Set file mtime to 2 minutes ago (older than 90-second threshold)
+	oldTime := time.Now().Add(-2 * time.Minute)
 	if err := os.Chtimes(sessionFile, oldTime, oldTime); err != nil {
 		t.Fatalf("Failed to set file mtime: %v", err)
 	}
@@ -1404,7 +1404,7 @@ func TestDetectSessionStatusViaFileFallsBackForOldFile(t *testing.T) {
 	// File is old, should fall back (ok=false)
 	_, ok := tm.detectSessionStatusViaFile(inst, true)
 	if ok {
-		t.Error("detectSessionStatusViaFile should return ok=false for files older than 10 seconds")
+		t.Error("detectSessionStatusViaFile should return ok=false for files older than 90 seconds")
 	}
 }
 
@@ -1606,7 +1606,7 @@ func TestGetClaudeJSONLPathReturnsEmptyForNonexistentFile(t *testing.T) {
 }
 
 // =============================================================================
-// updateWaitingSinceTracking Tests (PR #91)
+// updateWaitingSinceTracking Tests
 // =============================================================================
 
 // TestUpdateWaitingSinceTrackingSetsTimestampWhenEnteringWaiting verifies that
@@ -1734,7 +1734,7 @@ func TestUpdateWaitingSinceTrackingClearMergesWithExistingUpdate(t *testing.T) {
 }
 
 // =============================================================================
-// Gemini Session Path Edge Cases (PR #91)
+// Gemini Session Path Edge Cases
 // =============================================================================
 
 // TestGetGeminiSessionPathRejectsShortSessionID verifies that getGeminiSessionPath
@@ -1798,4 +1798,3 @@ func TestGetGeminiSessionPathRejectsEmptyProjectPath(t *testing.T) {
 		t.Errorf("Expected empty for empty project path, got %q", result)
 	}
 }
-

@@ -7,6 +7,7 @@ import { TOOLS } from './utils/tools';
 import ToolIcon from './ToolIcon';
 import { useTheme } from './context/ThemeContext';
 import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE } from './constants/terminal';
+import { useFocusManagement } from './utils/focusManagement';
 
 const logger = createLogger('SettingsModal');
 
@@ -27,6 +28,9 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
     const [scanMaxDepth, setScanMaxDepth] = useState(2);
     const { themePreference, setTheme } = useTheme();
     const containerRef = useRef(null);
+
+    // Save focus on mount and restore on unmount
+    useFocusManagement(true);
 
     // Focus the modal container on mount so Escape works immediately
     useEffect(() => {

@@ -3,6 +3,7 @@ import './HostPicker.css';
 import { createLogger } from './logger';
 import { ListSSHHosts, GetSSHHostStatus, GetSSHHostDisplayNames, TestSSHConnection } from '../wailsjs/go/main/App';
 import { withKeyboardIsolation } from './utils/keyboardIsolation';
+import { useFocusManagement } from './utils/focusManagement';
 
 const logger = createLogger('HostPicker');
 
@@ -17,6 +18,9 @@ export default function HostPicker({ onSelect, onCancel }) {
     const [loading, setLoading] = useState(true);
     const [testing, setTesting] = useState(null); // hostId being tested
     const containerRef = useRef(null);
+
+    // Save focus on mount for restoration when picker closes
+    useFocusManagement(true);
 
     // Build full host list with Local first
     const hosts = [LOCAL_HOST_ID, ...sshHosts];

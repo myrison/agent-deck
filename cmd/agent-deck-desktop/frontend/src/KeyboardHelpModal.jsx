@@ -1,8 +1,12 @@
 import { useEffect, useCallback } from 'react';
 import './KeyboardHelpModal.css';
 import { modKey } from './utils/platform';
+import { useFocusManagement } from './utils/focusManagement';
 
 export default function KeyboardHelpModal({ onClose }) {
+    // Save focus on mount for restoration when modal closes
+    useFocusManagement(true);
+
     // Close on Escape or any other key
     const handleKeyDown = useCallback((e) => {
         e.preventDefault();
