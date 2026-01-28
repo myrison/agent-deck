@@ -1000,20 +1000,21 @@ func (tm *TmuxManager) CreateRemoteSession(hostID, projectPath, title, tool, con
 
 	// Build session info with remote fields set
 	sessionInfo := SessionInfo{
-		ID:               sessionID,
-		Title:            title,
-		CustomLabel:      customLabel,
-		ProjectPath:      projectPath,
-		GroupPath:        groupPath,
-		Tool:             tool,
-		Status:           status,
-		TmuxSession:      sessionName,
-		IsRemote:         true,
-		RemoteHost:       hostID,
-		LaunchConfigName: tcr.launchConfigName,
-		LoadedMCPs:       tcr.loadedMCPs,
-		DangerousMode:    tcr.dangerousMode,
-		LastAccessedAt:   time.Now(),
+		ID:                    sessionID,
+		Title:                 title,
+		CustomLabel:           customLabel,
+		ProjectPath:           projectPath,
+		GroupPath:             groupPath,
+		Tool:                  tool,
+		Status:                status,
+		TmuxSession:           sessionName,
+		IsRemote:              true,
+		RemoteHost:            hostID,
+		RemoteHostDisplayName: groupName,
+		LaunchConfigName:      tcr.launchConfigName,
+		LoadedMCPs:            tcr.loadedMCPs,
+		DangerousMode:         tcr.dangerousMode,
+		LastAccessedAt:        time.Now(),
 	}
 
 	// Persist to sessions.json so session survives app restarts
