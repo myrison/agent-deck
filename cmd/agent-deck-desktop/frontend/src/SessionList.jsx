@@ -504,7 +504,7 @@ const SessionList = forwardRef(function SessionList({
                         return (
                             <button
                                 key={session.id}
-                                className={`session-list-item ${levelClass}${isSelected ? ' selected' : ''}${isCurrentSession ? ' current' : ''}${session.isRemote ? ' remote' : ''}`}
+                                className={`session-list-item ${levelClass}${isSelected ? ' selected' : ''}${isCurrentSession ? ' current' : ''}${session.isRemote ? ' remote' : ''}${session.status === 'exited' ? ' exited' : ''}`}
                                 onClick={() => {
                                     setSelectedIndex(index);
                                     if (onPreview) onPreview(session);
@@ -558,10 +558,11 @@ const SessionList = forwardRef(function SessionList({
                                     title={
                                         session.status === 'running' ? 'Running: actively processing' :
                                         session.status === 'waiting' ? 'Waiting: needs user input' :
+                                        session.status === 'exited' ? 'Exited: tmux session ended' :
                                         'Idle: no activity'
                                     }
                                 >
-                                    {session.status === 'running' ? '●' : session.status === 'waiting' ? '◐' : '○'}
+                                    {session.status === 'running' ? '●' : session.status === 'waiting' ? '◐' : session.status === 'exited' ? '✗' : '○'}
                                 </span>
                             </button>
                         );

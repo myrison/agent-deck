@@ -376,8 +376,18 @@ export default function CommandMenu({
                 }
             }
         } else {
-            logger.info('Navigating to session', { sessionId: item.id, title: item.title });
-            onSelectSession?.(item);
+            // Handle exited sessions - launch new instead of attaching
+            if (item.status === 'exited') {
+                logger.info('Exited session selected, launching new', { path: item.projectPath, tool: item.tool });
+                if (item.isRemote && item.remoteHost) {
+                    onShowToolPicker?.(item.projectPath, item.title, true, item.remoteHost);
+                } else {
+                    onLaunchProject?.(item.projectPath, item.title, item.tool || 'claude');
+                }
+            } else {
+                logger.info('Navigating to session', { sessionId: item.id, title: item.title });
+                onSelectSession?.(item);
+            }
         }
         onClose();
     };
@@ -388,6 +398,7 @@ export default function CommandMenu({
             case 'waiting': return '#ffe66d';
             case 'idle': return '#6c757d';
             case 'error': return '#ff6b6b';
+            case 'exited': return '#ff6b6b';
             default: return '#6c757d';
         }
     };

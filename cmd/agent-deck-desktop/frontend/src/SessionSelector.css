@@ -180,6 +180,10 @@
     border-color: var(--accent-success);
 }
 
+.session-list-item.exited {
+    opacity: 0.7;
+}
+
 .session-list-tool {
     width: 24px;
     height: 24px;

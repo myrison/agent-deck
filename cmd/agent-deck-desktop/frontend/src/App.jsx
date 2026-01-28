@@ -1438,6 +1438,27 @@ function App() {
     const handleSelectSession = useCallback(async (session) => {
         logger.info('Selecting session:', session.title);
 
+        // Handle exited sessions - launch new instead of attaching
+        if (session.status === 'exited') {
+            logger.info('Exited session selected, launching new:', session.title);
+            if (session.isRemote && session.remoteHost) {
+                setToolPickerProject({
+                    path: session.projectPath,
+                    name: session.title,
+                    isRemote: true,
+                    remoteHost: session.remoteHost
+                });
+                setShowToolPicker(true);
+            } else {
+                await handleLaunchProject(
+                    session.projectPath,
+                    session.title,
+                    session.tool || 'claude'
+                );
+            }
+            return;
+        }
+
         // Open as tab
         handleOpenTab(session);
 
@@ -1473,7 +1494,7 @@ function App() {
             setGitBranch('');
             setIsWorktree(false);
         }
-    }, [handleOpenTab]);
+    }, [handleOpenTab, handleLaunchProject]);
 
     const handleNewTerminal = useCallback(() => {
         logger.info('Starting new terminal');

@@ -352,7 +352,8 @@ func (tm *TmuxManager) loadSessionsData() (*sessionsJSON, error) {
 }
 
 // convertInstancesToSessionInfos converts raw instance data to SessionInfo slice.
-// Filters out local sessions without running tmux sessions and sorts by LastAccessedAt.
+// Includes all sessions, marking local ones without running tmux as "exited".
+// Sorts by LastAccessedAt.
 func (tm *TmuxManager) convertInstancesToSessionInfos(instances []instanceJSON) []SessionInfo {
 	runningTmux := tm.getRunningTmuxSessions()
 
@@ -365,15 +366,16 @@ func (tm *TmuxManager) convertInstancesToSessionInfos(instances []instanceJSON) 
 		_, exists := runningTmux[inst.TmuxSession]
 		isRemote := inst.RemoteHost != ""
 
-		// Skip local sessions without a running tmux session
-		// Remote sessions are included even without local tmux verification
-		if !exists && !isRemote {
-			continue
+		// Determine effective status: local sessions without running tmux are "exited"
+		status := inst.Status
+		if !isRemote && !exists {
+			status = "exited"
 		}
 
-		// Get git info for the project path (only for local sessions)
+		// Get git info for the project path (only for local sessions with running tmux)
+		// Skip git info for exited sessions (no point checking)
 		var gitInfo GitInfo
-		if !isRemote {
+		if !isRemote && exists {
 			gitInfo = tm.getGitInfo(inst.ProjectPath)
 		}
 
@@ -411,7 +413,7 @@ func (tm *TmuxManager) convertInstancesToSessionInfos(instances []instanceJSON) 
 			ProjectPath:           inst.ProjectPath,
 			GroupPath:             groupPath,
 			Tool:                  inst.Tool,
-			Status:                inst.Status,
+			Status:                status,
 			TmuxSession:           inst.TmuxSession,
 			IsRemote:              isRemote,
 			RemoteHost:            inst.RemoteHost,
@@ -1108,6 +1110,7 @@ var validSessionStatuses = map[string]bool{
 	"waiting": true,
 	"error":   true,
 	"paused":  true,
+	"exited":  true,
 }
 
 // UpdateSessionStatus updates the status field for a session in sessions.json.
