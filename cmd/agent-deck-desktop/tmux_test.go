@@ -1048,3 +1048,205 @@ func TestUpdateSessionStatusAcceptsExitedStatus(t *testing.T) {
 	}
 }
 
+// TestDetectSessionStatusReturnsErrorForSSHConnectionFailures verifies that
+// detectSessionStatus returns "error" when the pane contains SSH connection
+// failure messages. This is the core behavior added by PR #87 to show error
+// state in the status ribbon for failed remote connections.
+func TestDetectSessionStatusReturnsErrorForSSHConnectionFailures(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm := NewTmuxManager()
+
+	// Error patterns that should trigger "error" status
+	errorPatterns := []struct {
+		name    string
+		content string
+	}{
+		{"failed to start terminal", "Error: failed to start terminal\nPlease check your configuration"},
+		{"failed to restart remote session", "RevDen: failed to restart remote session - SSH timeout"},
+		{"failed to create remote tmux session", "Error: failed to create remote tmux session on host"},
+		{"ssh connection failed", "ssh connection failed: Connection refused"},
+		{"could not resolve hostname", "ssh: Could not resolve hostname dev-server: nodename nor servname provided"},
+		{"connection refused", "ssh: connect to host 192.168.1.100 port 22: Connection refused"},
+		{"permission denied publickey", "user@server: Permission denied (publickey)."},
+		{"no route to host", "ssh: connect to host 10.0.0.5 port 22: No route to host"},
+		{"network is unreachable", "ssh: connect to host server.example.com: Network is unreachable"},
+		{"operation timed out", "ssh: connect to host slow-server port 22: Operation timed out"},
+		{"host key verification failed", "Host key verification failed.\nPlease add the host key to known_hosts"},
+	}
+
+	for _, tc := range errorPatterns {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create a tmux session with error content
+			sessionName := "test_error_detect_" + strings.ReplaceAll(tc.name, " ", "_")
+			tmpDir := t.TempDir()
+
+			cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("Failed to create test tmux session: %v", err)
+			}
+			defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+			// Send the error content to the pane using send-keys with literal flag
+			// This simulates what the terminal would show after an SSH failure
+			sendCmd := exec.Command(tmuxBinaryPath, "send-keys", "-t", sessionName, "-l", tc.content)
+			if err := sendCmd.Run(); err != nil {
+				t.Fatalf("Failed to send error content to tmux: %v", err)
+			}
+
+			// Give tmux a moment to process
+			exec.Command("sleep", "0.1").Run()
+
+			// Detect status - should return "error"
+			status, ok := tm.detectSessionStatus(sessionName, "claude")
+			if !ok {
+				t.Fatal("detectSessionStatus failed to capture pane content")
+			}
+			if status != "error" {
+				t.Errorf("detectSessionStatus with %q pattern: got status %q, want %q", tc.name, status, "error")
+			}
+		})
+	}
+}
+
+// TestDetectSessionStatusErrorTakesPriorityOverPrompt verifies that when a
+// pane contains both an error message and a prompt (e.g., shell returned to
+// prompt after SSH failure), the error status takes priority. This ensures
+// users see the error state rather than "waiting".
+func TestDetectSessionStatusErrorTakesPriorityOverPrompt(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm := NewTmuxManager()
+	sessionName := "test_error_priority"
+	tmpDir := t.TempDir()
+
+	cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test tmux session: %v", err)
+	}
+	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+	// Content that has BOTH an error message AND a Claude prompt
+	// The error check should run first and return "error"
+	mixedContent := `ssh: connect to host server port 22: Connection refused
+RevDen: SSH connection failed
+
+$ claude
+╭─────────────────────────────────────────────────────╮
+│ How can I help you today?                           │
+╰─────────────────────────────────────────────────────╯
+>`
+
+	sendCmd := exec.Command(tmuxBinaryPath, "send-keys", "-t", sessionName, "-l", mixedContent)
+	if err := sendCmd.Run(); err != nil {
+		t.Fatalf("Failed to send content to tmux: %v", err)
+	}
+
+	exec.Command("sleep", "0.1").Run()
+
+	status, ok := tm.detectSessionStatus(sessionName, "claude")
+	if !ok {
+		t.Fatal("detectSessionStatus failed to capture pane content")
+	}
+	if status != "error" {
+		t.Errorf("Error status should take priority over prompt detection, got %q", status)
+	}
+}
+
+// TestDetectSessionStatusReturnsWaitingWhenNoError verifies that normal
+// sessions without error patterns still correctly detect "waiting" status
+// when a prompt is present. This ensures the error detection doesn't break
+// normal status detection.
+func TestDetectSessionStatusReturnsWaitingWhenNoError(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm := NewTmuxManager()
+	sessionName := "test_waiting_status"
+	tmpDir := t.TempDir()
+
+	cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test tmux session: %v", err)
+	}
+	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+	// Normal Claude prompt without any error messages
+	normalPrompt := `╭─────────────────────────────────────────────────────╮
+│ Claude Code                                         │
+╰─────────────────────────────────────────────────────╯
+
+How can I help you today?
+
+>`
+
+	sendCmd := exec.Command(tmuxBinaryPath, "send-keys", "-t", sessionName, "-l", normalPrompt)
+	if err := sendCmd.Run(); err != nil {
+		t.Fatalf("Failed to send content to tmux: %v", err)
+	}
+
+	exec.Command("sleep", "0.1").Run()
+
+	status, ok := tm.detectSessionStatus(sessionName, "claude")
+	if !ok {
+		t.Fatal("detectSessionStatus failed to capture pane content")
+	}
+	if status != "waiting" {
+		t.Errorf("Normal prompt should return 'waiting' status, got %q", status)
+	}
+}
+
+// TestDetectSessionStatusErrorPatternsCaseInsensitive verifies that error
+// pattern matching is case-insensitive. SSH error messages may come from
+// different sources with varying capitalization.
+func TestDetectSessionStatusErrorPatternsCaseInsensitive(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm := NewTmuxManager()
+
+	// Test various case combinations
+	testCases := []struct {
+		name    string
+		content string
+	}{
+		{"uppercase CONNECTION REFUSED", "SSH: Connect to host server: CONNECTION REFUSED"},
+		{"mixed case Permission Denied", "PERMISSION DENIED (publickey)"},
+		{"lowercase no route", "ssh: no route to host"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			sessionName := "test_case_" + strings.ReplaceAll(tc.name, " ", "_")
+			tmpDir := t.TempDir()
+
+			cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("Failed to create test tmux session: %v", err)
+			}
+			defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+			sendCmd := exec.Command(tmuxBinaryPath, "send-keys", "-t", sessionName, "-l", tc.content)
+			if err := sendCmd.Run(); err != nil {
+				t.Fatalf("Failed to send content to tmux: %v", err)
+			}
+
+			exec.Command("sleep", "0.1").Run()
+
+			status, ok := tm.detectSessionStatus(sessionName, "claude")
+			if !ok {
+				t.Fatal("detectSessionStatus failed to capture pane content")
+			}
+			if status != "error" {
+				t.Errorf("Case-insensitive error detection failed for %q, got status %q", tc.name, status)
+			}
+		})
+	}
+}
+
