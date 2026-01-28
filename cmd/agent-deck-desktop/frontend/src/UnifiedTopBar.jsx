@@ -269,42 +269,49 @@ export default function UnifiedTopBar({
         setDragState(newState);
     }, []);
 
+    // Shared reorder logic - prevents duplication and double-execution
+    // Returns true if reorder was performed
+    const executeReorder = useCallback((dragState, source) => {
+        if (!dragState?.draggedTabId || !dragState.overTabId || !onReorderTab) {
+            return false;
+        }
+        // Guard: prevent double-execution when both drop and dragEnd fire
+        if (dragState.reorderPerformed) {
+            return false;
+        }
+        const overIndex = openTabs.findIndex(t => t.id === dragState.overTabId);
+        if (overIndex === -1) {
+            return false;
+        }
+        const targetIndex = dragState.dropSide === 'right' ? overIndex + 1 : overIndex;
+        const fromIndex = openTabs.findIndex(t => t.id === dragState.draggedTabId);
+        const adjustedIndex = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
+
+        onReorderTab(dragState.draggedTabId, adjustedIndex);
+        // Mark as performed to prevent double-execution
+        dragStateRef.current = { ...dragState, reorderPerformed: true };
+        return true;
+    }, [openTabs, onReorderTab]);
+
     const handleTabDragStart = useCallback((e, tab) => {
-        console.log('[DRAG] dragStart', { tabId: tab.id, target: e.target.className });
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', tab.id);
-        const newState = { draggedTabId: tab.id, overTabId: null, dropSide: null };
+        const newState = { draggedTabId: tab.id, overTabId: null, dropSide: null, reorderPerformed: false };
         updateDragState(newState);
     }, [updateDragState]);
 
     const handleTabDragEnd = useCallback((e) => {
         const currentDragState = dragStateRef.current;
-        console.log('[DRAG] dragEnd', { finalState: currentDragState });
 
         // In WKWebView, the 'drop' event doesn't fire reliably.
-        // Perform the reorder in dragEnd if we have valid target info.
-        if (currentDragState?.draggedTabId && currentDragState.overTabId && onReorderTab) {
-            const overIndex = openTabs.findIndex(t => t.id === currentDragState.overTabId);
-            if (overIndex !== -1) {
-                const targetIndex = currentDragState.dropSide === 'right' ? overIndex + 1 : overIndex;
-                const fromIndex = openTabs.findIndex(t => t.id === currentDragState.draggedTabId);
-                const adjustedIndex = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
-
-                console.log('[DRAG] Reordering in dragEnd', {
-                    draggedTabId: currentDragState.draggedTabId,
-                    fromIndex,
-                    adjustedIndex
-                });
-
-                onReorderTab(currentDragState.draggedTabId, adjustedIndex);
-            }
-        }
+        // Perform the reorder in dragEnd if we have valid target info and it hasn't been done yet.
+        executeReorder(currentDragState, 'dragEnd');
 
         updateDragState(null);
-    }, [openTabs, onReorderTab, updateDragState]);
+    }, [executeReorder, updateDragState]);
 
-    // Track last logged dragOver to avoid spamming logs
-    const lastDragOverLogRef = useRef({ tabId: null, side: null });
+    // Track last dragOver state to avoid redundant updates
+    const lastDragOverStateRef = useRef({ tabId: null, side: null });
 
     const handleTabDragOver = useCallback((e, tab) => {
         e.preventDefault();
@@ -320,10 +327,9 @@ export default function UnifiedTopBar({
         const midX = rect.left + rect.width / 2;
         const side = e.clientX < midX ? 'left' : 'right';
         if (currentDragState.overTabId !== tab.id || currentDragState.dropSide !== side) {
-            // Only log when something changes
-            if (lastDragOverLogRef.current.tabId !== tab.id || lastDragOverLogRef.current.side !== side) {
-                console.log('[DRAG] dragOver update', { overTabId: tab.id, side });
-                lastDragOverLogRef.current = { tabId: tab.id, side };
+            // Only update when something changes
+            if (lastDragOverStateRef.current.tabId !== tab.id || lastDragOverStateRef.current.side !== side) {
+                lastDragOverStateRef.current = { tabId: tab.id, side };
             }
             updateDragState({ ...currentDragState, overTabId: tab.id, dropSide: side });
         }
@@ -331,43 +337,11 @@ export default function UnifiedTopBar({
 
     const handleTabDrop = useCallback((e) => {
         e.preventDefault();
-        // Use ref to get the latest drag state (avoids stale closure issues)
         const currentDragState = dragStateRef.current;
-        console.log('[DRAG] drop event fired', {
-            currentDragState,
-            hasOnReorderTab: !!onReorderTab,
-            target: e.target.className
-        });
 
-        if (!currentDragState?.draggedTabId || !currentDragState.overTabId || !onReorderTab) {
-            console.log('[DRAG] drop aborted - missing state', {
-                hasDraggedTabId: !!currentDragState?.draggedTabId,
-                hasOverTabId: !!currentDragState?.overTabId,
-                hasOnReorderTab: !!onReorderTab
-            });
-            updateDragState(null);
-            return;
-        }
-        const overIndex = openTabs.findIndex(t => t.id === currentDragState.overTabId);
-        if (overIndex === -1) {
-            console.log('[DRAG] drop aborted - overTabId not found');
-            updateDragState(null);
-            return;
-        }
-        const targetIndex = currentDragState.dropSide === 'right' ? overIndex + 1 : overIndex;
-        // Adjust if dragging from before the target
-        const fromIndex = openTabs.findIndex(t => t.id === currentDragState.draggedTabId);
-        const adjustedIndex = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
-
-        console.log('[DRAG] calling onReorderTab', {
-            draggedTabId: currentDragState.draggedTabId,
-            fromIndex,
-            adjustedIndex
-        });
-
-        onReorderTab(currentDragState.draggedTabId, adjustedIndex);
+        executeReorder(currentDragState, 'drop');
         updateDragState(null);
-    }, [openTabs, onReorderTab, updateDragState]);
+    }, [executeReorder, updateDragState]);
 
     const hasFavorites = favorites.length > 0;
 
