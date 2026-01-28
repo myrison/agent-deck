@@ -134,16 +134,20 @@ describe('reorder persistence', () => {
 
 // ─── Drop target index calculation ──────────────────────────────────
 //
-// Behavioral extraction: mirrors the handleTabDrop logic in UnifiedTopBar.jsx
-// (lines 288-302). This is the bridge between the drag event (which tab was
-// dropped on, which side) and the final reorder index passed to onReorderTab.
+// Behavioral extraction: mirrors the handleTabDrop AND handleTabDragEnd logic
+// in UnifiedTopBar.jsx. Both handlers use identical index calculation logic.
+// In WKWebView, the 'drop' event doesn't fire reliably, so handleTabDragEnd
+// serves as a fallback that performs the same reorder calculation.
+//
+// This is the bridge between the drag event (which tab was dropped on, which
+// side) and the final reorder index passed to onReorderTab.
 //
 // The key behavior: when dragging a tab from BEFORE the drop target, the
 // target index must be decremented by 1, because removing the dragged tab
 // shifts everything left.
 
 /**
- * Mirrors handleTabDrop in UnifiedTopBar.jsx.
+ * Mirrors handleTabDrop and handleTabDragEnd in UnifiedTopBar.jsx.
  * Given the drag state and the tab list, computes what (draggedTabId, adjustedIndex)
  * would be passed to onReorderTab.
  *
@@ -162,7 +166,7 @@ function computeDropTarget(openTabs, dragState) {
     return { draggedTabId: dragState.draggedTabId, targetIndex: adjustedIndex };
 }
 
-describe('computeDropTarget (mirrors handleTabDrop in UnifiedTopBar.jsx)', () => {
+describe('computeDropTarget (mirrors handleTabDrop and handleTabDragEnd in UnifiedTopBar.jsx)', () => {
     it('drops on the left side of a tab places before that tab', () => {
         // Drag tab-3 and drop on the LEFT side of tab-1
         // tab-3 is at index 3, tab-1 is at index 1
