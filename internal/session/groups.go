@@ -956,6 +956,75 @@ func (t *GroupTree) SyncWithInstances(instances []*Instance) {
 	t.rebuildGroupList()
 }
 
+// RemoveEmptyRemoteGroups removes empty groups under the remote prefix.
+// Remote groups are mirrors of remote host configurations, so empty ones
+// should be cleaned up automatically (unlike local groups which may be
+// intentionally empty for organization). Returns the number of groups removed.
+func (t *GroupTree) RemoveEmptyRemoteGroups() int {
+	settings := GetRemoteDiscoverySettings()
+	prefix := settings.GroupPrefix
+	if prefix == "" {
+		prefix = "remote"
+	}
+
+	// Collect all empty remote groups, sorting by path length descending
+	// so we delete children before parents
+	emptyPaths := []string{}
+	for path, group := range t.Groups {
+		// Only consider groups under the remote prefix
+		if !strings.HasPrefix(path, prefix+"/") && path != prefix {
+			continue
+		}
+		// Check if group has no sessions
+		if len(group.Sessions) == 0 {
+			emptyPaths = append(emptyPaths, path)
+		}
+	}
+
+	if len(emptyPaths) == 0 {
+		return 0
+	}
+
+	// Sort by path length descending (delete deepest groups first)
+	sort.Slice(emptyPaths, func(i, j int) bool {
+		return len(emptyPaths[i]) > len(emptyPaths[j])
+	})
+
+	// Delete empty groups, but re-check emptiness since deleting children
+	// may leave parents with remaining children
+	removed := 0
+	for _, path := range emptyPaths {
+		group, exists := t.Groups[path]
+		if !exists {
+			continue
+		}
+		// Re-check if still empty (may have been populated)
+		if len(group.Sessions) > 0 {
+			continue
+		}
+		// Check if this group has any remaining subgroups
+		hasSubgroups := false
+		for otherPath := range t.Groups {
+			if strings.HasPrefix(otherPath, path+"/") {
+				hasSubgroups = true
+				break
+			}
+		}
+		if hasSubgroups {
+			continue
+		}
+		// Safe to delete
+		delete(t.Groups, path)
+		delete(t.Expanded, path)
+		removed++
+	}
+
+	if removed > 0 {
+		t.rebuildGroupList()
+	}
+	return removed
+}
+
 // ShallowCopyForSave creates a copy of the GroupTree that's safe to use
 // from a goroutine for saving purposes. It deep copies the Group structs
 // to prevent data races when the main thread modifies group fields

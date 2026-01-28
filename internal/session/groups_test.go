@@ -1085,3 +1085,126 @@ func TestNewGroupTreeAutoCreatesParents(t *testing.T) {
 		t.Errorf("Expected name 'api', got '%s'", tree.Groups["projects/backend/api"].Name)
 	}
 }
+
+func TestRemoveEmptyRemoteGroups(t *testing.T) {
+	// Create a tree with mixed local and remote groups
+	tree := NewGroupTree([]*Instance{})
+
+	// Add local groups (should NOT be removed even if empty)
+	tree.EnsureGroupExists("local-project", "local-project", 0, true)
+	tree.EnsureGroupExists("my-sessions", "My Sessions", 0, true)
+
+	// Add remote groups - some empty, some with sessions
+	tree.EnsureGroupExists("remote", "remote", 1, true)
+	tree.EnsureGroupExists("remote/MacStudio", "MacStudio", 0, true)
+	tree.EnsureGroupExists("remote/MacStudio/hc-repo", "hc-repo", 0, true)
+	tree.EnsureGroupExists("remote/MacStudio/TestGroup1", "TestGroup1", 0, true) // Empty test group
+	tree.EnsureGroupExists("remote/MacStudio/TestGroup2", "TestGroup2", 0, true) // Empty test group
+	tree.EnsureGroupExists("remote/docker", "docker", 0, true)
+	tree.EnsureGroupExists("remote/docker/jeeves", "jeeves", 0, true)
+
+	// Add a session to remote/MacStudio/hc-repo (so it won't be deleted)
+	session := &Instance{
+		ID:        "test-1",
+		Title:     "Test Session",
+		GroupPath: "remote/MacStudio/hc-repo",
+	}
+	tree.AddSession(session)
+
+	// Add a session to remote/docker/jeeves
+	session2 := &Instance{
+		ID:        "test-2",
+		Title:     "Test Session 2",
+		GroupPath: "remote/docker/jeeves",
+	}
+	tree.AddSession(session2)
+
+	// Verify initial state
+	initialGroupCount := len(tree.Groups)
+	t.Logf("Initial groups: %d", initialGroupCount)
+	for path := range tree.Groups {
+		t.Logf("  - %s", path)
+	}
+
+	// Run the cleanup
+	removed := tree.RemoveEmptyRemoteGroups()
+	t.Logf("Removed %d empty remote groups", removed)
+
+	// Check results
+	// Empty remote groups should be removed: TestGroup1, TestGroup2
+	if removed != 2 {
+		t.Errorf("Expected 2 groups removed, got %d", removed)
+	}
+
+	// Local groups should still exist
+	if tree.Groups["local-project"] == nil {
+		t.Error("Local group 'local-project' should NOT be removed")
+	}
+	if tree.Groups["my-sessions"] == nil {
+		t.Error("Local group 'my-sessions' should NOT be removed")
+	}
+
+	// Remote groups with sessions should still exist
+	if tree.Groups["remote/MacStudio/hc-repo"] == nil {
+		t.Error("remote/MacStudio/hc-repo should NOT be removed (has session)")
+	}
+	if tree.Groups["remote/docker/jeeves"] == nil {
+		t.Error("remote/docker/jeeves should NOT be removed (has session)")
+	}
+
+	// Parent groups with children should still exist
+	if tree.Groups["remote"] == nil {
+		t.Error("remote should NOT be removed (has children)")
+	}
+	if tree.Groups["remote/MacStudio"] == nil {
+		t.Error("remote/MacStudio should NOT be removed (has children)")
+	}
+	if tree.Groups["remote/docker"] == nil {
+		t.Error("remote/docker should NOT be removed (has children)")
+	}
+
+	// Empty test groups should be removed
+	if tree.Groups["remote/MacStudio/TestGroup1"] != nil {
+		t.Error("remote/MacStudio/TestGroup1 should be removed (empty)")
+	}
+	if tree.Groups["remote/MacStudio/TestGroup2"] != nil {
+		t.Error("remote/MacStudio/TestGroup2 should be removed (empty)")
+	}
+
+	t.Logf("Final groups: %d", len(tree.Groups))
+	for path := range tree.Groups {
+		t.Logf("  - %s", path)
+	}
+}
+
+func TestRemoveEmptyRemoteGroups_CascadeCleanup(t *testing.T) {
+	// Test that parent groups are cleaned up when all children are removed
+	tree := NewGroupTree([]*Instance{})
+
+	// Create a deep hierarchy of empty remote groups
+	tree.EnsureGroupExists("remote", "remote", 1, true)
+	tree.EnsureGroupExists("remote/OldHost", "OldHost", 0, true)
+	tree.EnsureGroupExists("remote/OldHost/project1", "project1", 0, true)
+	tree.EnsureGroupExists("remote/OldHost/project2", "project2", 0, true)
+
+	// All are empty - should all be removed
+	removed := tree.RemoveEmptyRemoteGroups()
+
+	if removed != 4 {
+		t.Errorf("Expected 4 groups removed (remote, OldHost, project1, project2), got %d", removed)
+	}
+
+	// All should be gone
+	if tree.Groups["remote/OldHost/project1"] != nil {
+		t.Error("remote/OldHost/project1 should be removed")
+	}
+	if tree.Groups["remote/OldHost/project2"] != nil {
+		t.Error("remote/OldHost/project2 should be removed")
+	}
+	if tree.Groups["remote/OldHost"] != nil {
+		t.Error("remote/OldHost should be removed (all children gone)")
+	}
+	if tree.Groups["remote"] != nil {
+		t.Error("remote should be removed (all children gone)")
+	}
+}
