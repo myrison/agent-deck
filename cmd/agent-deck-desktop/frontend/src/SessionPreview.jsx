@@ -247,6 +247,7 @@ export default function SessionPreview({ session, onAttach, onDelete, fontSize =
             case 'waiting': return '#ffe66d';
             case 'idle': return '#6c757d';
             case 'error': return '#ff6b6b';
+            case 'exited': return '#ff6b6b';
             default: return '#6c757d';
         }
     };
@@ -257,6 +258,7 @@ export default function SessionPreview({ session, onAttach, onDelete, fontSize =
             case 'waiting': return 'Waiting';
             case 'idle': return 'Idle';
             case 'error': return 'Error';
+            case 'exited': return 'Exited';
             default: return status;
         }
     };

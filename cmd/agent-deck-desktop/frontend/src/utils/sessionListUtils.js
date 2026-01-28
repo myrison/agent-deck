@@ -74,6 +74,7 @@ export function getStatusColor(status) {
         case 'waiting': return '#ffe66d';
         case 'idle': return '#6c757d';
         case 'error': return '#ff6b6b';
+        case 'exited': return '#ff6b6b';
         default: return '#6c757d';
     }
 }
