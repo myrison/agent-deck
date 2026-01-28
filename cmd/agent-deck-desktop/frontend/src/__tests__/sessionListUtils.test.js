@@ -207,6 +207,12 @@ describe('getStatusColor', () => {
         expect(getStatusColor('error')).toBe('#ff6b6b');
     });
 
+    it('returns red for exited status', () => {
+        // Exited sessions (tmux process ended) should display with red color
+        // to indicate they need attention/relaunch
+        expect(getStatusColor('exited')).toBe('#ff6b6b');
+    });
+
     it('returns gray for unknown status', () => {
         expect(getStatusColor('unknown')).toBe('#6c757d');
     });

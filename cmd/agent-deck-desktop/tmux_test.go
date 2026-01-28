@@ -890,3 +890,161 @@ func TestPersistSessionOmitsRemoteTmuxNameForLocal(t *testing.T) {
 	}
 }
 
+// TestConvertInstancesMarksLocalSessionWithoutTmuxAsExited verifies that when
+// a local session's tmux session is no longer running, convertInstancesToSessionInfos
+// marks it as "exited" instead of filtering it out. This allows the desktop app to
+// display exited sessions with appropriate styling and allow relaunching.
+func TestConvertInstancesMarksLocalSessionWithoutTmuxAsExited(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm := NewTmuxManager()
+
+	// Create an instance that references a non-existent tmux session
+	// (simulates a session whose tmux process has ended)
+	instances := []instanceJSON{
+		{
+			ID:          "exited-test-001",
+			Title:       "Exited Session",
+			ProjectPath: "/Users/jason/project",
+			GroupPath:   "project",
+			Tool:        "claude",
+			Status:      "running", // Stored as "running" in JSON
+			TmuxSession: "definitely_nonexistent_tmux_session_xyz123",
+		},
+	}
+
+	result := tm.convertInstancesToSessionInfos(instances)
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 session, got %d", len(result))
+	}
+
+	// The session should be marked as "exited" because its tmux session doesn't exist
+	if result[0].Status != "exited" {
+		t.Errorf("Expected status %q for local session without tmux, got %q", "exited", result[0].Status)
+	}
+}
+
+// TestConvertInstancesPreservesRunningStatusForActiveTmux verifies that
+// local sessions with running tmux sessions retain their original status
+// (not marked as "exited").
+func TestConvertInstancesPreservesRunningStatusForActiveTmux(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm := NewTmuxManager()
+
+	// Create a real tmux session for the test
+	tmpDir := t.TempDir()
+	sessionName := "test_preserve_running"
+	cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test tmux session: %v", err)
+	}
+	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+	instances := []instanceJSON{
+		{
+			ID:          "running-test-001",
+			Title:       "Running Session",
+			ProjectPath: tmpDir,
+			GroupPath:   "test",
+			Tool:        "claude",
+			Status:      "running",
+			TmuxSession: sessionName,
+		},
+	}
+
+	result := tm.convertInstancesToSessionInfos(instances)
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 session, got %d", len(result))
+	}
+
+	// The session should retain "running" status because tmux session exists
+	if result[0].Status != "running" {
+		t.Errorf("Expected status %q for active tmux session, got %q", "running", result[0].Status)
+	}
+}
+
+// TestConvertInstancesDoesNotMarkRemoteSessionAsExited verifies that remote
+// sessions are not marked as "exited" based on local tmux checks. Remote
+// sessions are managed differently and their status depends on SSH connectivity.
+func TestConvertInstancesDoesNotMarkRemoteSessionAsExited(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm := NewTmuxManager()
+
+	// Remote session with non-existent local tmux (this is expected for remote sessions)
+	instances := []instanceJSON{
+		{
+			ID:          "remote-test-001",
+			Title:       "Remote Session",
+			ProjectPath: "/home/user/project",
+			GroupPath:   "remote/server",
+			Tool:        "claude",
+			Status:      "running",
+			TmuxSession: "nonexistent_remote_tmux",
+			RemoteHost:  "my-server", // This makes it a remote session
+		},
+	}
+
+	result := tm.convertInstancesToSessionInfos(instances)
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 session, got %d", len(result))
+	}
+
+	// Remote session should NOT be marked as "exited" even though local tmux doesn't exist
+	if result[0].Status == "exited" {
+		t.Errorf("Remote session should not be marked as 'exited' based on local tmux check, got status %q", result[0].Status)
+	}
+	// Should retain original status
+	if result[0].Status != "running" {
+		t.Errorf("Expected remote session to retain status %q, got %q", "running", result[0].Status)
+	}
+}
+
+// TestUpdateSessionStatusAcceptsExitedStatus verifies that "exited" is a valid
+// status value that can be persisted via UpdateSessionStatus.
+func TestUpdateSessionStatusAcceptsExitedStatus(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	sessionsDir := filepath.Join(tmpHome, ".agent-deck", "profiles", "default")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions dir: %v", err)
+	}
+
+	sessionsJSON := `{
+  "instances": [
+    {"id": "abc-123", "title": "Test", "status": "running"}
+  ]
+}`
+	sessionsPath := filepath.Join(sessionsDir, "sessions.json")
+	if err := os.WriteFile(sessionsPath, []byte(sessionsJSON), 0600); err != nil {
+		t.Fatalf("Failed to write sessions.json: %v", err)
+	}
+
+	tm := NewTmuxManager()
+
+	// Updating to "exited" should succeed (it's in validSessionStatuses)
+	err := tm.UpdateSessionStatus("abc-123", "exited")
+	if err != nil {
+		t.Fatalf("UpdateSessionStatus should accept 'exited' as valid status, got error: %v", err)
+	}
+
+	// Verify the status was updated
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		t.Fatalf("Failed to read sessions.json: %v", err)
+	}
+	if !strings.Contains(string(data), `"exited"`) {
+		t.Error("sessions.json should contain 'exited' status after update")
+	}
+}
+
