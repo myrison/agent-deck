@@ -247,9 +247,10 @@ var (
 	GroupStatusWaiting lipgloss.Style
 
 	// Group selected styles
-	GroupNameSelStyle   lipgloss.Style
-	GroupCountSelStyle  lipgloss.Style
-	GroupExpandSelStyle lipgloss.Style
+	GroupNameSelStyle      lipgloss.Style
+	GroupCountSelStyle     lipgloss.Style
+	GroupExpandSelStyle    lipgloss.Style
+	GroupDisconnectedStyle lipgloss.Style
 )
 
 // ToolStyleCache provides pre-allocated styles for each tool type
@@ -501,6 +502,7 @@ func initStyles() {
 	GroupNameSelStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorBg).Background(ColorAccent)
 	GroupCountSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent)
 	GroupExpandSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent)
+	GroupDisconnectedStyle = lipgloss.NewStyle().Foreground(ColorRed)
 
 	// ToolStyleCache - reinitialize with current theme colors
 	ToolStyleCache = map[string]lipgloss.Style{

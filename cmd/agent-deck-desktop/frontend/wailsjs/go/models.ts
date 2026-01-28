@@ -8,11 +8,12 @@ export namespace main {
 	    level: number;
 	    hasChildren: boolean;
 	    expanded: boolean;
-	
+	    remoteHostId?: string;
+
 	    static createFrom(source: any = {}) {
 	        return new GroupInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -22,6 +23,7 @@ export namespace main {
 	        this.level = source["level"];
 	        this.hasChildren = source["hasChildren"];
 	        this.expanded = source["expanded"];
+	        this.remoteHostId = source["remoteHostId"];
 	    }
 	}
 	export class ImagePasteResult {

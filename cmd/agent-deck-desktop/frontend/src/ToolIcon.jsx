@@ -24,6 +24,30 @@ export function BranchIcon({ size = 14 }) {
     );
 }
 
+// Disconnected host icon (crossed-out signal)
+export function DisconnectedIcon({ size = 14 }) {
+    return (
+        <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ display: 'inline-block', verticalAlign: 'middle' }}
+        >
+            {/* Wifi arcs */}
+            <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9z" />
+            <path d="M5 13l2 2a7 7 0 0 1 10 0l2-2a11 11 0 0 0-14 0z" />
+            <circle cx="12" cy="19" r="1" fill="currentColor" />
+            {/* Diagonal strike-through */}
+            <line x1="3" y1="3" x2="21" y2="21" />
+        </svg>
+    );
+}
+
 // Get the Claude waiting color from CSS custom property (theme-aware)
 // Dark theme: Anthropic brand orange (#da7756) on yellow background
 // Light theme: Dark text (#1a1a2e) on amber background

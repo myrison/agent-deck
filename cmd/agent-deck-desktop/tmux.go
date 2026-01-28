@@ -73,11 +73,12 @@ type groupJSON struct {
 type GroupInfo struct {
 	Name         string `json:"name"`
 	Path         string `json:"path"`
-	SessionCount int    `json:"sessionCount"` // Direct sessions in this group
-	TotalCount   int    `json:"totalCount"`   // Sessions including subgroups
-	Level        int    `json:"level"`        // Nesting level (0 for root)
-	HasChildren  bool   `json:"hasChildren"`  // Has subgroups
-	Expanded     bool   `json:"expanded"`     // TUI expand state (default)
+	SessionCount int    `json:"sessionCount"`          // Direct sessions in this group
+	TotalCount   int    `json:"totalCount"`            // Sessions including subgroups
+	Level        int    `json:"level"`                 // Nesting level (0 for root)
+	HasChildren  bool   `json:"hasChildren"`           // Has subgroups
+	Expanded     bool   `json:"expanded"`              // TUI expand state (default)
+	RemoteHostID string `json:"remoteHostId,omitempty"` // SSH host ID for remote host groups
 }
 
 // SessionsWithGroups combines sessions and groups for hierarchical display
@@ -490,6 +491,9 @@ func (tm *TmuxManager) ListSessionsWithGroups() (SessionsWithGroups, error) {
 			}
 		}
 
+		// Check if this group corresponds to a remote SSH host
+		remoteHostID, _ := session.GetSSHHostIDFromGroupPath(g.Path)
+
 		groups = append(groups, GroupInfo{
 			Name:         g.Name,
 			Path:         g.Path,
@@ -498,6 +502,7 @@ func (tm *TmuxManager) ListSessionsWithGroups() (SessionsWithGroups, error) {
 			Level:        level,
 			HasChildren:  hasChildren,
 			Expanded:     g.Expanded,
+			RemoteHostID: remoteHostID,
 		})
 	}
 

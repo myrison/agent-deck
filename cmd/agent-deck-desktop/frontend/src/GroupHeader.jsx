@@ -1,4 +1,6 @@
 import { useCallback } from 'react';
+import { useTooltip } from './Tooltip';
+import { DisconnectedIcon } from './ToolIcon';
 import './GroupHeader.css';
 
 /**
@@ -10,8 +12,10 @@ import './GroupHeader.css';
  * @param {boolean} props.isSelected - Whether this group row is currently selected
  * @param {function} props.onToggle - Callback when expand/collapse is toggled
  * @param {function} props.onClick - Callback when group row is clicked
+ * @param {boolean} props.isHostDisconnected - Whether the remote host for this group is disconnected
+ * @param {string} props.hostError - Error message when host is disconnected
  */
-export default function GroupHeader({ group, isExpanded, isSelected, onToggle, onClick }) {
+export default function GroupHeader({ group, isExpanded, isSelected, onToggle, onClick, isHostDisconnected, hostError }) {
     const handleClick = useCallback((e) => {
         e.preventDefault();
         if (onClick) onClick(group);
@@ -29,6 +33,8 @@ export default function GroupHeader({ group, isExpanded, isSelected, onToggle, o
             if (onToggle) onToggle(group.path, !isExpanded);
         }
     }, [group.path, isExpanded, onToggle]);
+
+    const { show: showTooltip, hide: hideTooltip, Tooltip } = useTooltip({ delay: 200 });
 
     // Determine indent level (CSS custom property for dynamic indentation)
     const indent = group.level * 16; // 16px per level
@@ -57,7 +63,17 @@ export default function GroupHeader({ group, isExpanded, isSelected, onToggle, o
                 {isExpanded ? '▼' : '▶'}
             </span>
             <span className="group-name">{group.name}</span>
+            {isHostDisconnected && (
+                <span
+                    className="group-disconnected-icon"
+                    onMouseEnter={(e) => showTooltip(e, hostError || 'Host unreachable')}
+                    onMouseLeave={hideTooltip}
+                >
+                    <DisconnectedIcon size={14} />
+                </span>
+            )}
             <span className="group-count">({countDisplay})</span>
+            <Tooltip />
         </button>
     );
 }

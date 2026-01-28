@@ -19,6 +19,7 @@ import (
 
 	"github.com/asheshgoplani/agent-deck/internal/git"
 	"github.com/asheshgoplani/agent-deck/internal/session"
+	sshpkg "github.com/asheshgoplani/agent-deck/internal/ssh"
 	"github.com/asheshgoplani/agent-deck/internal/tmux"
 	"github.com/asheshgoplani/agent-deck/internal/update"
 )
@@ -208,6 +209,9 @@ type Home struct {
 
 	// File watcher for external changes (auto-reload)
 	storageWatcher *StorageWatcher
+
+	// SSH host connectivity cache (refreshed on tick from SSH pool)
+	sshHostConnected map[string]bool // hostID -> connected
 
 	// Storage warning (shown if storage initialization failed)
 	storageWarning string
@@ -432,6 +436,7 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 		resumingSessions:       make(map[string]time.Time),
 		mcpLoadingSessions:     make(map[string]time.Time),
 		forkingSessions:        make(map[string]time.Time),
+		sshHostConnected:       make(map[string]bool),
 		lastLogActivity:        make(map[string]time.Time),
 		statusTrigger:          make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
 		statusWorkerDone:       make(chan struct{}),
@@ -2594,6 +2599,15 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update animation frame for launching spinner (8 frames, cycles every tick)
 		h.animationFrame = (h.animationFrame + 1) % 8
+
+		// Refresh SSH host connectivity cache from the global pool
+		if statuses := sshpkg.DefaultPool().Status(); len(statuses) > 0 {
+			connected := make(map[string]bool, len(statuses))
+			for _, s := range statuses {
+				connected[s.HostID] = s.Connected
+			}
+			h.sshHostConnected = connected
+		}
 
 		// Fast log size check every 10 seconds (catches runaway logs before they cause issues)
 		// This is much faster than full maintenance - just checks file sizes
@@ -5609,8 +5623,16 @@ func (h *Home) renderGroupItem(b *strings.Builder, item session.Item, selected b
 		statusStr += " " + GroupStatusWaiting.Render(fmt.Sprintf("◐ %d", waiting))
 	}
 
-	// Build the row: [indent][hotkey][expand] [name](count) [status]
-	row := fmt.Sprintf("%s%s%s %s%s%s", indent, hotkeyStr, expandIcon, nameStyle.Render(group.Name), countStr, statusStr)
+	// SSH host disconnected indicator (only for remote host groups)
+	disconnectedStr := ""
+	if hostID, isRemote := session.GetSSHHostIDFromGroupPath(group.Path); isRemote {
+		if connected, exists := h.sshHostConnected[hostID]; exists && !connected {
+			disconnectedStr = " " + GroupDisconnectedStyle.Render("⊘")
+		}
+	}
+
+	// Build the row: [indent][hotkey][expand] [name](count) [disconnected] [status]
+	row := fmt.Sprintf("%s%s%s %s%s%s%s", indent, hotkeyStr, expandIcon, nameStyle.Render(group.Name), countStr, disconnectedStr, statusStr)
 	b.WriteString(row)
 	b.WriteString("\n")
 }

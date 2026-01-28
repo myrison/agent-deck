@@ -64,6 +64,16 @@
     flex-shrink: 0;
 }
 
+/* Disconnected host indicator */
+.group-disconnected-icon {
+    display: inline-flex;
+    align-items: center;
+    color: #ef4444;
+    flex-shrink: 0;
+    cursor: help;
+    pointer-events: auto;
+}
+
 /* Empty group styling */
 .group-header.empty {
     opacity: 0.6;
