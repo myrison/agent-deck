@@ -423,7 +423,7 @@ func (tm *TmuxManager) saveSessionsData(sessions *sessionsJSON) error {
 }
 
 // detectSessionStatus captures tmux pane content and detects the actual status.
-// Returns the detected status ("running", "waiting", "idle") and whether detection succeeded.
+// Returns the detected status ("running", "waiting", "idle", "error") and whether detection succeeded.
 func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bool) {
 	// Capture pane content (last 50 lines should be enough for detection)
 	cmd := exec.Command("tmux", "capture-pane", "-t", tmuxSession, "-p", "-S", "-50")
@@ -437,6 +437,29 @@ func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bo
 		return "idle", true
 	}
 
+	contentLower := strings.ToLower(content)
+
+	// Check for error indicators FIRST (highest priority)
+	// These patterns indicate terminal/session startup failures
+	errorPatterns := []string{
+		"failed to start terminal",
+		"failed to restart remote session",
+		"failed to create remote tmux session",
+		"ssh connection failed",
+		"could not resolve hostname",
+		"connection refused",
+		"permission denied (publickey",
+		"no route to host",
+		"network is unreachable",
+		"operation timed out",
+		"host key verification failed",
+	}
+	for _, pattern := range errorPatterns {
+		if strings.Contains(contentLower, pattern) {
+			return "error", true
+		}
+	}
+
 	// Use the prompt detector from internal/tmux
 	detector := tmux.NewPromptDetector(tool)
 	if detector.HasPrompt(content) {
@@ -444,7 +467,6 @@ func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bo
 	}
 
 	// If no prompt detected, check for busy indicators
-	contentLower := strings.ToLower(content)
 	busyIndicators := []string{
 		"ctrl+c to interrupt",
 		"esc to interrupt",
