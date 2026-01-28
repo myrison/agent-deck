@@ -123,15 +123,27 @@ type TmuxManager struct {
 }
 
 // NewTmuxManager creates a new TmuxManager.
+// If storage adapter creation fails, the manager continues with adapter=nil and
+// methods return "storage adapter not initialized" errors. This graceful degradation
+// allows the app to start even if the profile directory is inaccessible, while
+// clearly surfacing the issue when storage operations are attempted.
 func NewTmuxManager() *TmuxManager {
 	// Create storage adapter with 500ms debounce for status updates
 	adapter, err := session.NewStorageAdapterWithProfile("", 500*time.Millisecond)
 	if err != nil {
 		log.Printf("Warning: failed to create storage adapter: %v", err)
-		// Continue with nil adapter - methods will handle gracefully
+		// Continue with nil adapter - methods will return clear errors
 	}
 	return &TmuxManager{
 		adapter: adapter,
+	}
+}
+
+// Close flushes any pending storage updates and releases resources.
+// Call this during app shutdown to prevent data loss from unflushed debounced updates.
+func (tm *TmuxManager) Close() {
+	if tm.adapter != nil {
+		tm.adapter.FlushPendingUpdates()
 	}
 }
 
@@ -200,6 +212,10 @@ func (tm *TmuxManager) PersistSession(s SessionInfo) error {
 	if tm.adapter == nil {
 		return fmt.Errorf("storage adapter not initialized")
 	}
+
+	// Flush any pending debounced updates to prevent race condition where
+	// stale queued updates overwrite this immediate save.
+	tm.adapter.FlushPendingUpdates()
 
 	// Load current data
 	data, err := tm.adapter.LoadStorageData()
@@ -1119,6 +1135,10 @@ func (tm *TmuxManager) UpdateSessionStatus(sessionID, status string) error {
 		return fmt.Errorf("invalid session status: %q", status)
 	}
 
+	// Flush any pending debounced updates to prevent race condition where
+	// stale queued updates overwrite this immediate save.
+	tm.adapter.FlushPendingUpdates()
+
 	// Use immediate update (not debounced) since status changes should be visible quickly
 	data, err := tm.adapter.LoadStorageData()
 	if err != nil {
@@ -1147,6 +1167,10 @@ func (tm *TmuxManager) DeleteSession(sessionID string, sshBridge *SSHBridge) err
 	if tm.adapter == nil {
 		return fmt.Errorf("storage adapter not initialized")
 	}
+
+	// Flush any pending debounced updates to prevent race condition where
+	// stale queued updates overwrite this immediate save.
+	tm.adapter.FlushPendingUpdates()
 
 	// Load current data
 	data, err := tm.adapter.LoadStorageData()

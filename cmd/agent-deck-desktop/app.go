@@ -82,6 +82,11 @@ func (a *App) shutdown(ctx context.Context) {
 	// Unregister this window from active windows
 	unregisterWindow(a.windowNumber)
 
+	// Flush pending storage updates to prevent data loss from debounced writes
+	if a.tmux != nil {
+		a.tmux.Close()
+	}
+
 	// Clean up SSH connections
 	if a.sshBridge != nil {
 		a.sshBridge.CloseAll()
