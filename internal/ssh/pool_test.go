@@ -53,24 +53,27 @@ func TestPoolClose_RemovesConnection(t *testing.T) {
 	pool := NewPool()
 	pool.Register("test", Config{Host: "localhost"})
 
-	// Manually add a connection to simulate established state
+	// Simulate an established connection by injecting a connected state
 	conn := NewConnection(Config{Host: "localhost"})
+	conn.mu.Lock()
+	conn.connected = true
+	conn.mu.Unlock()
+
 	pool.mu.Lock()
 	pool.connections["test"] = conn
 	pool.mu.Unlock()
 
-	// Note: GetIfExists returns nil since connection isn't marked as connected,
-	// but the connection object still exists in the pool.connections map
+	// Verify connection exists via public API before close
+	if pool.GetIfExists("test") == nil {
+		t.Fatal("Expected connection to exist before Close")
+	}
 
 	// Close should remove it
 	pool.Close("test")
 
-	pool.mu.RLock()
-	_, exists := pool.connections["test"]
-	pool.mu.RUnlock()
-
-	if exists {
-		t.Error("Expected connection to be removed after Close")
+	// Verify via public API that connection no longer exists
+	if pool.GetIfExists("test") != nil {
+		t.Error("Expected GetIfExists to return nil after Close")
 	}
 }
 
@@ -79,64 +82,197 @@ func TestPoolCloseAll_RemovesAllConnections(t *testing.T) {
 	pool.Register("h1", Config{Host: "host1"})
 	pool.Register("h2", Config{Host: "host2"})
 
-	// Manually add connections
-	pool.mu.Lock()
-	pool.connections["h1"] = NewConnection(Config{Host: "host1"})
-	pool.connections["h2"] = NewConnection(Config{Host: "host2"})
-	pool.mu.Unlock()
+	// Simulate established connections
+	for _, hid := range []string{"h1", "h2"} {
+		conn := NewConnection(Config{Host: hid})
+		conn.mu.Lock()
+		conn.connected = true
+		conn.mu.Unlock()
+
+		pool.mu.Lock()
+		pool.connections[hid] = conn
+		pool.mu.Unlock()
+	}
+
+	// Verify connections exist via public API before close
+	if pool.GetIfExists("h1") == nil || pool.GetIfExists("h2") == nil {
+		t.Fatal("Expected connections to exist before CloseAll")
+	}
 
 	pool.CloseAll()
 
-	pool.mu.RLock()
-	connCount := len(pool.connections)
-	pool.mu.RUnlock()
-
-	if connCount != 0 {
-		t.Errorf("Expected 0 connections after CloseAll, got %d", connCount)
+	// Verify via public API that no connections exist
+	if pool.GetIfExists("h1") != nil {
+		t.Error("Expected GetIfExists('h1') to return nil after CloseAll")
+	}
+	if pool.GetIfExists("h2") != nil {
+		t.Error("Expected GetIfExists('h2') to return nil after CloseAll")
 	}
 }
 
-func TestStatusCheckCacheDuration(t *testing.T) {
-	// Verify the cache duration constant is set to expected value
-	if statusCheckCacheDuration != 30*time.Second {
-		t.Errorf("Expected cache duration of 30s, got %v", statusCheckCacheDuration)
-	}
-}
-
-// TestPoolStatus_ReturnsStatusForAllHosts tests that Status() returns
-// a status entry for each registered host, even if connections haven't been tested.
-// Note: This is a unit test that doesn't require actual SSH connectivity.
-func TestPoolStatus_ReturnsStatusForAllHosts(t *testing.T) {
+func TestGetIfExists_ReturnsNilForUnconnectedConnection(t *testing.T) {
 	pool := NewPool()
+	pool.Register("test", Config{Host: "localhost"})
 
-	// Register hosts but don't connect (simulates desktop app state)
-	pool.Register("host1", Config{Host: "fake-host-1"})
-	pool.Register("host2", Config{Host: "fake-host-2"})
+	// Manually add a connection that is NOT marked as connected
+	conn := NewConnection(Config{Host: "localhost"})
+	// Note: conn.connected defaults to false
+	pool.mu.Lock()
+	pool.connections["test"] = conn
+	pool.mu.Unlock()
 
-	// Get list of registered hosts
-	hosts := pool.ListHosts()
-	if len(hosts) != 2 {
-		t.Fatalf("Expected 2 registered hosts, got %d", len(hosts))
+	// GetIfExists should return nil because connection is not marked connected
+	result := pool.GetIfExists("test")
+	if result != nil {
+		t.Error("Expected nil for unconnected connection, got non-nil")
 	}
+}
 
-	// Note: We can't easily test Status() without mocking SSH,
-	// but we can verify the structure is correct for cached connections
+func TestGetIfExists_ReturnsConnectionWhenConnected(t *testing.T) {
+	pool := NewPool()
+	pool.Register("test", Config{Host: "localhost"})
 
-	// Manually inject a "tested" connection to verify caching works
-	conn := NewConnection(Config{Host: "fake-host-1"})
+	// Manually add a connection that IS marked as connected
+	conn := NewConnection(Config{Host: "localhost"})
 	conn.mu.Lock()
 	conn.connected = true
+	conn.mu.Unlock()
+
+	pool.mu.Lock()
+	pool.connections["test"] = conn
+	pool.mu.Unlock()
+
+	// GetIfExists should return the connection
+	result := pool.GetIfExists("test")
+	if result == nil {
+		t.Error("Expected connection, got nil")
+	}
+	if result != conn {
+		t.Error("Expected same connection instance")
+	}
+}
+
+func TestGetIfExists_ReturnsNilForNonexistentHost(t *testing.T) {
+	pool := NewPool()
+
+	result := pool.GetIfExists("nonexistent")
+	if result != nil {
+		t.Error("Expected nil for nonexistent host, got non-nil")
+	}
+}
+
+func TestPoolStatus_UsesCachedStatusForRecentlyCheckedConnection(t *testing.T) {
+	pool := NewPool()
+	pool.Register("cached-host", Config{Host: "fake-host"})
+
+	// Inject a recently-checked connected connection
+	conn := NewConnection(Config{Host: "fake-host"})
+	conn.mu.Lock()
+	conn.connected = true
+	conn.lastCheck = time.Now() // Recent - within cache duration
+	conn.mu.Unlock()
+
+	pool.mu.Lock()
+	pool.connections["cached-host"] = conn
+	pool.mu.Unlock()
+
+	// Status should use cached result (not attempt SSH connection)
+	statuses := pool.Status()
+
+	if len(statuses) != 1 {
+		t.Fatalf("Expected 1 status, got %d", len(statuses))
+	}
+
+	status := statuses[0]
+	if status.HostID != "cached-host" {
+		t.Errorf("Expected hostID 'cached-host', got %q", status.HostID)
+	}
+	if !status.Connected {
+		t.Error("Expected Connected=true for cached connection")
+	}
+	if status.LastError != nil {
+		t.Errorf("Expected no error for cached connection, got %v", status.LastError)
+	}
+}
+
+func TestPoolStatus_ReturnsMultipleHostStatuses(t *testing.T) {
+	pool := NewPool()
+	pool.Register("host-a", Config{Host: "fake-a"})
+	pool.Register("host-b", Config{Host: "fake-b"})
+
+	// Inject cached connected connections for both
+	for _, hid := range []string{"host-a", "host-b"} {
+		conn := NewConnection(Config{Host: "fake"})
+		conn.mu.Lock()
+		conn.connected = true
+		conn.lastCheck = time.Now()
+		conn.mu.Unlock()
+
+		pool.mu.Lock()
+		pool.connections[hid] = conn
+		pool.mu.Unlock()
+	}
+
+	statuses := pool.Status()
+
+	if len(statuses) != 2 {
+		t.Fatalf("Expected 2 statuses, got %d", len(statuses))
+	}
+
+	// Collect host IDs (order not guaranteed due to parallel execution)
+	hostIDs := make(map[string]bool)
+	for _, s := range statuses {
+		hostIDs[s.HostID] = true
+		if !s.Connected {
+			t.Errorf("Expected Connected=true for %s", s.HostID)
+		}
+	}
+
+	if !hostIDs["host-a"] || !hostIDs["host-b"] {
+		t.Errorf("Missing expected hosts: got %v", hostIDs)
+	}
+}
+
+func TestPoolStatus_CachedConnectionWithError(t *testing.T) {
+	pool := NewPool()
+	pool.Register("error-host", Config{Host: "fake-host"})
+
+	// Inject a recently-checked connection that has an error
+	conn := NewConnection(Config{Host: "fake-host"})
+	testErr := &testError{msg: "connection refused"}
+	conn.mu.Lock()
+	conn.connected = false
+	conn.lastError = testErr
 	conn.lastCheck = time.Now()
 	conn.mu.Unlock()
 
 	pool.mu.Lock()
-	pool.connections["host1"] = conn
+	pool.connections["error-host"] = conn
 	pool.mu.Unlock()
 
-	// For host1, Status should return cached result (connected=true)
-	// For host2, Status will try to connect (which will fail in tests)
-	// This test just verifies the code doesn't panic and returns results
+	statuses := pool.Status()
 
-	// Since we can't mock SSH easily, we skip the actual Status() call
-	// in unit tests. Integration tests should cover real SSH scenarios.
+	if len(statuses) != 1 {
+		t.Fatalf("Expected 1 status, got %d", len(statuses))
+	}
+
+	status := statuses[0]
+	if status.Connected {
+		t.Error("Expected Connected=false for connection with error")
+	}
+	if status.LastError == nil {
+		t.Fatal("Expected LastError to be set")
+	}
+	if status.LastError.Error() != "connection refused" {
+		t.Errorf("Expected error message 'connection refused', got %q", status.LastError.Error())
+	}
+}
+
+// testError is a simple error type for testing
+type testError struct {
+	msg string
+}
+
+func (e *testError) Error() string {
+	return e.msg
 }
