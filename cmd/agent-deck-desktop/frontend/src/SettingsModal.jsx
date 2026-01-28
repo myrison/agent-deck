@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './SettingsModal.css';
 import LaunchConfigEditor from './LaunchConfigEditor';
-import { GetLaunchConfigs, DeleteLaunchConfig, GetSoftNewlineMode, SetSoftNewlineMode, SetFontSize, GetScrollSpeed, SetScrollSpeed, ResetGroupSettings, GetAutoCopyOnSelectEnabled, SetAutoCopyOnSelectEnabled, GetScanPaths, AddScanPath, RemoveScanPath, GetScanMaxDepth, SetScanMaxDepth, BrowseLocalDirectory } from '../wailsjs/go/main/App';
+import { GetLaunchConfigs, DeleteLaunchConfig, GetSoftNewlineMode, SetSoftNewlineMode, SetFontSize, GetScrollSpeed, SetScrollSpeed, ResetGroupSettings, GetAutoCopyOnSelectEnabled, SetAutoCopyOnSelectEnabled, GetShowActivityRibbon, SetShowActivityRibbon, GetScanPaths, AddScanPath, RemoveScanPath, GetScanMaxDepth, SetScanMaxDepth, BrowseLocalDirectory } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { TOOLS } from './utils/tools';
 import ToolIcon from './ToolIcon';
@@ -21,6 +21,7 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
     const [creatingForTool, setCreatingForTool] = useState(null); // tool name when creating new
     const [softNewlineMode, setSoftNewlineMode] = useState('both');
     const [autoCopyOnSelect, setAutoCopyOnSelect] = useState(false);
+    const [showActivityRibbon, setShowActivityRibbon] = useState(true);
     const [scanPaths, setScanPaths] = useState([]);
     const [scanMaxDepth, setScanMaxDepth] = useState(2);
     const { themePreference, setTheme } = useTheme();
@@ -56,6 +57,14 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
             logger.info('Loaded auto-copy on select:', autoCopyEnabled);
         } catch (err) {
             logger.error('Failed to load auto-copy setting:', err);
+        }
+
+        try {
+            const ribbonEnabled = await GetShowActivityRibbon();
+            setShowActivityRibbon(ribbonEnabled);
+            logger.info('Loaded activity ribbon setting:', ribbonEnabled);
+        } catch (err) {
+            logger.error('Failed to load activity ribbon setting:', err);
         }
     };
 
@@ -137,6 +146,17 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
             logger.info('Set auto-copy on select:', enabled);
         } catch (err) {
             logger.error('Failed to save auto-copy setting:', err);
+            alert('Failed to save setting: ' + err.message);
+        }
+    };
+
+    const handleShowActivityRibbonChange = async (enabled) => {
+        try {
+            await SetShowActivityRibbon(enabled);
+            setShowActivityRibbon(enabled);
+            logger.info('Set activity ribbon:', enabled);
+        } catch (err) {
+            logger.error('Failed to save activity ribbon setting:', err);
             alert('Failed to save setting: ' + err.message);
         }
     };
@@ -325,6 +345,19 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
                                 <span className="settings-theme-option-icon">💻</span>
                                 Auto
                             </button>
+                        </div>
+                        <div className="settings-checkbox-item settings-appearance-checkbox">
+                            <label className="settings-checkbox-label">
+                                <input
+                                    type="checkbox"
+                                    checked={showActivityRibbon}
+                                    onChange={(e) => handleShowActivityRibbonChange(e.target.checked)}
+                                />
+                                Show activity ribbon on tabs
+                            </label>
+                            <p className="settings-input-description">
+                                Display waiting time indicator below each session tab.
+                            </p>
                         </div>
                     </div>
 

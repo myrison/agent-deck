@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import './SessionTab.css';
 import ToolIcon, { BranchIcon } from './ToolIcon';
+import ActivityRibbon from './ActivityRibbon';
 import { useTooltip } from './Tooltip';
 import { createLogger } from './logger';
 import { getPaneList, findPane, countPanes } from './layoutUtils';
@@ -41,7 +42,7 @@ function getRelativePath(fullPath) {
     return fullPath;
 }
 
-export default function SessionTab({ tab, index, isActive, onSwitch, onClose, onContextMenu, isDragging, dragOverSide, onDragStart, onDragEnd, onDragOver }) {
+export default function SessionTab({ tab, index, isActive, onSwitch, onClose, onContextMenu, isDragging, dragOverSide, onDragStart, onDragEnd, onDragOver, showActivityRibbon }) {
     const { show: showTooltip, hide: hideTooltip, Tooltip } = useTooltip();
 
     // Extract session info from the new layout-based tab structure
@@ -200,7 +201,7 @@ export default function SessionTab({ tab, index, isActive, onSwitch, onClose, on
     }, [session]);
 
     return (
-        <>
+        <div className="session-tab-wrapper">
             <button
                 className={`session-tab${isActive ? ' active' : ''}${paneCount > 1 ? ' multi-pane' : ''}${hasCustomLabel ? ' has-label' : ''}${session?.isRemote ? ' is-remote' : ''}${isDragging ? ' dragging' : ''}${dragOverSide === 'left' ? ' drag-over-left' : ''}${dragOverSide === 'right' ? ' drag-over-right' : ''}`}
                 onClick={onSwitch}
@@ -246,7 +247,10 @@ export default function SessionTab({ tab, index, isActive, onSwitch, onClose, on
                     ×
                 </button>
             </button>
+            {showActivityRibbon && sessions.length > 0 && (
+                <ActivityRibbon sessions={sessions} />
+            )}
             <Tooltip />
-        </>
+        </div>
     );
 }

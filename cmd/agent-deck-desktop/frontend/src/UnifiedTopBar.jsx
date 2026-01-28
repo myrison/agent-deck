@@ -27,6 +27,7 @@ export default function UnifiedTopBar({
     onReorderTab,
     onTabLabelUpdated,
     onSessionDeleted,
+    showActivityRibbon = true,
 }) {
     const [favorites, setFavorites] = useState([]);
     const [contextMenu, setContextMenu] = useState(null);
@@ -364,6 +365,7 @@ export default function UnifiedTopBar({
                         onDragStart={(e) => handleTabDragStart(e, tab)}
                         onDragEnd={handleTabDragEnd}
                         onDragOver={(e) => handleTabDragOver(e, tab)}
+                        showActivityRibbon={showActivityRibbon}
                     />
                 ))}
             </div>

@@ -337,6 +337,13 @@ func (a *App) UpdateSessionCustomLabel(sessionID, customLabel string) error {
 	return a.tmux.UpdateSessionCustomLabel(sessionID, customLabel)
 }
 
+// RefreshSessionStatuses returns the current status for the specified session IDs.
+// This is a lightweight operation that only checks tmux pane content - no git info.
+// Use this for periodic polling of open tab sessions instead of full ListSessions().
+func (a *App) RefreshSessionStatuses(sessionIDs []string) ([]StatusUpdate, error) {
+	return a.tmux.RefreshSessionStatuses(sessionIDs)
+}
+
 // DeleteSession removes a session from sessions.json and kills its tmux session.
 // This syncs with the TUI via the shared sessions.json storage.
 func (a *App) DeleteSession(sessionID string) error {
@@ -603,6 +610,28 @@ func (a *App) SetAutoCopyOnSelectEnabled(enabled bool) error {
 	}
 	// Emit event to notify running terminals of the setting change
 	wailsRuntime.EventsEmit(a.ctx, "settings:autoCopyOnSelect", enabled)
+	return nil
+}
+
+// GetShowActivityRibbon returns whether the activity ribbon is enabled.
+// The activity ribbon shows wait time below each session tab. Enabled by default.
+func (a *App) GetShowActivityRibbon() bool {
+	enabled, err := a.desktopSettings.GetShowActivityRibbon()
+	if err != nil {
+		return true // Default to enabled
+	}
+	return enabled
+}
+
+// SetShowActivityRibbon enables or disables the activity ribbon on session tabs.
+// Emits a 'settings:activityRibbon' event so the UI updates immediately.
+func (a *App) SetShowActivityRibbon(enabled bool) error {
+	err := a.desktopSettings.SetShowActivityRibbon(enabled)
+	if err != nil {
+		return err
+	}
+	// Emit event so tabs update without requiring refresh
+	wailsRuntime.EventsEmit(a.ctx, "settings:activityRibbon", enabled)
 	return nil
 }
 

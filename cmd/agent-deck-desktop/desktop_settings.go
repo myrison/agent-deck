@@ -40,6 +40,9 @@ type TerminalConfig struct {
 	// AutoCopyOnSelect enables automatic clipboard copy when text is selected
 	// Similar to Kitty terminal behavior. Default: false
 	AutoCopyOnSelect bool `toml:"auto_copy_on_select"`
+	// ShowActivityRibbon shows a thin indicator below each tab displaying wait time
+	// Shows how long the agent has been waiting for input. Default: true
+	ShowActivityRibbon *bool `toml:"show_activity_ribbon"`
 }
 
 // DesktopSettingsManager manages desktop-specific settings in config.toml
@@ -127,6 +130,12 @@ func (dsm *DesktopSettingsManager) loadDesktopSettings() (*DesktopConfig, error)
 		config.Desktop.Terminal.ScrollSpeed = 250
 	}
 
+	// Apply default for ShowActivityRibbon (enabled by default)
+	if config.Desktop.Terminal.ShowActivityRibbon == nil {
+		enabled := true
+		config.Desktop.Terminal.ShowActivityRibbon = &enabled
+	}
+
 	return &config.Desktop, nil
 }
 
@@ -145,17 +154,23 @@ func (dsm *DesktopSettingsManager) saveDesktopSettings(desktop *DesktopConfig) e
 		existingConfig = make(map[string]interface{})
 	}
 
+	// Build terminal config with optional fields
+	terminalConfig := map[string]interface{}{
+		"soft_newline":        desktop.Terminal.SoftNewline,
+		"font_size":           desktop.Terminal.FontSize,
+		"scroll_speed":        desktop.Terminal.ScrollSpeed,
+		"click_to_cursor":     desktop.Terminal.ClickToCursor,
+		"auto_copy_on_select": desktop.Terminal.AutoCopyOnSelect,
+	}
+	if desktop.Terminal.ShowActivityRibbon != nil {
+		terminalConfig["show_activity_ribbon"] = *desktop.Terminal.ShowActivityRibbon
+	}
+
 	// Update the desktop section
 	existingConfig["desktop"] = map[string]interface{}{
 		"theme":           desktop.Theme,
 		"setup_dismissed": desktop.SetupDismissed,
-		"terminal": map[string]interface{}{
-			"soft_newline":        desktop.Terminal.SoftNewline,
-			"font_size":           desktop.Terminal.FontSize,
-			"scroll_speed":        desktop.Terminal.ScrollSpeed,
-			"click_to_cursor":     desktop.Terminal.ClickToCursor,
-			"auto_copy_on_select": desktop.Terminal.AutoCopyOnSelect,
-		},
+		"terminal":        terminalConfig,
 	}
 
 	// Ensure directory exists
@@ -379,6 +394,37 @@ func (dsm *DesktopSettingsManager) SetAutoCopyOnSelect(enabled bool) error {
 	}
 
 	config.Terminal.AutoCopyOnSelect = enabled
+	return dsm.saveDesktopSettings(config)
+}
+
+// GetShowActivityRibbon returns whether the activity ribbon is enabled.
+// The activity ribbon shows wait time below each session tab. Enabled by default.
+func (dsm *DesktopSettingsManager) GetShowActivityRibbon() (bool, error) {
+	config, err := dsm.loadDesktopSettings()
+	if err != nil {
+		return true, err // Default to enabled
+	}
+	if config.Terminal.ShowActivityRibbon == nil {
+		return true, nil // Default to enabled
+	}
+	return *config.Terminal.ShowActivityRibbon, nil
+}
+
+// SetShowActivityRibbon enables or disables the activity ribbon on session tabs.
+func (dsm *DesktopSettingsManager) SetShowActivityRibbon(enabled bool) error {
+	config, err := dsm.loadDesktopSettings()
+	if err != nil {
+		config = &DesktopConfig{
+			Theme: "dark",
+			Terminal: TerminalConfig{
+				SoftNewline: "both",
+				FontSize:    14,
+				ScrollSpeed: 100,
+			},
+		}
+	}
+
+	config.Terminal.ShowActivityRibbon = &enabled
 	return dsm.saveDesktopSettings(config)
 }
 

@@ -69,6 +69,7 @@ type InstanceData struct {
 	Status          Status    `json:"status"`
 	CreatedAt       time.Time `json:"created_at"`
 	LastAccessedAt  time.Time `json:"last_accessed_at,omitempty"`
+	WaitingSince    time.Time `json:"waiting_since,omitempty"` // When session entered waiting status
 	TmuxSession     string    `json:"tmux_session"`
 
 	// Worktree support
@@ -242,6 +243,14 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 			tmuxName = inst.RemoteTmuxName
 		}
 
+		// Get WaitingSince from runtime state tracker if available, fall back to persisted value
+		waitingSince := inst.WaitingSince
+		if inst.tmuxSession != nil {
+			if runtimeWaitingSince := inst.tmuxSession.GetWaitingSince(); !runtimeWaitingSince.IsZero() {
+				waitingSince = runtimeWaitingSince
+			}
+		}
+
 		data.Instances[i] = &InstanceData{
 			ID:          inst.ID,
 			Title:       inst.Title,
@@ -254,6 +263,7 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 			Status:             inst.Status,
 			CreatedAt:          inst.CreatedAt,
 			LastAccessedAt:     inst.LastAccessedAt,
+			WaitingSince:       waitingSince,
 			TmuxSession:        tmuxName,
 			WorktreePath:       inst.WorktreePath,
 			WorktreeRepoRoot:   inst.WorktreeRepoRoot,
@@ -670,6 +680,7 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			Status:             instData.Status,
 			CreatedAt:          instData.CreatedAt,
 			LastAccessedAt:     instData.LastAccessedAt,
+			WaitingSince:       instData.WaitingSince,
 			WorktreePath:       instData.WorktreePath,
 			WorktreeRepoRoot:   instData.WorktreeRepoRoot,
 			WorktreeBranch:     instData.WorktreeBranch,

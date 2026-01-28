@@ -59,6 +59,7 @@ type Instance struct {
 	Status         Status    `json:"status"`
 	CreatedAt      time.Time `json:"created_at"`
 	LastAccessedAt time.Time `json:"last_accessed_at,omitempty"` // When user last attached
+	WaitingSince   time.Time `json:"waiting_since,omitempty"`    // When session entered waiting status (persisted for desktop app)
 
 	// Claude Code integration
 	ClaudeSessionID  string    `json:"claude_session_id,omitempty"`

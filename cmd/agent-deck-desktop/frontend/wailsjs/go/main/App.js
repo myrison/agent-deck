@@ -146,6 +146,10 @@ export function GetSetupDismissed() {
   return window['go']['main']['App']['GetSetupDismissed']();
 }
 
+export function GetShowActivityRibbon() {
+  return window['go']['main']['App']['GetShowActivityRibbon']();
+}
+
 export function GetSoftNewlineMode() {
   return window['go']['main']['App']['GetSoftNewlineMode']();
 }
@@ -212,6 +216,10 @@ export function RecordProjectUsage(arg1) {
 
 export function RefreshScrollback(arg1) {
   return window['go']['main']['App']['RefreshScrollback'](arg1);
+}
+
+export function RefreshSessionStatuses(arg1) {
+  return window['go']['main']['App']['RefreshSessionStatuses'](arg1);
 }
 
 export function RefreshTerminalAfterResize(arg1) {
@@ -288,6 +296,10 @@ export function SetScrollSpeed(arg1) {
 
 export function SetSetupDismissed(arg1) {
   return window['go']['main']['App']['SetSetupDismissed'](arg1);
+}
+
+export function SetShowActivityRibbon(arg1) {
+  return window['go']['main']['App']['SetShowActivityRibbon'](arg1);
 }
 
 export function SetSoftNewlineMode(arg1) {
