@@ -755,3 +755,174 @@ func TestDiscoveryRepairsNilTmuxSession(t *testing.T) {
 			initialStatus, existingInst.Status)
 	}
 }
+
+// TestSyncSessionTitle_UpdatesIncorrectTitle verifies that SyncSessionTitle corrects
+// a session's title when the snapshot has a different authoritative value.
+func TestSyncSessionTitle_UpdatesIncorrectTitle(t *testing.T) {
+	tmuxName := "agentdeck_1769533185048019000_abcd1234" // Malformed - would parse to numeric
+
+	existingInst := &Instance{
+		Title: "1769533185048019000", // Wrong - this is what ParseTitleFromTmuxName returned
+	}
+
+	snapshot := &RemoteStorageSnapshot{
+		SessionTitles: map[string]string{
+			tmuxName: "Real Session Name", // The authoritative title
+		},
+	}
+
+	updated := SyncSessionTitle(existingInst, tmuxName, snapshot)
+
+	if !updated {
+		t.Error("SyncSessionTitle should have returned true (title was updated)")
+	}
+	if existingInst.Title != "Real Session Name" {
+		t.Errorf("Title = %q, want %q", existingInst.Title, "Real Session Name")
+	}
+}
+
+// TestSyncSessionTitle_SkipsWhenAlreadyCorrect verifies that SyncSessionTitle doesn't
+// modify sessions that already have the correct title.
+func TestSyncSessionTitle_SkipsWhenAlreadyCorrect(t *testing.T) {
+	tmuxName := "agentdeck_my-project_12345678"
+
+	existingInst := &Instance{
+		Title: "My Project", // Already correct
+	}
+
+	snapshot := &RemoteStorageSnapshot{
+		SessionTitles: map[string]string{
+			tmuxName: "My Project", // Same title
+		},
+	}
+
+	updated := SyncSessionTitle(existingInst, tmuxName, snapshot)
+
+	if updated {
+		t.Error("SyncSessionTitle should have returned false (no change needed)")
+	}
+	if existingInst.Title != "My Project" {
+		t.Errorf("Title was modified: got %q, want %q", existingInst.Title, "My Project")
+	}
+}
+
+// TestSyncSessionTitle_SkipsWhenNilSnapshot verifies that SyncSessionTitle handles
+// nil snapshot gracefully (e.g., when remote sessions.json couldn't be fetched).
+func TestSyncSessionTitle_SkipsWhenNilSnapshot(t *testing.T) {
+	existingInst := &Instance{
+		Title: "Original Title",
+	}
+
+	updated := SyncSessionTitle(existingInst, "agentdeck_test_12345678", nil)
+
+	if updated {
+		t.Error("SyncSessionTitle should have returned false for nil snapshot")
+	}
+	if existingInst.Title != "Original Title" {
+		t.Errorf("Title was modified: got %q, want %q", existingInst.Title, "Original Title")
+	}
+}
+
+// TestSyncSessionTitle_SkipsWhenNotInSnapshot verifies that SyncSessionTitle doesn't
+// modify sessions that aren't in the snapshot (e.g., newly created sessions).
+func TestSyncSessionTitle_SkipsWhenNotInSnapshot(t *testing.T) {
+	existingInst := &Instance{
+		Title: "Original Title",
+	}
+
+	snapshot := &RemoteStorageSnapshot{
+		SessionTitles: map[string]string{
+			"other_session": "Other Title",
+		},
+	}
+
+	updated := SyncSessionTitle(existingInst, "agentdeck_not_in_snapshot_12345678", snapshot)
+
+	if updated {
+		t.Error("SyncSessionTitle should have returned false (session not in snapshot)")
+	}
+	if existingInst.Title != "Original Title" {
+		t.Errorf("Title was modified: got %q, want %q", existingInst.Title, "Original Title")
+	}
+}
+
+// TestResolveSessionTitle_PrefersAuthoritative verifies that ResolveSessionTitle
+// returns the authoritative title from the snapshot when available.
+func TestResolveSessionTitle_PrefersAuthoritative(t *testing.T) {
+	tmuxName := "agentdeck_1769533185048019000_abcd1234" // Would parse to numeric
+
+	snapshot := &RemoteStorageSnapshot{
+		SessionTitles: map[string]string{
+			tmuxName: "Real Session Name", // Authoritative title
+		},
+	}
+
+	title := ResolveSessionTitle(tmuxName, snapshot)
+
+	if title != "Real Session Name" {
+		t.Errorf("ResolveSessionTitle() = %q, want %q", title, "Real Session Name")
+	}
+}
+
+// TestResolveSessionTitle_FallsBackToParsing verifies that ResolveSessionTitle
+// falls back to parsing from tmux name when session isn't in the snapshot.
+func TestResolveSessionTitle_FallsBackToParsing(t *testing.T) {
+	tmuxName := "agentdeck_my-new-project_12345678"
+
+	// Empty snapshot - session not in sessions.json
+	snapshot := &RemoteStorageSnapshot{
+		SessionTitles: map[string]string{},
+	}
+
+	title := ResolveSessionTitle(tmuxName, snapshot)
+
+	if title != "My New Project" {
+		t.Errorf("ResolveSessionTitle() = %q, want %q (parsed fallback)", title, "My New Project")
+	}
+}
+
+// TestResolveSessionTitle_FallsBackWhenNilSnapshot verifies that ResolveSessionTitle
+// falls back to parsing when snapshot is nil (e.g., SSH failure).
+func TestResolveSessionTitle_FallsBackWhenNilSnapshot(t *testing.T) {
+	tmuxName := "agentdeck_fallback-test_12345678"
+
+	title := ResolveSessionTitle(tmuxName, nil)
+
+	if title != "Fallback Test" {
+		t.Errorf("ResolveSessionTitle() = %q, want %q (parsed fallback)", title, "Fallback Test")
+	}
+}
+
+// TestParseTitleFromTmuxName_NumericFallback verifies the fallback behavior
+// when the tmux name contains a numeric value that doesn't match the expected pattern.
+func TestParseTitleFromTmuxName_NumericFallback(t *testing.T) {
+	// This test documents why SessionTitles is needed:
+	// When tmux names have numeric values, ParseTitleFromTmuxName returns them as-is
+
+	tests := []struct {
+		name     string
+		tmuxName string
+		expected string
+	}{
+		{
+			name:     "numeric middle part returns as title",
+			tmuxName: "agentdeck_1769533185048019000_abcd1234",
+			expected: "1769533185048019000",
+		},
+		{
+			name:     "pure numeric without prefix returns as-is",
+			tmuxName: "1769533185048019000",
+			expected: "1769533185048019000",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ParseTitleFromTmuxName(tt.tmuxName)
+			if result != tt.expected {
+				t.Errorf("ParseTitleFromTmuxName(%q) = %q, want %q",
+					tt.tmuxName, result, tt.expected)
+			}
+		})
+	}
+}

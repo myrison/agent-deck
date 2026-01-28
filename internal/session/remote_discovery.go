@@ -43,6 +43,7 @@ type RemoteStorageSnapshot struct {
 	Groups            []*GroupData      // Remote's group definitions
 	SessionGroupPaths map[string]string // tmux_session name -> group_path mapping
 	SessionTools      map[string]string // tmux_session name -> tool mapping
+	SessionTitles     map[string]string // tmux_session name -> title mapping (authoritative)
 	AllSessions       []*InstanceData   // All sessions from sessions.json (for discovering error-state sessions)
 }
 
@@ -71,11 +72,12 @@ func FetchRemoteStorageSnapshot(sshExec *tmux.SSHExecutor) *RemoteStorageSnapsho
 		return nil
 	}
 
-	// Build session-to-group and session-to-tool mappings
+	// Build session-to-group, session-to-tool, and session-to-title mappings
 	// IMPORTANT: Skip sessions that are themselves remote (prevents circular discovery)
 	// If machine A discovers B, and B has remote sessions from A, we must not re-discover those
 	sessionGroupPaths := make(map[string]string)
 	sessionTools := make(map[string]string)
+	sessionTitles := make(map[string]string)
 	var allSessions []*InstanceData
 	for _, inst := range data.Instances {
 		// Skip remote-of-remote sessions to prevent circular loops
@@ -91,6 +93,11 @@ func FetchRemoteStorageSnapshot(sshExec *tmux.SSHExecutor) *RemoteStorageSnapsho
 			if inst.Tool != "" {
 				sessionTools[inst.TmuxSession] = inst.Tool
 			}
+			// Store authoritative title from remote's sessions.json
+			// This ensures proper session names even if tmux name doesn't parse correctly
+			if inst.Title != "" {
+				sessionTitles[inst.TmuxSession] = inst.Title
+			}
 		}
 	}
 
@@ -98,6 +105,7 @@ func FetchRemoteStorageSnapshot(sshExec *tmux.SSHExecutor) *RemoteStorageSnapsho
 		Groups:            data.Groups,
 		SessionGroupPaths: sessionGroupPaths,
 		SessionTools:      sessionTools,
+		SessionTitles:     sessionTitles,
 		AllSessions:       allSessions,
 	}
 }
@@ -367,12 +375,21 @@ func DiscoverRemoteSessionsForHost(hostID string, existing []*Instance) ([]*Inst
 						rs.Name, hostID, existingInst.Tool, remoteTool)
 					existingInst.Tool = remoteTool
 				}
+
+				// Sync title from remote - trust remote's authoritative value
+				// This fixes sessions that were discovered with incorrect titles (e.g., numeric IDs)
+				oldTitle := existingInst.Title
+				if SyncSessionTitle(existingInst, rs.Name, remoteSnapshot) {
+					log.Printf("[REMOTE-DISCOVERY] Updated title: %s on %s: %s -> %s",
+						rs.Name, hostID, oldTitle, existingInst.Title)
+				}
 			}
 			continue
 		}
 
-		// Parse title from tmux session name
-		title := ParseTitleFromTmuxName(rs.Name)
+		// Get title from remote's sessions.json (authoritative) or parse from tmux name (fallback)
+		// Using sessions.json title ensures proper names even if tmux session name is malformed
+		title := ResolveSessionTitle(rs.Name, remoteSnapshot)
 
 		// Determine group path and tool - use remote's values if available
 		remoteGroupPath := ""
@@ -533,6 +550,31 @@ func toTitleCase(s string) string {
 		}
 	}
 	return strings.Join(words, " ")
+}
+
+// ResolveSessionTitle returns the title to use for a session.
+// It prefers the authoritative title from the snapshot (sessions.json) if available,
+// falling back to parsing from the tmux session name.
+func ResolveSessionTitle(tmuxName string, snapshot *RemoteStorageSnapshot) string {
+	if snapshot != nil {
+		if authTitle := snapshot.SessionTitles[tmuxName]; authTitle != "" {
+			return authTitle
+		}
+	}
+	return ParseTitleFromTmuxName(tmuxName)
+}
+
+// SyncSessionTitle updates an instance's title if the snapshot has a different
+// authoritative title. Returns true if the title was updated.
+func SyncSessionTitle(inst *Instance, tmuxName string, snapshot *RemoteStorageSnapshot) bool {
+	if snapshot == nil {
+		return false
+	}
+	if remoteTitle := snapshot.SessionTitles[tmuxName]; remoteTitle != "" && inst.Title != remoteTitle {
+		inst.Title = remoteTitle
+		return true
+	}
+	return false
 }
 
 // effectiveRemoteTmuxName returns the tmux session name to use for remote ID matching.
