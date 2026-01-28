@@ -309,6 +309,40 @@ func DiscoverRemoteSessionsForHost(hostID string, existing []*Instance) ([]*Inst
 				log.Printf("[REMOTE-DISCOVERY] Backfilled RemoteTmuxName: %s on %s", rs.Name, hostID)
 			}
 
+			// ═══════════════════════════════════════════════════════════════════
+			// LAYER 3: Discovery-time active repair
+			//
+			// Repairs remote sessions that lost their tmux_session object due to
+			// SSH failures or crashes. This is the last line of defense when:
+			// - Layer 1 preserved RemoteTmuxName but tmuxSession was nil at save
+			// - Layer 2 failed to reconnect at load time
+			// - Discovery now finds the session running on remote
+			//
+			// CRITICAL: Preserves existing status instead of resetting to "waiting"
+			// to avoid UI flickering (session shows as idle, then waiting, then back).
+			// ═══════════════════════════════════════════════════════════════════
+			if existingInst.GetTmuxSession() == nil {
+				previousStatus := statusToString(existingInst.Status)
+				tmuxSess := tmux.ReconnectSessionWithStatusAndExecutor(
+					rs.Name,
+					existingInst.Title,
+					existingInst.ProjectPath,
+					"", // command not needed for reconnect
+					previousStatus,
+					nil, // Use lazy executor (avoids SSH calls during discovery)
+				)
+				if tmuxSess != nil {
+					tmuxSess.InstanceID = existingInst.ID
+					tmuxSess.RemoteHostID = hostID
+					existingInst.SetTmuxSession(tmuxSess)
+					log.Printf("[REMOTE-DISCOVERY] Repaired tmux session for %s on %s (status: %s)",
+						rs.Name, hostID, previousStatus)
+				} else {
+					log.Printf("[REMOTE-DISCOVERY] Warning: Failed to repair tmux session for %s on %s",
+						rs.Name, hostID)
+				}
+			}
+
 			// Session exists - check if group path or tool needs updating based on remote's current state
 			if remoteSnapshot != nil {
 				remoteGroupPath := remoteSnapshot.SessionGroupPaths[rs.Name]

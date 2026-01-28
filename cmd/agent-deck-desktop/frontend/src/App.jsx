@@ -474,14 +474,16 @@ function App() {
             const panes = getPaneList(tab.layout);
             const paneWithSession = panes.find(p => p.session?.id === session.id);
             if (paneWithSession) {
-                // Session exists in this tab, switch to it
+                // Session exists in this tab, switch to it and refresh session data
                 setActiveTabId(tab.id);
-                // Update the tab's active pane to this one
-                setOpenTabs(prev => prev.map(t =>
-                    t.id === tab.id
-                        ? { ...t, activePaneId: paneWithSession.id }
-                        : t
-                ));
+                setOpenTabs(prev => prev.map(t => {
+                    if (t.id !== tab.id) return t;
+                    return {
+                        ...t,
+                        activePaneId: paneWithSession.id,
+                        layout: updatePaneSession(t.layout, paneWithSession.id, session),
+                    };
+                }));
                 return;
             }
         }

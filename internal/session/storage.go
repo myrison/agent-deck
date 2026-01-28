@@ -223,6 +223,24 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 		if inst.tmuxSession != nil {
 			tmuxName = inst.tmuxSession.Name
 		}
+
+		// ═══════════════════════════════════════════════════════════════════
+		// LAYER 1: Save-time preservation
+		//
+		// Preserves RemoteTmuxName even when tmuxSession is nil. This handles:
+		// - Transient SSH failures that cause tmux_session to be temporarily unavailable
+		// - Desktop app crashes during remote session operations
+		// - Network interruptions during save
+		//
+		// Without this, RemoteTmuxName would be lost on save, making the session
+		// unrecognizable during future discovery cycles (no way to match it to
+		// the tmux session on remote). Layer 2 and 3 depend on RemoteTmuxName
+		// being preserved here.
+		// ═══════════════════════════════════════════════════════════════════
+		if tmuxName == "" && hasRemoteTmuxFallback(inst.RemoteHost, inst.RemoteTmuxName) {
+			tmuxName = inst.RemoteTmuxName
+		}
+
 		data.Instances[i] = &InstanceData{
 			ID:                 inst.ID,
 			Title:              inst.Title,
@@ -512,7 +530,28 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 		// Recreate tmux session object from stored name
 		// Use ReconnectSessionWithStatus to restore the exact status state
 		var tmuxSess *tmux.Session
-		if instData.TmuxSession != "" {
+
+		// ═══════════════════════════════════════════════════════════════════
+		// LAYER 2: Load-time recovery
+		//
+		// Reconstructs tmuxSession from RemoteTmuxName when TmuxSession field
+		// is empty. This handles sessions that were saved with nil tmuxSession
+		// (Layer 1 preserved the name, but the object was lost). Recovery scenarios:
+		// - SSH was down during save, but restored by load time
+		// - Desktop app restarted after crash during remote operation
+		// - Session data restored from backup
+		//
+		// Uses lazy executor (nil) to prevent slow startup when remote hosts
+		// are unreachable. The executor will be created on first access.
+		// If recovery fails here, Layer 3 will attempt repair during discovery.
+		// ═══════════════════════════════════════════════════════════════════
+		tmuxSessionName := instData.TmuxSession
+		if tmuxSessionName == "" && hasRemoteTmuxFallback(instData.RemoteHost, instData.RemoteTmuxName) {
+			tmuxSessionName = instData.RemoteTmuxName
+			log.Printf("Recovery: Using RemoteTmuxName for %s: %s", instData.ID, tmuxSessionName)
+		}
+
+		if tmuxSessionName != "" {
 			// Convert Status enum to string for tmux package
 			// This restores the exact status across app restarts
 			previousStatus := statusToString(instData.Status)
@@ -523,7 +562,7 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 				// This prevents slow startup when remote hosts are unreachable or slow
 				// The executor will be created on first access (preview, attach, status update)
 				tmuxSess = tmux.ReconnectSessionWithStatusAndExecutor(
-					instData.TmuxSession,
+					tmuxSessionName,
 					instData.Title,
 					instData.ProjectPath,
 					instData.Command,
@@ -535,7 +574,7 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			} else {
 				// Local session
 				tmuxSess = tmux.ReconnectSessionWithStatus(
-					instData.TmuxSession,
+					tmuxSessionName,
 					instData.Title,
 					instData.ProjectPath,
 					instData.Command,
@@ -543,15 +582,31 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 				)
 			}
 
-			if tmuxSess != nil {
-				// Pass instance ID for activity hooks (enables real-time status updates)
-				tmuxSess.InstanceID = instData.ID
-				// Enable mouse mode for proper scrolling (local sessions only)
-				// Skip for remote sessions - would trigger slow SSH during startup
-				if instData.RemoteHost == "" && tmuxSess.Exists() {
-					// Ignore errors - non-fatal, older tmux versions may not support all options
-					_ = tmuxSess.EnableMouseMode()
-				}
+			// ═══════════════════════════════════════════════════════════════════
+			// Handle reconnection failure gracefully
+			//
+			// If reconnection fails (tmuxSess is nil), skip this session instead
+			// of crashing. This can happen when:
+			// - tmux session name is malformed or invalid
+			// - Remote host is permanently unavailable
+			// - Session was manually deleted on remote but still in sessions.json
+			//
+			// The session will be marked as stale on next discovery cycle.
+			// ═══════════════════════════════════════════════════════════════════
+			if tmuxSess == nil {
+				log.Printf("Warning: Failed to reconnect session %s (tmux: %s, remote: %s)",
+					instData.ID, tmuxSessionName, instData.RemoteHost)
+				// Don't add to instances array - skip corrupted session
+				continue
+			}
+
+			// Pass instance ID for activity hooks (enables real-time status updates)
+			tmuxSess.InstanceID = instData.ID
+			// Enable mouse mode for proper scrolling (local sessions only)
+			// Skip for remote sessions - would trigger slow SSH during startup
+			if instData.RemoteHost == "" && tmuxSess.Exists() {
+				// Ignore errors - non-fatal, older tmux versions may not support all options
+				_ = tmuxSess.EnableMouseMode()
 			}
 		}
 
@@ -689,6 +744,13 @@ func (s *Storage) GetUpdatedAt() (time.Time, error) {
 }
 
 // statusToString converts a Status enum to the string expected by tmux.ReconnectSessionWithStatus
+// hasRemoteTmuxFallback returns true if this session has remote session
+// metadata that can be used to recover a lost tmux_session field.
+// Used by both save-time preservation (Layer 1) and load-time recovery (Layer 2).
+func hasRemoteTmuxFallback(remoteHost, remoteTmuxName string) bool {
+	return remoteHost != "" && remoteTmuxName != ""
+}
+
 func statusToString(s Status) string {
 	switch s {
 	case StatusRunning:

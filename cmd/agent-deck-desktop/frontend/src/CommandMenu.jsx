@@ -356,7 +356,13 @@ export default function CommandMenu({
             } else if (sessionCount === 1) {
                 // Single session exists - attach directly to it
                 logger.info('Project has single session, attaching', { path: item.projectPath, sessionId: item.sessions[0].id });
-                onSelectSession?.({ ...item.sessions[0], title: item.title, projectPath: item.projectPath });
+                const fullSession = sessions.find(s => s.id === item.sessions[0].id);
+                if (fullSession) {
+                    onSelectSession?.(fullSession);
+                } else {
+                    // Fallback: use summary + project info (best effort)
+                    onSelectSession?.({ ...item.sessions[0], title: item.title, projectPath: item.projectPath });
+                }
             } else {
                 // No sessions - launch new project
                 if (item.isRemote && item.remoteHost) {
