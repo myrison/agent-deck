@@ -477,6 +477,10 @@ const SessionList = forwardRef(function SessionList({
                 ) : (
                     renderList.map((item, index) => {
                         if (item.type === 'group') {
+                            const hostId = item.group.remoteHostId;
+                            const hostStatus = hostId ? sshHostStatus[hostId] : null;
+                            const isHostDisconnected = hostStatus?.connected === false;
+                            const hostError = hostStatus?.lastError || '';
                             return (
                                 <GroupHeader
                                     key={`group-${item.group.path}`}
@@ -485,6 +489,8 @@ const SessionList = forwardRef(function SessionList({
                                     isSelected={index === selectedIndex}
                                     onToggle={handleGroupToggle}
                                     onClick={() => setSelectedIndex(index)}
+                                    isHostDisconnected={isHostDisconnected}
+                                    hostError={hostError}
                                 />
                             );
                         }
@@ -522,7 +528,7 @@ const SessionList = forwardRef(function SessionList({
                                                     const hostStatus = sshHostStatus[session.remoteHost];
                                                     const isDisconnected = hostStatus?.connected === false;
                                                     return (
-                                                        <span className={`ssh-dot${isDisconnected ? ' disconnected' : ''}`} />
+                                                        <span className={`ssh-dot${isDisconnected ? ' disconnected host-level-shown' : ''}`} />
                                                     );
                                                 })()}
                                             </span>
@@ -545,7 +551,10 @@ const SessionList = forwardRef(function SessionList({
                                 </div>
                                 <span
                                     className="session-list-status"
-                                    style={{ color: getStatusColor(session.status) }}
+                                    style={{
+                                        color: getStatusColor(session.status),
+                                        ...(session.isRemote && sshHostStatus[session.remoteHost]?.connected === false && { opacity: 0.3 }),
+                                    }}
                                 >
                                     {session.status === 'running' ? '●' : session.status === 'waiting' ? '◐' : '○'}
                                 </span>

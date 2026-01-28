@@ -230,6 +230,10 @@
     background: #ef4444;
 }
 
+.session-list-title .ssh-dot.host-level-shown {
+    opacity: 0.3;
+}
+
 .session-list-meta {
     display: flex;
     align-items: center;
