@@ -10,7 +10,7 @@ import './Terminal.css';
 import { StartTerminal, WriteTerminal, ResizeTerminal, CloseTerminal, StartTmuxSession, StartRemoteTmuxSession, LogFrontendDiagnostic, GetTerminalSettings, RefreshTerminalAfterResize, HandleRemoteImagePaste, HandleFileDrop } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE } from './constants/terminal';
-import { EventsOn, ClipboardSetText } from '../wailsjs/runtime/runtime';
+import { EventsOn, ClipboardSetText, BrowserOpenURL } from '../wailsjs/runtime/runtime';
 import { createScrollAccumulator, DEFAULT_SCROLL_SPEED } from './utils/scrollAccumulator';
 import { useTheme } from './context/ThemeContext';
 import { getTerminalTheme } from './themes/terminal';
@@ -108,7 +108,9 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         const term = new XTerm(terminalOptions);
         const fitAddon = new FitAddon();
         const searchAddon = new SearchAddon();
-        const webLinksAddon = new WebLinksAddon();
+        const webLinksAddon = new WebLinksAddon((_event, uri) => {
+            BrowserOpenURL(uri);
+        });
         const unicode11Addon = new Unicode11Addon();
 
         term.loadAddon(fitAddon);
