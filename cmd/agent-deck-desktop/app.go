@@ -30,10 +30,15 @@ type App struct {
 }
 
 // NewApp creates a new App application struct.
-func NewApp() *App {
+// Returns an error if critical components (like storage) cannot be initialized.
+func NewApp() (*App, error) {
+	tmux, err := NewTmuxManager()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize tmux manager: %w", err)
+	}
 	return &App{
 		terminals:        NewTerminalManager(),
-		tmux:             NewTmuxManager(),
+		tmux:             tmux,
 		projectDiscovery: NewProjectDiscovery(),
 		quickLaunch:      NewQuickLaunchManager(),
 		launchConfig:     NewLaunchConfigManager(),
@@ -41,7 +46,7 @@ func NewApp() *App {
 		savedLayouts:     NewSavedLayoutsManager(),
 		tabState:         NewTabStateManager(),
 		sshBridge:        NewSSHBridge(),
-	}
+	}, nil
 }
 
 // startup is called when the app starts.

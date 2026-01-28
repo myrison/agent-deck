@@ -17,7 +17,10 @@ func TestTmuxManagerSessionExists(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 
 	// Non-existent session should return false
 	if tm.SessionExists("definitely_not_a_real_session_name_12345") {
@@ -38,7 +41,10 @@ func TestTmuxManagerCreateSession(t *testing.T) {
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 	tmpDir := t.TempDir()
 
 	// Create a session
@@ -80,7 +86,10 @@ func TestTmuxManagerGetRunningSessionsFormat(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 	sessions := tm.getRunningTmuxSessions()
 
 	// Just verify it returns a map (may be empty if no sessions running)
@@ -97,7 +106,10 @@ func TestEnsureTmuxRunningIsIdempotent(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 
 	// Create a test session so we have something to find
 	tmpDir := t.TempDir()
@@ -127,7 +139,10 @@ func TestGetRunningTmuxSessionsFindsCreatedSession(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 	tmpDir := t.TempDir()
 
 	sessionName := "test_listing_recovery"
@@ -383,7 +398,10 @@ func TestCreateSessionSetsGroupPathFromProjectDir(t *testing.T) {
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 	tmpDir := t.TempDir() // e.g., /var/folders/.../T/TestXxx/001
 
 	session, err := tm.CreateSession(tmpDir, "Group Test", "claude", "")
@@ -412,7 +430,10 @@ func TestConvertInstancesNormalizesEmptyGroupPathWithProjectPath(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 
 	// Create a tmux session so the instance won't be filtered as "not running"
 	tmpDir := t.TempDir()
@@ -455,7 +476,10 @@ func TestConvertInstancesNormalizesEmptyGroupPathWithoutProjectPath(t *testing.T
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 
 	// Create a tmux session so the instance won't be filtered
 	tmpDir := t.TempDir()
@@ -529,7 +553,10 @@ func TestUpdateSessionStatus_UpdatesStatusInJSON(t *testing.T) {
 		t.Fatalf("Failed to write sessions.json: %v", err)
 	}
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 
 	// Update the error session to "running"
 	if err := tm.UpdateSessionStatus("abc-123", "running"); err != nil {
@@ -592,7 +619,10 @@ func TestUpdateSessionStatus_SessionNotFound(t *testing.T) {
 		t.Fatalf("Failed to write sessions.json: %v", err)
 	}
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 	err := tm.UpdateSessionStatus("nonexistent-id", "running")
 	if err == nil {
 		t.Error("UpdateSessionStatus should return error for nonexistent session ID")
@@ -635,7 +665,10 @@ func TestUpdateSessionStatus_PreservesOtherFields(t *testing.T) {
 		t.Fatalf("Failed to write sessions.json: %v", err)
 	}
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 	if err := tm.UpdateSessionStatus("abc-123", "running"); err != nil {
 		t.Fatalf("UpdateSessionStatus failed: %v", err)
 	}
@@ -707,7 +740,10 @@ func TestUpdateSessionStatus_AtomicWrite(t *testing.T) {
 		t.Fatalf("Failed to write stale .tmp file: %v", err)
 	}
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 	if err := tm.UpdateSessionStatus("abc-123", "running"); err != nil {
 		t.Fatalf("UpdateSessionStatus should succeed even with stale .tmp file: %v", err)
 	}
@@ -735,7 +771,10 @@ func TestConvertInstancesPreservesExistingGroupPath(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 
 	tmpDir := t.TempDir()
 	sessionName := "test_preserve_grouppath"
@@ -784,7 +823,10 @@ func TestPersistSessionWritesRemoteTmuxNameForRemote(t *testing.T) {
 		t.Fatalf("Failed to create sessions dir: %v", err)
 	}
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 
 	// Persist a remote session
 	err := tm.PersistSession(SessionInfo{
@@ -847,7 +889,10 @@ func TestPersistSessionOmitsRemoteTmuxNameForLocal(t *testing.T) {
 		t.Fatalf("Failed to create sessions dir: %v", err)
 	}
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 
 	// Persist a local session (IsRemote defaults to false)
 	err := tm.PersistSession(SessionInfo{
@@ -899,7 +944,10 @@ func TestConvertInstancesMarksLocalSessionWithoutTmuxAsExited(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 
 	// Create an instance that references a non-existent tmux session
 	// (simulates a session whose tmux process has ended)
@@ -934,7 +982,10 @@ func TestConvertInstancesPreservesRunningStatusForActiveTmux(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 
 	// Create a real tmux session for the test
 	tmpDir := t.TempDir()
@@ -976,7 +1027,10 @@ func TestConvertInstancesDoesNotMarkRemoteSessionAsExited(t *testing.T) {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 
 	// Remote session with non-existent local tmux (this is expected for remote sessions)
 	instances := []instanceJSON{
@@ -1030,7 +1084,10 @@ func TestUpdateSessionStatusAcceptsExitedStatus(t *testing.T) {
 		t.Fatalf("Failed to write sessions.json: %v", err)
 	}
 
-	tm := NewTmuxManager()
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
 
 	// Updating to "exited" should succeed (it's in validSessionStatuses)
 	err := tm.UpdateSessionStatus("abc-123", "exited")

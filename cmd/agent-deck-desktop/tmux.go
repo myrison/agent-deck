@@ -123,20 +123,17 @@ type TmuxManager struct {
 }
 
 // NewTmuxManager creates a new TmuxManager.
-// If storage adapter creation fails, the manager continues with adapter=nil and
-// methods return "storage adapter not initialized" errors. This graceful degradation
-// allows the app to start even if the profile directory is inaccessible, while
-// clearly surfacing the issue when storage operations are attempted.
-func NewTmuxManager() *TmuxManager {
+// Returns an error if the storage adapter cannot be initialized, since the app
+// cannot function properly without session persistence.
+func NewTmuxManager() (*TmuxManager, error) {
 	// Create storage adapter with 500ms debounce for status updates
 	adapter, err := session.NewStorageAdapterWithProfile("", 500*time.Millisecond)
 	if err != nil {
-		log.Printf("Warning: failed to create storage adapter: %v", err)
-		// Continue with nil adapter - methods will return clear errors
+		return nil, fmt.Errorf("failed to create storage adapter: %w", err)
 	}
 	return &TmuxManager{
 		adapter: adapter,
-	}
+	}, nil
 }
 
 // Close flushes any pending storage updates and releases resources.
@@ -1102,7 +1099,8 @@ func (tm *TmuxManager) CreateRemoteSession(hostID, projectPath, title, tool, con
 	return sessionInfo, nil
 }
 
-// MarkSessionAccessed updates the last_accessed_at timestamp for a session.
+// MarkSessionAccessed schedules a deferred update to the last_accessed_at timestamp.
+// The update will be flushed within 500ms (debounce window).
 // This keeps the session list sorted by most recently used.
 func (tm *TmuxManager) MarkSessionAccessed(sessionID string) error {
 	if tm.adapter == nil {

@@ -104,7 +104,10 @@ func main() {
 	}
 
 	// Create an instance of the app structure
-	app := NewApp()
+	app, err := NewApp()
+	if err != nil {
+		log.Fatalf("Failed to initialize application: %v", err)
+	}
 
 	// Detect development mode
 	isDev := os.Getenv("WAILS_DEV") != "" || Version == "0.1.0-dev"
