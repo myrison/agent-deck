@@ -5,6 +5,8 @@
  * When it closes, focus should be restored to that element (or a fallback).
  */
 
+import { useRef, useEffect } from 'react';
+
 /**
  * Saves the currently focused element and returns a function to restore focus.
  * Call this when opening a modal to capture what was focused before.
@@ -62,7 +64,6 @@ export function saveFocus(fallback = null) {
  * }
  */
 export function useFocusManagement(isOpen, fallbackRef = null) {
-    const { useRef, useEffect } = require('react');
     const restoreFocusRef = useRef(null);
 
     useEffect(() => {

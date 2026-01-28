@@ -115,6 +115,11 @@ function App() {
     const [showSaveLayoutModal, setShowSaveLayoutModal] = useState(false);
     const [showScanPathSetup, setShowScanPathSetup] = useState(false);
 
+    // Host-first session creation flow state (must be declared before anyAppModalOpen useMemo)
+    const [showHostPicker, setShowHostPicker] = useState(false);
+    const [selectedRemoteHost, setSelectedRemoteHost] = useState(null);
+    const [showRemotePathInput, setShowRemotePathInput] = useState(false);
+
     // Build saved layout shortcut map for keyboard handling
     const savedLayoutShortcuts = useMemo(() => {
         const map = {};
@@ -152,10 +157,6 @@ function App() {
     // Theme context for toggle
     const { theme, setTheme } = useTheme();
 
-    // Host-first session creation flow state
-    const [showHostPicker, setShowHostPicker] = useState(false);
-    const [selectedRemoteHost, setSelectedRemoteHost] = useState(null);
-    const [showRemotePathInput, setShowRemotePathInput] = useState(false);
     // pendingHostSelection tracks project info from CommandMenu while user selects host
     // { path?: string, name?: string } - existing project info (used as default for folder picker)
     const [pendingHostSelection, setPendingHostSelection] = useState(null);

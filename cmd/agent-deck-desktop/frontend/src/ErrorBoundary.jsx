@@ -32,7 +32,7 @@ class ErrorBoundary extends React.Component {
                 }}>
                     <h2>Something went wrong</h2>
                     <p style={{ color: '#ccc' }}>
-                        The error has been logged to: <code>/tmp/agent-deck-desktop-debug.log</code>
+                        Check error details below. If the app was running, logs may be at: <code>~/.agent-deck/logs/frontend-console.log</code>
                     </p>
                     <details style={{ marginTop: '20px' }}>
                         <summary style={{ cursor: 'pointer', color: '#4cc9f0' }}>

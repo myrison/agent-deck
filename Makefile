@@ -1,4 +1,4 @@
-.PHONY: build run install install-user kill-running clean dev release test fmt lint desktop-dev desktop-build desktop-install
+.PHONY: build run install install-user kill-running clean dev release test fmt lint desktop-dev desktop-build desktop-install desktop-test desktop-lint install-hooks check
 
 BINARY_NAME=agent-deck
 BUILD_DIR=./build
@@ -91,3 +91,21 @@ desktop-install: desktop-build
 	@rm -rf /Applications/RevvySwarm.app
 	@cp -r $(DESKTOP_DIR)/build/bin/RevvySwarm.app /Applications/
 	@echo "✅ Installed to /Applications/RevvySwarm.app"
+
+# Run desktop frontend tests
+desktop-test:
+	@cd $(DESKTOP_DIR)/frontend && npm test -- --run
+
+# Run desktop frontend linter
+desktop-lint:
+	@cd $(DESKTOP_DIR)/frontend && npm run lint
+
+# Install git hooks
+install-hooks:
+	@cp .githooks/pre-push .git/hooks/pre-push
+	@chmod +x .git/hooks/pre-push
+	@echo "✅ Installed pre-push hook"
+
+# Run all checks (same as pre-push hook)
+check: build test lint desktop-test desktop-lint
+	@echo "✅ All checks passed"
