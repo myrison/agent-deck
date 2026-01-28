@@ -9,6 +9,7 @@ import { EventsOn } from '../wailsjs/runtime/runtime';
 import { useTheme } from './context/ThemeContext';
 import { getTerminalTheme } from './themes/terminal';
 import ToolIcon, { BranchIcon } from './ToolIcon';
+import reviLogo from './assets/images/revvy.png';
 
 const logger = createLogger('SessionPreview');
 
@@ -267,7 +268,7 @@ export default function SessionPreview({ session, onAttach, onDelete, fontSize =
         return (
             <div className="session-preview-pane">
                 <div className="session-preview-empty">
-                    <div className="preview-empty-icon">👁</div>
+                    <img src={reviLogo} alt="Revi" className="preview-empty-icon" />
                     <div className="preview-empty-text">Select a session to preview</div>
                     <div className="preview-empty-hint">Use ↑↓ to navigate, Enter to attach</div>
                 </div>
