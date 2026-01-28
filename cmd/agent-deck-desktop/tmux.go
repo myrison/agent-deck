@@ -1453,6 +1453,7 @@ func (tm *TmuxManager) RefreshSessionStatuses(sessionIDs []string) ([]StatusUpda
 			sessionsToDetect = append(sessionsToDetect, sessionToDetect{
 				tmuxSession: inst.TmuxSession,
 				tool:        inst.Tool,
+				instance:    inst, // For file-based activity detection
 			})
 		}
 	}
