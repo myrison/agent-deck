@@ -29,6 +29,33 @@ export const DEFAULT_SCROLL_SPEED = 100;
 // At 60Hz+ event rate, 5 lines per event = 300 lines/sec (very fast scrolling).
 export const MAX_LINES_PER_EVENT = 5;
 
+// deltaMode multipliers for WheelEvent normalization
+export const PIXELS_PER_LINE_DELTA = 20;  // Typical line height for deltaMode 1
+export const PIXELS_PER_PAGE_DELTA = 400; // Typical page height for deltaMode 2
+
+/**
+ * Normalize WheelEvent deltaY to pixels based on deltaMode
+ *
+ * WheelEvent.deltaMode values:
+ * - 0: DOM_DELTA_PIXEL (most common on macOS trackpad)
+ * - 1: DOM_DELTA_LINE (some mice, older browsers)
+ * - 2: DOM_DELTA_PAGE (rare, some accessibility tools)
+ *
+ * @param {number} deltaY - The raw deltaY from WheelEvent
+ * @param {number} deltaMode - The deltaMode from WheelEvent (0, 1, or 2)
+ * @returns {number} Normalized delta in pixels
+ */
+export function normalizeDeltaToPixels(deltaY, deltaMode) {
+    if (deltaMode === 1) {
+        return deltaY * PIXELS_PER_LINE_DELTA;
+    }
+    if (deltaMode === 2) {
+        return deltaY * PIXELS_PER_PAGE_DELTA;
+    }
+    // deltaMode 0 (pixel mode) or unknown - pass through as-is
+    return deltaY;
+}
+
 /**
  * Calculate the effective pixels-per-line threshold based on scroll speed setting
  *

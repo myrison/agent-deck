@@ -11,7 +11,7 @@ import { StartTerminal, WriteTerminal, ResizeTerminal, CloseTerminal, StartTmuxS
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE } from './constants/terminal';
 import { EventsOn, ClipboardSetText, BrowserOpenURL } from '../wailsjs/runtime/runtime';
-import { createScrollAccumulator, DEFAULT_SCROLL_SPEED } from './utils/scrollAccumulator';
+import { createScrollAccumulator, DEFAULT_SCROLL_SPEED, normalizeDeltaToPixels } from './utils/scrollAccumulator';
 import { useTheme } from './context/ThemeContext';
 import { getTerminalTheme } from './themes/terminal';
 import { createMacKeyBindingHandler } from './hooks/useMacKeyBindings';
@@ -553,16 +553,8 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             }
 
             // Normal buffer (shell) - use scroll accumulator for smooth trackpad scrolling
-            // Normalize deltaY to pixels based on deltaMode
-            // deltaMode 0 = pixels (most common on macOS)
-            // deltaMode 1 = lines (multiply by ~20px typical line height)
-            // deltaMode 2 = pages (multiply by viewport height, treat as ~400px)
-            let deltaPixels = e.deltaY;
-            if (e.deltaMode === 1) {
-                deltaPixels = e.deltaY * 20; // line mode: ~20px per line
-            } else if (e.deltaMode === 2) {
-                deltaPixels = e.deltaY * 400; // page mode: ~400px per page
-            }
+            // Normalize deltaY to pixels based on deltaMode (handles pixel, line, and page modes)
+            const deltaPixels = normalizeDeltaToPixels(e.deltaY, e.deltaMode);
 
             // Accumulator uses modulo to discard excess (prevents "scroll debt"),
             // clamping prevents massive jumps. macOS provides momentum via the

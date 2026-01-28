@@ -13,8 +13,11 @@ import {
     MIN_SCROLL_SPEED,
     MAX_SCROLL_SPEED,
     MAX_LINES_PER_EVENT,
+    PIXELS_PER_LINE_DELTA,
+    PIXELS_PER_PAGE_DELTA,
     calculatePixelsPerLine,
     createScrollAccumulator,
+    normalizeDeltaToPixels,
 } from '../utils/scrollAccumulator';
 
 describe('calculatePixelsPerLine', () => {
@@ -475,6 +478,30 @@ describe('constant exports', () => {
         expect(MIN_SCROLL_SPEED).toBe(50);
         expect(MAX_SCROLL_SPEED).toBe(250);
         expect(MAX_LINES_PER_EVENT).toBe(5);
+        expect(PIXELS_PER_LINE_DELTA).toBe(20);
+        expect(PIXELS_PER_PAGE_DELTA).toBe(400);
+    });
+});
+
+describe('normalizeDeltaToPixels', () => {
+    it('passes through pixel mode (deltaMode 0) unchanged', () => {
+        expect(normalizeDeltaToPixels(50, 0)).toBe(50);
+        expect(normalizeDeltaToPixels(-30, 0)).toBe(-30);
+    });
+
+    it('converts line mode (deltaMode 1) using PIXELS_PER_LINE_DELTA', () => {
+        expect(normalizeDeltaToPixels(3, 1)).toBe(60); // 3 * 20
+        expect(normalizeDeltaToPixels(-2, 1)).toBe(-40); // -2 * 20
+    });
+
+    it('converts page mode (deltaMode 2) using PIXELS_PER_PAGE_DELTA', () => {
+        expect(normalizeDeltaToPixels(1, 2)).toBe(400);
+        expect(normalizeDeltaToPixels(-1, 2)).toBe(-400);
+    });
+
+    it('treats unknown deltaMode as pixel mode', () => {
+        expect(normalizeDeltaToPixels(100, 3)).toBe(100);
+        expect(normalizeDeltaToPixels(100, undefined)).toBe(100);
     });
 });
 
