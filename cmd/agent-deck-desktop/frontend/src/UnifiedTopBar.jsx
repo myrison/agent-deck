@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import './UnifiedTopBar.css';
 import { GetQuickLaunchFavorites, RemoveQuickLaunchFavorite, UpdateQuickLaunchShortcut, UpdateQuickLaunchFavoriteName, UpdateSessionCustomLabel, DeleteSession } from '../wailsjs/go/main/App';
 import ShortcutEditor from './ShortcutEditor';
@@ -37,6 +37,8 @@ export default function UnifiedTopBar({
     const [labelingTab, setLabelingTab] = useState(null);
     const [deletingTab, setDeletingTab] = useState(null); // Tab being deleted (for confirmation dialog)
     const [dragState, setDragState] = useState(null); // { draggedTabId, overTabId, dropSide }
+    // Use a ref to track drag state for the drop handler to avoid stale closure issues
+    const dragStateRef = useRef(null);
     const { show: showTooltip, hide: hideTooltip, Tooltip } = useTooltip();
 
     // Load favorites
@@ -261,46 +263,85 @@ export default function UnifiedTopBar({
     }, [tabContextMenu]);
 
     // Tab drag-and-drop handlers
+    // Helper to update both state and ref
+    const updateDragState = useCallback((newState) => {
+        dragStateRef.current = newState;
+        setDragState(newState);
+    }, []);
+
+    // Shared reorder logic - prevents duplication and double-execution
+    // Returns true if reorder was performed
+    const executeReorder = useCallback((dragState, source) => {
+        if (!dragState?.draggedTabId || !dragState.overTabId || !onReorderTab) {
+            return false;
+        }
+        // Guard: prevent double-execution when both drop and dragEnd fire
+        if (dragState.reorderPerformed) {
+            return false;
+        }
+        const overIndex = openTabs.findIndex(t => t.id === dragState.overTabId);
+        if (overIndex === -1) {
+            return false;
+        }
+        const targetIndex = dragState.dropSide === 'right' ? overIndex + 1 : overIndex;
+        const fromIndex = openTabs.findIndex(t => t.id === dragState.draggedTabId);
+        const adjustedIndex = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
+
+        onReorderTab(dragState.draggedTabId, adjustedIndex);
+        // Mark as performed to prevent double-execution
+        dragStateRef.current = { ...dragState, reorderPerformed: true };
+        return true;
+    }, [openTabs, onReorderTab]);
+
     const handleTabDragStart = useCallback((e, tab) => {
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', tab.id);
-        setDragState({ draggedTabId: tab.id, overTabId: null, dropSide: null });
-    }, []);
+        const newState = { draggedTabId: tab.id, overTabId: null, dropSide: null, reorderPerformed: false };
+        updateDragState(newState);
+    }, [updateDragState]);
 
-    const handleTabDragEnd = useCallback(() => {
-        setDragState(null);
-    }, []);
+    const handleTabDragEnd = useCallback((e) => {
+        const currentDragState = dragStateRef.current;
+
+        // In WKWebView, the 'drop' event doesn't fire reliably.
+        // Perform the reorder in dragEnd if we have valid target info and it hasn't been done yet.
+        executeReorder(currentDragState, 'dragEnd');
+
+        updateDragState(null);
+    }, [executeReorder, updateDragState]);
+
+    // Track last dragOver state to avoid redundant updates
+    const lastDragOverStateRef = useRef({ tabId: null, side: null });
 
     const handleTabDragOver = useCallback((e, tab) => {
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
-        if (!dragState || tab.id === dragState.draggedTabId) {
-            if (dragState?.overTabId) setDragState(prev => ({ ...prev, overTabId: null, dropSide: null }));
+        const currentDragState = dragStateRef.current;
+        if (!currentDragState || tab.id === currentDragState.draggedTabId) {
+            if (currentDragState?.overTabId) {
+                updateDragState({ ...currentDragState, overTabId: null, dropSide: null });
+            }
             return;
         }
         const rect = e.currentTarget.getBoundingClientRect();
         const midX = rect.left + rect.width / 2;
         const side = e.clientX < midX ? 'left' : 'right';
-        if (dragState.overTabId !== tab.id || dragState.dropSide !== side) {
-            setDragState(prev => ({ ...prev, overTabId: tab.id, dropSide: side }));
+        if (currentDragState.overTabId !== tab.id || currentDragState.dropSide !== side) {
+            // Only update when something changes
+            if (lastDragOverStateRef.current.tabId !== tab.id || lastDragOverStateRef.current.side !== side) {
+                lastDragOverStateRef.current = { tabId: tab.id, side };
+            }
+            updateDragState({ ...currentDragState, overTabId: tab.id, dropSide: side });
         }
-    }, [dragState]);
+    }, [updateDragState]);
 
     const handleTabDrop = useCallback((e) => {
         e.preventDefault();
-        if (!dragState?.draggedTabId || !dragState.overTabId || !onReorderTab) {
-            setDragState(null);
-            return;
-        }
-        const overIndex = openTabs.findIndex(t => t.id === dragState.overTabId);
-        if (overIndex === -1) { setDragState(null); return; }
-        const targetIndex = dragState.dropSide === 'right' ? overIndex + 1 : overIndex;
-        // Adjust if dragging from before the target
-        const fromIndex = openTabs.findIndex(t => t.id === dragState.draggedTabId);
-        const adjustedIndex = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
-        onReorderTab(dragState.draggedTabId, adjustedIndex);
-        setDragState(null);
-    }, [dragState, openTabs, onReorderTab]);
+        const currentDragState = dragStateRef.current;
+
+        executeReorder(currentDragState, 'drop');
+        updateDragState(null);
+    }, [executeReorder, updateDragState]);
 
     const hasFavorites = favorites.length > 0;
 
@@ -365,6 +406,7 @@ export default function UnifiedTopBar({
                         onDragStart={(e) => handleTabDragStart(e, tab)}
                         onDragEnd={handleTabDragEnd}
                         onDragOver={(e) => handleTabDragOver(e, tab)}
+                        onDrop={handleTabDrop}
                         showActivityRibbon={showActivityRibbon}
                     />
                 ))}

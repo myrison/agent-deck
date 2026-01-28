@@ -455,7 +455,7 @@ function App() {
             isPolling = true;
             try {
                 const updates = await RefreshSessionStatuses(Array.from(sessionIds));
-                logger.info('Got status updates', { count: updates?.length || 0 });
+                logger.info('Got status updates', { count: updates?.length || 0, updates: updates?.map(u => ({ id: u.id?.slice(-8), status: u.status, waitingSince: u.waitingSince })) });
                 if (updates && updates.length > 0) {
                     // Update session state with new statuses
                     setSessions(prevSessions => {
@@ -672,12 +672,22 @@ function App() {
     }, [activeTabId]);
 
     const handleReorderTab = useCallback((draggedTabId, targetIndex) => {
+        logger.info('handleReorderTab called', { draggedTabId, targetIndex });
         setOpenTabs(prev => {
             const fromIndex = prev.findIndex(t => t.id === draggedTabId);
-            if (fromIndex === -1 || fromIndex === targetIndex) return prev;
+            logger.debug('handleReorderTab computing', { fromIndex, targetIndex, prevLength: prev.length });
+            if (fromIndex === -1 || fromIndex === targetIndex) {
+                logger.debug('handleReorderTab no-op', { fromIndex, targetIndex });
+                return prev;
+            }
             const updated = [...prev];
             const [moved] = updated.splice(fromIndex, 1);
             updated.splice(targetIndex, 0, moved);
+            logger.info('handleReorderTab reordered', {
+                movedTabId: moved.id,
+                movedTabName: moved.name,
+                newOrder: updated.map(t => t.id)
+            });
             return updated;
         });
     }, []);

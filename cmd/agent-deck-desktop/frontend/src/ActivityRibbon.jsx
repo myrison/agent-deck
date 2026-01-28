@@ -79,7 +79,7 @@ export default function ActivityRibbon({ sessions, status, waitingSince }) {
     }, [activeStatus, activeWaitingSince]);
 
     return (
-        <div className={`activity-ribbon tier-${tier}`}>
+        <div className={`activity-ribbon tier-${tier}`} draggable="false">
             {label}
         </div>
     );
