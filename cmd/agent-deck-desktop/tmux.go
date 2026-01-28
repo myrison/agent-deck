@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -57,30 +56,15 @@ type SessionMetadata struct {
 	GitBranch string `json:"gitBranch"`
 }
 
-// sessionsJSON mirrors the storage format from internal/session/storage.go
-type sessionsJSON struct {
-	Instances []instanceJSON `json:"instances"`
-	Groups    []groupJSON    `json:"groups,omitempty"`
-}
-
-// groupJSON mirrors the GroupData structure from internal/session/storage.go
-type groupJSON struct {
-	Name        string `json:"name"`
-	Path        string `json:"path"`
-	Expanded    bool   `json:"expanded"`
-	Order       int    `json:"order"`
-	DefaultPath string `json:"default_path,omitempty"`
-}
-
 // GroupInfo represents group information for the frontend
 type GroupInfo struct {
 	Name         string `json:"name"`
 	Path         string `json:"path"`
-	SessionCount int    `json:"sessionCount"`          // Direct sessions in this group
-	TotalCount   int    `json:"totalCount"`            // Sessions including subgroups
-	Level        int    `json:"level"`                 // Nesting level (0 for root)
-	HasChildren  bool   `json:"hasChildren"`           // Has subgroups
-	Expanded     bool   `json:"expanded"`              // TUI expand state (default)
+	SessionCount int    `json:"sessionCount"`           // Direct sessions in this group
+	TotalCount   int    `json:"totalCount"`             // Sessions including subgroups
+	Level        int    `json:"level"`                  // Nesting level (0 for root)
+	HasChildren  bool   `json:"hasChildren"`            // Has subgroups
+	Expanded     bool   `json:"expanded"`               // TUI expand state (default)
 	RemoteHostID string `json:"remoteHostId,omitempty"` // SSH host ID for remote host groups
 }
 
@@ -88,25 +72,6 @@ type GroupInfo struct {
 type SessionsWithGroups struct {
 	Sessions []SessionInfo `json:"sessions"`
 	Groups   []GroupInfo   `json:"groups"`
-}
-
-type instanceJSON struct {
-	ID               string    `json:"id"`
-	Title            string    `json:"title"`
-	CustomLabel      string    `json:"custom_label,omitempty"`
-	ProjectPath      string    `json:"project_path"`
-	GroupPath        string    `json:"group_path"`
-	Tool             string    `json:"tool"`
-	Status           string    `json:"status"`
-	TmuxSession      string    `json:"tmux_session"`
-	CreatedAt        time.Time `json:"created_at"`
-	LastAccessedAt   time.Time `json:"last_accessed_at,omitempty"`
-	WaitingSince     time.Time `json:"waiting_since,omitempty"`
-	RemoteHost       string    `json:"remote_host,omitempty"`
-	RemoteTmuxName   string    `json:"remote_tmux_name,omitempty"`
-	LaunchConfigName string    `json:"launch_config_name,omitempty"`
-	LoadedMCPNames   []string  `json:"loaded_mcp_names,omitempty"`
-	DangerousMode    bool      `json:"dangerous_mode,omitempty"`
 }
 
 // tmuxBinaryPath is the resolved path to tmux, used by all components.
@@ -154,35 +119,25 @@ const maxConcurrentStatusChecks = 8
 
 // TmuxManager handles tmux session operations.
 type TmuxManager struct {
-	fileMu sync.Mutex // Protects sessions.json file access
-
-	// Debounced persistence to prevent unbounded goroutine spawning
-	persistMu       sync.Mutex
-	pendingUpdates  map[string]instanceUpdate
-	persistTimer    *time.Timer
-	persistDebounce time.Duration
+	adapter *session.StorageAdapter // Unified storage layer with debounced writes
 }
 
 // NewTmuxManager creates a new TmuxManager.
 func NewTmuxManager() *TmuxManager {
+	// Create storage adapter with 500ms debounce for status updates
+	adapter, err := session.NewStorageAdapterWithProfile("", 500*time.Millisecond)
+	if err != nil {
+		log.Printf("Warning: failed to create storage adapter: %v", err)
+		// Continue with nil adapter - methods will handle gracefully
+	}
 	return &TmuxManager{
-		pendingUpdates:  make(map[string]instanceUpdate),
-		persistDebounce: 500 * time.Millisecond, // Coalesce updates within 500ms window
+		adapter: adapter,
 	}
 }
 
 // GetTmuxPath returns the path to the tmux binary.
 func (tm *TmuxManager) GetTmuxPath() string {
 	return tmuxBinaryPath
-}
-
-// getSessionsPath returns the path to sessions.json for the default profile.
-func (tm *TmuxManager) getSessionsPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".agent-deck", "profiles", "default", "sessions.json"), nil
 }
 
 // generateSessionID creates a unique session ID matching the TUI format: {8-char-hex}-{unix-timestamp}
@@ -219,18 +174,12 @@ func extractGroupPath(projectPath string) string {
 
 // countSessionsAtPath returns the number of existing sessions at a given project path.
 func (tm *TmuxManager) countSessionsAtPath(projectPath string) int {
-	sessionsPath, err := tm.getSessionsPath()
-	if err != nil {
+	if tm.adapter == nil {
 		return 0
 	}
 
-	data, err := os.ReadFile(sessionsPath)
+	data, err := tm.adapter.LoadStorageData()
 	if err != nil {
-		return 0
-	}
-
-	var sessions sessionsJSON
-	if err := json.Unmarshal(data, &sessions); err != nil {
 		return 0
 	}
 
@@ -238,7 +187,7 @@ func (tm *TmuxManager) countSessionsAtPath(projectPath string) int {
 	normalizedPath := filepath.Clean(projectPath)
 
 	count := 0
-	for _, inst := range sessions.Instances {
+	for _, inst := range data.Instances {
 		if filepath.Clean(inst.ProjectPath) == normalizedPath {
 			count++
 		}
@@ -248,44 +197,17 @@ func (tm *TmuxManager) countSessionsAtPath(projectPath string) int {
 
 // PersistSession adds a new session to sessions.json.
 func (tm *TmuxManager) PersistSession(s SessionInfo) error {
-	sessionsPath, err := tm.getSessionsPath()
+	if tm.adapter == nil {
+		return fmt.Errorf("storage adapter not initialized")
+	}
+
+	// Load current data
+	data, err := tm.adapter.LoadStorageData()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to load sessions: %w", err)
 	}
 
-	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(sessionsPath), 0700); err != nil {
-		return fmt.Errorf("failed to create sessions directory: %w", err)
-	}
-
-	// Read current sessions (or create empty structure if file doesn't exist)
-	var raw map[string]json.RawMessage
-	data, err := os.ReadFile(sessionsPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Initialize empty structure
-			raw = map[string]json.RawMessage{
-				"instances":  json.RawMessage("[]"),
-				"updated_at": json.RawMessage(`"` + time.Now().Format(time.RFC3339Nano) + `"`),
-			}
-		} else {
-			return fmt.Errorf("failed to read sessions file: %w", err)
-		}
-	} else {
-		if err := json.Unmarshal(data, &raw); err != nil {
-			return fmt.Errorf("failed to parse sessions file: %w", err)
-		}
-	}
-
-	// Parse instances array using typed struct
-	var instances []instanceJSON
-	if rawInstances, ok := raw["instances"]; ok {
-		if err := json.Unmarshal(rawInstances, &instances); err != nil {
-			return fmt.Errorf("failed to parse instances: %w", err)
-		}
-	}
-
-	// Create new instance entry using typed struct (provides compile-time safety)
+	// Create new instance entry
 	now := time.Now()
 	// For remote sessions, the tmux session name is also the remote tmux name
 	// (the desktop creates the tmux session on the remote host with this name).
@@ -295,14 +217,14 @@ func (tm *TmuxManager) PersistSession(s SessionInfo) error {
 		remoteTmuxName = s.TmuxSession
 	}
 
-	newInstance := instanceJSON{
+	newInstance := &session.InstanceData{
 		ID:               s.ID,
 		Title:            s.Title,
 		CustomLabel:      s.CustomLabel,
 		ProjectPath:      s.ProjectPath,
 		GroupPath:        s.GroupPath,
 		Tool:             s.Tool,
-		Status:           s.Status,
+		Status:           session.Status(s.Status),
 		TmuxSession:      s.TmuxSession,
 		CreatedAt:        now,
 		LastAccessedAt:   now,
@@ -313,113 +235,9 @@ func (tm *TmuxManager) PersistSession(s SessionInfo) error {
 		DangerousMode:    s.DangerousMode,
 	}
 
-	// Append new instance
-	instances = append(instances, newInstance)
-
-	// Marshal instances back
-	instancesData, err := json.Marshal(instances)
-	if err != nil {
-		return fmt.Errorf("failed to marshal instances: %w", err)
-	}
-	raw["instances"] = instancesData
-
-	// Update timestamp
-	updatedAt, _ := json.Marshal(now.Format(time.RFC3339Nano))
-	raw["updated_at"] = updatedAt
-
-	// Write back with indentation (atomic write via temp file)
-	output, err := json.MarshalIndent(raw, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal JSON: %w", err)
-	}
-
-	tmpPath := sessionsPath + ".tmp"
-	if err := os.WriteFile(tmpPath, output, 0600); err != nil {
-		return fmt.Errorf("failed to write temp file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, sessionsPath); err != nil {
-		os.Remove(tmpPath) // Clean up temp file on failure
-		return fmt.Errorf("failed to finalize save: %w", err)
-	}
-
-	return nil
-}
-
-// loadSessionsData reads and parses sessions.json, returning the raw data.
-// This is used by both ListSessions and ListSessionsWithGroups.
-func (tm *TmuxManager) loadSessionsData() (*sessionsJSON, error) {
-	sessionsPath, err := tm.getSessionsPath()
-	if err != nil {
-		return nil, err
-	}
-
-	data, err := os.ReadFile(sessionsPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &sessionsJSON{}, nil
-		}
-		return nil, err
-	}
-
-	var sessions sessionsJSON
-	if err := json.Unmarshal(data, &sessions); err != nil {
-		return nil, err
-	}
-
-	return &sessions, nil
-}
-
-// saveSessionsData writes the sessions data back to sessions.json with atomic write.
-func (tm *TmuxManager) saveSessionsData(sessions *sessionsJSON) error {
-	sessionsPath, err := tm.getSessionsPath()
-	if err != nil {
-		return err
-	}
-
-	// Read existing file to preserve any fields we don't model
-	var raw map[string]json.RawMessage
-	data, err := os.ReadFile(sessionsPath)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("failed to read sessions file: %w", err)
-		}
-		raw = make(map[string]json.RawMessage)
-	} else {
-		if err := json.Unmarshal(data, &raw); err != nil {
-			return fmt.Errorf("failed to parse sessions file: %w", err)
-		}
-	}
-
-	// Marshal instances
-	instancesData, err := json.Marshal(sessions.Instances)
-	if err != nil {
-		return fmt.Errorf("failed to marshal instances: %w", err)
-	}
-	raw["instances"] = instancesData
-
-	// Update timestamp
-	now := time.Now()
-	updatedAt, _ := json.Marshal(now.Format(time.RFC3339Nano))
-	raw["updated_at"] = updatedAt
-
-	// Write back with indentation (atomic write via temp file)
-	output, err := json.MarshalIndent(raw, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal JSON: %w", err)
-	}
-
-	tmpPath := sessionsPath + ".tmp"
-	if err := os.WriteFile(tmpPath, output, 0600); err != nil {
-		return fmt.Errorf("failed to write temp file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, sessionsPath); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("failed to finalize save: %w", err)
-	}
-
-	return nil
+	// Append and save
+	data.Instances = append(data.Instances, newInstance)
+	return tm.adapter.SaveStorageData(data)
 }
 
 // detectSessionStatus captures tmux pane content and detects the actual status.
@@ -460,28 +278,21 @@ func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bo
 	return "idle", true
 }
 
-// instanceUpdate tracks status/timestamp changes that need to be persisted
-type instanceUpdate struct {
-	status            string
-	waitingSince      time.Time
-	clearWaitingSince bool
-}
-
 // updateWaitingSinceTracking adjusts waitingSince based on status transitions.
 // Sets waitingSince to now if status is "waiting" and timestamp is missing.
 // Clears waitingSince if status is no longer "waiting".
 // Updates the updates map for persistence and returns the effective waitingSince.
-func updateWaitingSinceTracking(instID string, status string, currentWaitingSince time.Time, updates map[string]instanceUpdate) time.Time {
+func updateWaitingSinceTracking(instID string, status string, currentWaitingSince time.Time, updates map[string]session.FieldUpdate) time.Time {
 	waitingSince := currentWaitingSince
 
 	// Set waitingSince if session is waiting and timestamp is missing
 	if status == "waiting" && waitingSince.IsZero() {
 		waitingSince = time.Now()
 		if u, ok := updates[instID]; ok {
-			u.waitingSince = waitingSince
+			u.WaitingSince = &waitingSince
 			updates[instID] = u
 		} else {
-			updates[instID] = instanceUpdate{waitingSince: waitingSince}
+			updates[instID] = session.FieldUpdate{WaitingSince: &waitingSince}
 		}
 	}
 
@@ -489,10 +300,10 @@ func updateWaitingSinceTracking(instID string, status string, currentWaitingSinc
 	if status != "waiting" && !currentWaitingSince.IsZero() {
 		waitingSince = time.Time{}
 		if u, ok := updates[instID]; ok {
-			u.clearWaitingSince = true
+			u.ClearWaitingSince = true
 			updates[instID] = u
 		} else {
-			updates[instID] = instanceUpdate{clearWaitingSince: true}
+			updates[instID] = session.FieldUpdate{ClearWaitingSince: true}
 		}
 	}
 
@@ -503,7 +314,7 @@ func updateWaitingSinceTracking(instID string, status string, currentWaitingSinc
 // Includes all sessions, marking local ones without running tmux as "exited".
 // Detects actual status from pane content (in parallel) and updates waitingSince timestamps.
 // Sorts by LastAccessedAt.
-func (tm *TmuxManager) convertInstancesToSessionInfos(instances []instanceJSON) []SessionInfo {
+func (tm *TmuxManager) convertInstancesToSessionInfos(instances []*session.InstanceData) []SessionInfo {
 	runningTmux := tm.getRunningTmuxSessions()
 
 	// Load SSH host configs for display name lookup
@@ -527,7 +338,7 @@ func (tm *TmuxManager) convertInstancesToSessionInfos(instances []instanceJSON) 
 
 	// Phase 3: Build result with detected statuses
 	result := make([]SessionInfo, 0, len(instances))
-	updates := make(map[string]instanceUpdate) // Track updates to persist
+	updates := make(map[string]session.FieldUpdate) // Track updates to persist
 
 	for _, inst := range instances {
 		// Check if tmux session actually exists (for local sessions)
@@ -535,7 +346,7 @@ func (tm *TmuxManager) convertInstancesToSessionInfos(instances []instanceJSON) 
 		isRemote := inst.RemoteHost != ""
 
 		// Determine effective status
-		status := inst.Status
+		status := string(inst.Status)
 		waitingSince := inst.WaitingSince
 
 		if !isRemote && !exists {
@@ -544,9 +355,9 @@ func (tm *TmuxManager) convertInstancesToSessionInfos(instances []instanceJSON) 
 		} else if !isRemote && exists {
 			// Use pre-detected status from parallel detection
 			if detectedStatus, ok := detectedStatuses[inst.TmuxSession]; ok {
-				if detectedStatus != inst.Status {
+				if detectedStatus != string(inst.Status) {
 					status = detectedStatus
-					updates[inst.ID] = instanceUpdate{status: detectedStatus}
+					updates[inst.ID] = session.FieldUpdate{Status: &detectedStatus}
 				} else {
 					status = detectedStatus
 				}
@@ -616,8 +427,10 @@ func (tm *TmuxManager) convertInstancesToSessionInfos(instances []instanceJSON) 
 	}
 
 	// Persist any status/timestamp updates via debounced scheduler (don't block UI)
-	if len(updates) > 0 {
-		tm.schedulePersist(updates)
+	if len(updates) > 0 && tm.adapter != nil {
+		for id, update := range updates {
+			tm.adapter.ScheduleUpdate(id, update)
+		}
 	}
 
 	// Sort by LastAccessedAt (most recent first)
@@ -626,101 +439,6 @@ func (tm *TmuxManager) convertInstancesToSessionInfos(instances []instanceJSON) 
 	})
 
 	return result
-}
-
-// persistInstanceUpdates saves status and waitingSince changes to sessions.json
-func (tm *TmuxManager) persistInstanceUpdates(updates map[string]instanceUpdate) {
-	// Acquire lock to prevent concurrent file access
-	tm.fileMu.Lock()
-	defer tm.fileMu.Unlock()
-
-	sessionsData, err := tm.loadSessionsData()
-	if err != nil {
-		log.Printf("[status-update] Failed to load sessions for update: %v", err)
-		return
-	}
-
-	modified := false
-	for i := range sessionsData.Instances {
-		inst := &sessionsData.Instances[i]
-		if update, ok := updates[inst.ID]; ok {
-			if update.status != "" && update.status != inst.Status {
-				log.Printf("[status-update] %s: %s -> %s", inst.ID, inst.Status, update.status)
-				inst.Status = update.status
-				modified = true
-			}
-			if !update.waitingSince.IsZero() {
-				log.Printf("[status-update] %s: setting waitingSince to %v", inst.ID, update.waitingSince)
-				inst.WaitingSince = update.waitingSince
-				modified = true
-			}
-			if update.clearWaitingSince && !inst.WaitingSince.IsZero() {
-				log.Printf("[status-update] %s: clearing waitingSince", inst.ID)
-				inst.WaitingSince = time.Time{}
-				modified = true
-			}
-		}
-	}
-
-	if modified {
-		if err := tm.saveSessionsData(sessionsData); err != nil {
-			log.Printf("[status-update] Failed to save sessions: %v", err)
-		}
-	}
-}
-
-// schedulePersist adds updates to a pending batch and schedules a debounced write.
-// This prevents unbounded goroutine spawning when polling rapidly.
-func (tm *TmuxManager) schedulePersist(updates map[string]instanceUpdate) {
-	if len(updates) == 0 {
-		return
-	}
-
-	tm.persistMu.Lock()
-	defer tm.persistMu.Unlock()
-
-	// Merge updates into pending batch
-	for id, update := range updates {
-		if existing, ok := tm.pendingUpdates[id]; ok {
-			// Merge: prefer non-empty values from new update
-			if update.status != "" {
-				existing.status = update.status
-			}
-			if !update.waitingSince.IsZero() {
-				existing.waitingSince = update.waitingSince
-			}
-			if update.clearWaitingSince {
-				existing.clearWaitingSince = true
-			}
-			tm.pendingUpdates[id] = existing
-		} else {
-			tm.pendingUpdates[id] = update
-		}
-	}
-
-	// Reset or start the debounce timer
-	if tm.persistTimer != nil {
-		tm.persistTimer.Stop()
-	}
-	tm.persistTimer = time.AfterFunc(tm.persistDebounce, func() {
-		tm.flushPendingUpdates()
-	})
-}
-
-// flushPendingUpdates writes all pending updates to disk.
-func (tm *TmuxManager) flushPendingUpdates() {
-	tm.persistMu.Lock()
-	if len(tm.pendingUpdates) == 0 {
-		tm.persistMu.Unlock()
-		return
-	}
-	// Swap out pending updates so we don't hold persistMu during file I/O
-	updates := tm.pendingUpdates
-	tm.pendingUpdates = make(map[string]instanceUpdate)
-	tm.persistMu.Unlock()
-
-	// Now do the actual persistence (this acquires fileMu)
-	tm.persistInstanceUpdates(updates)
 }
 
 // sessionToDetect identifies a session for status detection.
@@ -767,26 +485,34 @@ func (tm *TmuxManager) detectStatusesParallel(sessions []sessionToDetect) map[st
 
 // ListSessions returns all Agent Deck sessions from sessions.json.
 func (tm *TmuxManager) ListSessions() ([]SessionInfo, error) {
-	sessionsData, err := tm.loadSessionsData()
+	if tm.adapter == nil {
+		return nil, fmt.Errorf("storage adapter not initialized")
+	}
+
+	data, err := tm.adapter.LoadStorageData()
 	if err != nil {
 		return nil, err
 	}
 
-	return tm.convertInstancesToSessionInfos(sessionsData.Instances), nil
+	return tm.convertInstancesToSessionInfos(data.Instances), nil
 }
 
 // ListSessionsWithGroups returns sessions along with group information for hierarchical display.
 func (tm *TmuxManager) ListSessionsWithGroups() (SessionsWithGroups, error) {
-	sessionsData, err := tm.loadSessionsData()
+	if tm.adapter == nil {
+		return SessionsWithGroups{}, fmt.Errorf("storage adapter not initialized")
+	}
+
+	data, err := tm.adapter.LoadStorageData()
 	if err != nil {
 		return SessionsWithGroups{}, err
 	}
 
 	// Convert instances to SessionInfo using shared helper
-	sessions := tm.convertInstancesToSessionInfos(sessionsData.Instances)
+	sessions := tm.convertInstancesToSessionInfos(data.Instances)
 
 	// Build group info from stored groups
-	groups := make([]GroupInfo, 0, len(sessionsData.Groups))
+	groups := make([]GroupInfo, 0, len(data.Groups))
 	groupSessionCounts := make(map[string]int) // path -> direct session count
 
 	// Count direct sessions per group
@@ -799,13 +525,13 @@ func (tm *TmuxManager) ListSessionsWithGroups() (SessionsWithGroups, error) {
 	}
 
 	// Process each group
-	for _, g := range sessionsData.Groups {
+	for _, g := range data.Groups {
 		// Calculate level from path (count slashes)
 		level := strings.Count(g.Path, "/")
 
 		// Check if this group has subgroups
 		hasChildren := false
-		for _, otherG := range sessionsData.Groups {
+		for _, otherG := range data.Groups {
 			if strings.HasPrefix(otherG.Path, g.Path+"/") {
 				hasChildren = true
 				break
@@ -1360,74 +1086,17 @@ func (tm *TmuxManager) CreateRemoteSession(hostID, projectPath, title, tool, con
 	return sessionInfo, nil
 }
 
-// updateSessionField performs an atomic read-modify-write on sessions.json.
-// It finds the session by ID, calls mutate to apply changes, then writes back atomically.
-// All session field update methods delegate to this to avoid duplicating the
-// read → parse → find → mutate → marshal → atomic-write skeleton.
-func (tm *TmuxManager) updateSessionField(sessionID string, mutate func(inst map[string]interface{})) error {
-	sessionsPath, err := tm.getSessionsPath()
-	if err != nil {
-		return err
-	}
-
-	data, err := os.ReadFile(sessionsPath)
-	if err != nil {
-		return err
-	}
-
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-
-	var instances []map[string]interface{}
-	if err := json.Unmarshal(raw["instances"], &instances); err != nil {
-		return err
-	}
-
-	found := false
-	for i, inst := range instances {
-		if id, ok := inst["id"].(string); ok && id == sessionID {
-			mutate(instances[i])
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		return fmt.Errorf("session not found: %s", sessionID)
-	}
-
-	instancesData, err := json.Marshal(instances)
-	if err != nil {
-		return err
-	}
-	raw["instances"] = instancesData
-
-	output, err := json.MarshalIndent(raw, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	tmpPath := sessionsPath + ".tmp"
-	if err := os.WriteFile(tmpPath, output, 0600); err != nil {
-		return fmt.Errorf("failed to write temp file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, sessionsPath); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("failed to finalize save: %w", err)
-	}
-
-	return nil
-}
-
 // MarkSessionAccessed updates the last_accessed_at timestamp for a session.
 // This keeps the session list sorted by most recently used.
 func (tm *TmuxManager) MarkSessionAccessed(sessionID string) error {
-	return tm.updateSessionField(sessionID, func(inst map[string]interface{}) {
-		inst["last_accessed_at"] = time.Now().Format(time.RFC3339Nano)
-	})
+	if tm.adapter == nil {
+		return fmt.Errorf("storage adapter not initialized")
+	}
+
+	// Use debounced update for efficiency
+	now := time.Now()
+	tm.adapter.ScheduleUpdate(sessionID, session.FieldUpdate{LastAccessedAt: &now})
+	return nil
 }
 
 // validSessionStatuses defines the set of status values that can be persisted.
@@ -1443,54 +1112,58 @@ var validSessionStatuses = map[string]bool{
 // UpdateSessionStatus updates the status field for a session in sessions.json.
 // The TUI's StorageWatcher (fsnotify) will detect the write and reload.
 func (tm *TmuxManager) UpdateSessionStatus(sessionID, status string) error {
+	if tm.adapter == nil {
+		return fmt.Errorf("storage adapter not initialized")
+	}
 	if !validSessionStatuses[status] {
 		return fmt.Errorf("invalid session status: %q", status)
 	}
-	return tm.updateSessionField(sessionID, func(inst map[string]interface{}) {
-		inst["status"] = status
-	})
+
+	// Use immediate update (not debounced) since status changes should be visible quickly
+	data, err := tm.adapter.LoadStorageData()
+	if err != nil {
+		return err
+	}
+
+	found := false
+	for _, inst := range data.Instances {
+		if inst.ID == sessionID {
+			inst.Status = session.Status(status)
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	return tm.adapter.SaveStorageData(data)
 }
 
 // DeleteSession removes a session from sessions.json and kills its tmux session.
 // If the session is remote, it will attempt to kill the tmux session via SSH.
 func (tm *TmuxManager) DeleteSession(sessionID string, sshBridge *SSHBridge) error {
-	sessionsPath, err := tm.getSessionsPath()
+	if tm.adapter == nil {
+		return fmt.Errorf("storage adapter not initialized")
+	}
+
+	// Load current data
+	data, err := tm.adapter.LoadStorageData()
 	if err != nil {
-		return err
-	}
-
-	// Read current sessions
-	data, err := os.ReadFile(sessionsPath)
-	if err != nil {
-		return fmt.Errorf("failed to read sessions file: %w", err)
-	}
-
-	// Parse as raw JSON to preserve all fields
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("failed to parse sessions file: %w", err)
-	}
-
-	// Parse instances array
-	var instances []map[string]interface{}
-	if err := json.Unmarshal(raw["instances"], &instances); err != nil {
-		return fmt.Errorf("failed to parse instances: %w", err)
+		return fmt.Errorf("failed to load sessions: %w", err)
 	}
 
 	// Find the session and remove it
 	found := false
 	var tmuxSession string
 	var remoteHost string
-	var newInstances []map[string]interface{}
-	for _, inst := range instances {
-		if id, ok := inst["id"].(string); ok && id == sessionID {
+	newInstances := make([]*session.InstanceData, 0, len(data.Instances))
+	for _, inst := range data.Instances {
+		if inst.ID == sessionID {
 			found = true
-			if ts, ok := inst["tmux_session"].(string); ok {
-				tmuxSession = ts
-			}
-			if rh, ok := inst["remote_host"].(string); ok {
-				remoteHost = rh
-			}
+			tmuxSession = inst.TmuxSession
+			remoteHost = inst.RemoteHost
 			// Skip this session (don't add to newInstances)
 			continue
 		}
@@ -1521,46 +1194,21 @@ func (tm *TmuxManager) DeleteSession(sessionID string, sshBridge *SSHBridge) err
 		}
 	}
 
-	// Marshal instances back
-	instancesData, err := json.Marshal(newInstances)
-	if err != nil {
-		return fmt.Errorf("failed to marshal instances: %w", err)
-	}
-	raw["instances"] = instancesData
-
-	// Update timestamp
-	updatedAt, _ := json.Marshal(time.Now().Format(time.RFC3339Nano))
-	raw["updated_at"] = updatedAt
-
-	// Write back with indentation (atomic write via temp file)
-	output, err := json.MarshalIndent(raw, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal JSON: %w", err)
-	}
-
-	tmpPath := sessionsPath + ".tmp"
-	if err := os.WriteFile(tmpPath, output, 0600); err != nil {
-		return fmt.Errorf("failed to write temp file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, sessionsPath); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("failed to finalize save: %w", err)
-	}
-
-	return nil
+	// Save with the session removed
+	data.Instances = newInstances
+	return tm.adapter.SaveStorageData(data)
 }
 
 // UpdateSessionCustomLabel updates the custom_label field for a session.
 // Pass an empty string to remove the custom label.
 func (tm *TmuxManager) UpdateSessionCustomLabel(sessionID, customLabel string) error {
-	return tm.updateSessionField(sessionID, func(inst map[string]interface{}) {
-		if customLabel == "" {
-			delete(inst, "custom_label")
-		} else {
-			inst["custom_label"] = customLabel
-		}
-	})
+	if tm.adapter == nil {
+		return fmt.Errorf("storage adapter not initialized")
+	}
+
+	// Use debounced update
+	tm.adapter.ScheduleUpdate(sessionID, session.FieldUpdate{CustomLabel: &customLabel})
+	return nil
 }
 
 // StatusUpdate contains the status and timestamp updates for a session.
@@ -1578,6 +1226,9 @@ func (tm *TmuxManager) RefreshSessionStatuses(sessionIDs []string) ([]StatusUpda
 	if len(sessionIDs) == 0 {
 		return nil, nil
 	}
+	if tm.adapter == nil {
+		return nil, fmt.Errorf("storage adapter not initialized")
+	}
 
 	// Build lookup set for quick ID matching
 	idSet := make(map[string]bool, len(sessionIDs))
@@ -1585,10 +1236,8 @@ func (tm *TmuxManager) RefreshSessionStatuses(sessionIDs []string) ([]StatusUpda
 		idSet[id] = true
 	}
 
-	// Load current sessions data (protected by fileMu via loadSessionsData)
-	tm.fileMu.Lock()
-	sessionsData, err := tm.loadSessionsData()
-	tm.fileMu.Unlock()
+	// Load current sessions data
+	data, err := tm.adapter.LoadStorageData()
 	if err != nil {
 		return nil, err
 	}
@@ -1599,9 +1248,8 @@ func (tm *TmuxManager) RefreshSessionStatuses(sessionIDs []string) ([]StatusUpda
 	// Phase 1: Collect local sessions that need status detection
 	var sessionsToDetect []sessionToDetect
 	// Also build a map of instance data for quick lookup
-	instanceMap := make(map[string]*instanceJSON)
-	for i := range sessionsData.Instances {
-		inst := &sessionsData.Instances[i]
+	instanceMap := make(map[string]*session.InstanceData)
+	for _, inst := range data.Instances {
 		if !idSet[inst.ID] {
 			continue
 		}
@@ -1621,7 +1269,7 @@ func (tm *TmuxManager) RefreshSessionStatuses(sessionIDs []string) ([]StatusUpda
 
 	// Phase 3: Build result with detected statuses
 	result := make([]StatusUpdate, 0, len(sessionIDs))
-	updates := make(map[string]instanceUpdate) // Track changes to persist
+	updates := make(map[string]session.FieldUpdate) // Track changes to persist
 
 	for _, id := range sessionIDs {
 		inst, ok := instanceMap[id]
@@ -1633,7 +1281,7 @@ func (tm *TmuxManager) RefreshSessionStatuses(sessionIDs []string) ([]StatusUpda
 		isRemote := inst.RemoteHost != ""
 
 		// Determine effective status
-		status := inst.Status
+		status := string(inst.Status)
 		waitingSince := inst.WaitingSince
 
 		if !isRemote && !exists {
@@ -1642,9 +1290,9 @@ func (tm *TmuxManager) RefreshSessionStatuses(sessionIDs []string) ([]StatusUpda
 		} else if !isRemote && exists {
 			// Use pre-detected status from parallel detection
 			if detectedStatus, ok := detectedStatuses[inst.TmuxSession]; ok {
-				if detectedStatus != inst.Status {
+				if detectedStatus != string(inst.Status) {
 					status = detectedStatus
-					updates[inst.ID] = instanceUpdate{status: detectedStatus}
+					updates[inst.ID] = session.FieldUpdate{Status: &detectedStatus}
 				} else {
 					status = detectedStatus
 				}
@@ -1664,7 +1312,9 @@ func (tm *TmuxManager) RefreshSessionStatuses(sessionIDs []string) ([]StatusUpda
 
 	// Persist updates via debounced scheduler (don't block the response)
 	if len(updates) > 0 {
-		tm.schedulePersist(updates)
+		for id, update := range updates {
+			tm.adapter.ScheduleUpdate(id, update)
+		}
 	}
 
 	return result, nil
