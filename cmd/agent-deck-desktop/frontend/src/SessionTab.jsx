@@ -41,7 +41,7 @@ function getRelativePath(fullPath) {
     return fullPath;
 }
 
-export default function SessionTab({ tab, index, isActive, onSwitch, onClose, onContextMenu }) {
+export default function SessionTab({ tab, index, isActive, onSwitch, onClose, onContextMenu, isDragging, dragOverSide, onDragStart, onDragEnd, onDragOver }) {
     const { show: showTooltip, hide: hideTooltip, Tooltip } = useTooltip();
 
     // Extract session info from the new layout-based tab structure
@@ -202,11 +202,15 @@ export default function SessionTab({ tab, index, isActive, onSwitch, onClose, on
     return (
         <>
             <button
-                className={`session-tab${isActive ? ' active' : ''}${paneCount > 1 ? ' multi-pane' : ''}${hasCustomLabel ? ' has-label' : ''}${session?.isRemote ? ' is-remote' : ''}`}
+                className={`session-tab${isActive ? ' active' : ''}${paneCount > 1 ? ' multi-pane' : ''}${hasCustomLabel ? ' has-label' : ''}${session?.isRemote ? ' is-remote' : ''}${isDragging ? ' dragging' : ''}${dragOverSide === 'left' ? ' drag-over-left' : ''}${dragOverSide === 'right' ? ' drag-over-right' : ''}`}
                 onClick={onSwitch}
                 onContextMenu={onContextMenu}
                 onMouseEnter={(e) => showTooltip(e, getTooltipContent())}
                 onMouseLeave={hideTooltip}
+                draggable="true"
+                onDragStart={onDragStart}
+                onDragEnd={onDragEnd}
+                onDragOver={onDragOver}
                 style={sessionAccentColor ? { '--session-accent': sessionAccentColor } : undefined}
             >
                 {/* Accent indicator for visual distinction */}

@@ -197,3 +197,32 @@
     color: var(--accent-primary);
     font-size: 11px;
 }
+
+/* Drag-and-drop tab reordering */
+.session-tab.dragging {
+    opacity: 0.4;
+}
+
+.session-tab.drag-over-left::before {
+    content: '';
+    position: absolute;
+    left: -3px;
+    top: 2px;
+    bottom: 2px;
+    width: 2px;
+    background: var(--accent-primary);
+    border-radius: 1px;
+    z-index: 1;
+}
+
+.session-tab.drag-over-right::after {
+    content: '';
+    position: absolute;
+    right: -3px;
+    top: 2px;
+    bottom: 2px;
+    width: 2px;
+    background: var(--accent-primary);
+    border-radius: 1px;
+    z-index: 1;
+}

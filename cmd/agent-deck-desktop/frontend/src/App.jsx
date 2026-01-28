@@ -532,6 +532,17 @@ function App() {
         });
     }, [activeTabId]);
 
+    const handleReorderTab = useCallback((draggedTabId, targetIndex) => {
+        setOpenTabs(prev => {
+            const fromIndex = prev.findIndex(t => t.id === draggedTabId);
+            if (fromIndex === -1 || fromIndex === targetIndex) return prev;
+            const updated = [...prev];
+            const [moved] = updated.splice(fromIndex, 1);
+            updated.splice(targetIndex, 0, moved);
+            return updated;
+        });
+    }, []);
+
     const handleSwitchTab = useCallback(async (tabId) => {
         const tab = openTabs.find(t => t.id === tabId);
         if (!tab) return;
@@ -1944,6 +1955,7 @@ function App() {
                         activeTabId={activeTabId}
                         onSwitchTab={handleSwitchTab}
                         onCloseTab={handleCloseTab}
+                        onReorderTab={handleReorderTab}
                         onTabLabelUpdated={handleTabLabelUpdated}
                         onSessionDeleted={handleSessionDeleted}
                     />
@@ -2105,6 +2117,7 @@ function App() {
                     activeTabId={activeTabId}
                     onSwitchTab={handleSwitchTab}
                     onCloseTab={handleCloseTab}
+                    onReorderTab={handleReorderTab}
                     onTabLabelUpdated={handleTabLabelUpdated}
                     onSessionDeleted={handleSessionDeleted}
                 />
