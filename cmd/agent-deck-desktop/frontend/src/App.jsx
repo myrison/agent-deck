@@ -22,7 +22,7 @@ import HostPicker, { LOCAL_HOST_ID } from './HostPicker';
 import DeleteSessionDialog from './DeleteSessionDialog';
 import Toast from './Toast';
 import { BranchIcon } from './ToolIcon';
-import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames, DeleteSession, OpenNewWindow, GetOpenTabState, SaveOpenTabState, HasScanPaths, GetSetupDismissed } from '../wailsjs/go/main/App';
+import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames, DeleteSession, OpenNewWindow, GetOpenTabState, SaveOpenTabState, HasScanPaths, GetSetupDismissed, GetShowActivityRibbon, RefreshSessionStatuses } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE } from './constants/terminal';
 import { shouldInterceptShortcut, hasAppModifier } from './utils/platform';
@@ -36,6 +36,7 @@ import {
     getPaneList,
     findPane,
     updatePaneSession,
+    updateSessionsInLayout,
     countPanes,
     balanceLayout,
     createPresetLayout,
@@ -106,6 +107,7 @@ function App() {
     const [activeTabId, setActiveTabId] = useState(null);
     const [fontSize, setFontSizeState] = useState(DEFAULT_FONT_SIZE);
     const [scrollSpeed, setScrollSpeedState] = useState(100); // Default 100%
+    const [showActivityRibbon, setShowActivityRibbon] = useState(true); // Activity ribbon on tabs (default enabled)
     // Move mode - when true, shows pane numbers for session swap
     const [moveMode, setMoveMode] = useState(false);
     // Saved layouts
@@ -231,6 +233,18 @@ function App() {
             }
         };
         loadScrollSpeed();
+
+        // Load activity ribbon preference
+        const loadActivityRibbon = async () => {
+            try {
+                const enabled = await GetShowActivityRibbon();
+                setShowActivityRibbon(enabled);
+                logger.info('Loaded activity ribbon setting', { enabled });
+            } catch (err) {
+                logger.error('Failed to load activity ribbon setting:', err);
+            }
+        };
+        loadActivityRibbon();
 
         // Load saved layouts
         const loadSavedLayouts = async () => {
@@ -378,6 +392,129 @@ function App() {
         EventsOn('menu:newWindow', handleNewWindow);
         return () => EventsOff('menu:newWindow', handleNewWindow);
     }, []);
+
+    // Listen for activity ribbon setting changes
+    useEffect(() => {
+        const handler = (enabled) => {
+            logger.info('Activity ribbon setting changed', { enabled });
+            setShowActivityRibbon(enabled);
+        };
+        EventsOn('settings:activityRibbon', handler);
+        return () => EventsOff('settings:activityRibbon', handler);
+    }, []);
+
+    // Ref to track current openTabs without causing useEffect re-runs
+    const openTabsRef = useRef(openTabs);
+    useEffect(() => {
+        openTabsRef.current = openTabs;
+    }, [openTabs]);
+
+    // Visibility-aware status polling for activity ribbon
+    // Only polls when app is visible and tabs are open
+    useEffect(() => {
+        if (!showActivityRibbon) {
+            logger.debug('Activity ribbon disabled, skipping status polling');
+            return;
+        }
+
+        logger.info('Starting status polling useEffect');
+        let intervalId = null;
+        let isPolling = false;
+
+        const pollStatuses = async () => {
+            // Don't poll if already in progress or document not visible
+            if (isPolling || document.visibilityState !== 'visible') {
+                logger.debug('Skipping poll:', { isPolling, visibility: document.visibilityState });
+                return;
+            }
+
+            // Use ref to get current tabs without dependency
+            const currentTabs = openTabsRef.current;
+            if (!currentTabs || currentTabs.length === 0) {
+                logger.debug('No tabs to poll');
+                return;
+            }
+
+            // Collect session IDs from all open tabs
+            const sessionIds = new Set();
+            for (const tab of currentTabs) {
+                const panes = getPaneList(tab.layout);
+                for (const pane of panes) {
+                    if (pane.session?.id) {
+                        sessionIds.add(pane.session.id);
+                    }
+                }
+            }
+
+            if (sessionIds.size === 0) {
+                logger.debug('No sessions in tabs to poll');
+                return;
+            }
+
+            logger.info('Polling session statuses', { count: sessionIds.size, ids: Array.from(sessionIds) });
+            isPolling = true;
+            try {
+                const updates = await RefreshSessionStatuses(Array.from(sessionIds));
+                logger.info('Got status updates', { count: updates?.length || 0 });
+                if (updates && updates.length > 0) {
+                    // Update session state with new statuses
+                    setSessions(prevSessions => {
+                        const updateMap = new Map(updates.map(u => [u.id, u]));
+                        let hasChanges = false;
+                        const newSessions = prevSessions.map(session => {
+                            const update = updateMap.get(session.id);
+                            if (update && (session.status !== update.status || session.waitingSince !== update.waitingSince)) {
+                                hasChanges = true;
+                                return { ...session, status: update.status, waitingSince: update.waitingSince };
+                            }
+                            return session;
+                        });
+                        return hasChanges ? newSessions : prevSessions;
+                    });
+
+                    // Also update sessions in open tabs (they may hold stale session objects)
+                    // Use immutable update to avoid React state mutation issues
+                    setOpenTabs(prevTabs => {
+                        const updateMap = new Map(updates.map(u => [u.id, u]));
+                        let hasChanges = false;
+                        const newTabs = prevTabs.map(tab => {
+                            const { layout: newLayout, changed } = updateSessionsInLayout(tab.layout, updateMap);
+                            if (changed) {
+                                hasChanges = true;
+                                return { ...tab, layout: newLayout };
+                            }
+                            return tab;
+                        });
+                        return hasChanges ? newTabs : prevTabs;
+                    });
+                }
+            } catch (err) {
+                logger.error('Failed to refresh session statuses:', err);
+            } finally {
+                isPolling = false;
+            }
+        };
+
+        // Start polling interval
+        intervalId = setInterval(pollStatuses, 5000);
+
+        // Also poll when visibility changes to visible
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                pollStatuses();
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        // Initial poll after a short delay to let tabs restore
+        const initialPollTimer = setTimeout(pollStatuses, 1000);
+
+        return () => {
+            if (intervalId) clearInterval(intervalId);
+            clearTimeout(initialPollTimer);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [showActivityRibbon]);
 
     // Helper to get friendly SSH host name with "(via SSH)" suffix
     const getSSHHostFriendlyName = useCallback((hostId) => {
@@ -1981,6 +2118,7 @@ function App() {
                         onReorderTab={handleReorderTab}
                         onTabLabelUpdated={handleTabLabelUpdated}
                         onSessionDeleted={handleSessionDeleted}
+                        showActivityRibbon={showActivityRibbon}
                     />
                 )}
                 <SessionSelector
@@ -2143,6 +2281,7 @@ function App() {
                     onReorderTab={handleReorderTab}
                     onTabLabelUpdated={handleTabLabelUpdated}
                     onSessionDeleted={handleSessionDeleted}
+                    showActivityRibbon={showActivityRibbon}
                 />
             )}
             <div className="terminal-header">

@@ -12,9 +12,11 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/asheshgoplani/agent-deck/internal/tmux"
 )
 
 // shellUnsafePattern matches characters that could cause shell injection.
@@ -42,6 +44,7 @@ type SessionInfo struct {
 	GitAhead              int       `json:"gitAhead,omitempty"`
 	GitBehind             int       `json:"gitBehind,omitempty"`
 	LastAccessedAt        time.Time `json:"lastAccessedAt,omitempty"`
+	WaitingSince          time.Time `json:"waitingSince,omitempty"` // When session entered waiting status
 	LaunchConfigName      string    `json:"launchConfigName,omitempty"`
 	LoadedMCPs            []string  `json:"loadedMcps,omitempty"`
 	DangerousMode         bool      `json:"dangerousMode,omitempty"`
@@ -98,6 +101,7 @@ type instanceJSON struct {
 	TmuxSession      string    `json:"tmux_session"`
 	CreatedAt        time.Time `json:"created_at"`
 	LastAccessedAt   time.Time `json:"last_accessed_at,omitempty"`
+	WaitingSince     time.Time `json:"waiting_since,omitempty"`
 	RemoteHost       string    `json:"remote_host,omitempty"`
 	RemoteTmuxName   string    `json:"remote_tmux_name,omitempty"`
 	LaunchConfigName string    `json:"launch_config_name,omitempty"`
@@ -144,12 +148,27 @@ func ensureTmuxRunning() {
 	}
 }
 
+// maxConcurrentStatusChecks limits how many tmux capture-pane subprocesses run in parallel.
+// This prevents spawning too many processes when polling many sessions.
+const maxConcurrentStatusChecks = 8
+
 // TmuxManager handles tmux session operations.
-type TmuxManager struct{}
+type TmuxManager struct {
+	fileMu sync.Mutex // Protects sessions.json file access
+
+	// Debounced persistence to prevent unbounded goroutine spawning
+	persistMu       sync.Mutex
+	pendingUpdates  map[string]instanceUpdate
+	persistTimer    *time.Timer
+	persistDebounce time.Duration
+}
 
 // NewTmuxManager creates a new TmuxManager.
 func NewTmuxManager() *TmuxManager {
-	return &TmuxManager{}
+	return &TmuxManager{
+		pendingUpdates:  make(map[string]instanceUpdate),
+		persistDebounce: 500 * time.Millisecond, // Coalesce updates within 500ms window
+	}
 }
 
 // GetTmuxPath returns the path to the tmux binary.
@@ -351,8 +370,138 @@ func (tm *TmuxManager) loadSessionsData() (*sessionsJSON, error) {
 	return &sessions, nil
 }
 
+// saveSessionsData writes the sessions data back to sessions.json with atomic write.
+func (tm *TmuxManager) saveSessionsData(sessions *sessionsJSON) error {
+	sessionsPath, err := tm.getSessionsPath()
+	if err != nil {
+		return err
+	}
+
+	// Read existing file to preserve any fields we don't model
+	var raw map[string]json.RawMessage
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to read sessions file: %w", err)
+		}
+		raw = make(map[string]json.RawMessage)
+	} else {
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return fmt.Errorf("failed to parse sessions file: %w", err)
+		}
+	}
+
+	// Marshal instances
+	instancesData, err := json.Marshal(sessions.Instances)
+	if err != nil {
+		return fmt.Errorf("failed to marshal instances: %w", err)
+	}
+	raw["instances"] = instancesData
+
+	// Update timestamp
+	now := time.Now()
+	updatedAt, _ := json.Marshal(now.Format(time.RFC3339Nano))
+	raw["updated_at"] = updatedAt
+
+	// Write back with indentation (atomic write via temp file)
+	output, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	tmpPath := sessionsPath + ".tmp"
+	if err := os.WriteFile(tmpPath, output, 0600); err != nil {
+		return fmt.Errorf("failed to write temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, sessionsPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to finalize save: %w", err)
+	}
+
+	return nil
+}
+
+// detectSessionStatus captures tmux pane content and detects the actual status.
+// Returns the detected status ("running", "waiting", "idle") and whether detection succeeded.
+func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bool) {
+	// Capture pane content (last 50 lines should be enough for detection)
+	cmd := exec.Command("tmux", "capture-pane", "-t", tmuxSession, "-p", "-S", "-50")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", false
+	}
+
+	content := string(output)
+	if content == "" {
+		return "idle", true
+	}
+
+	// Use the prompt detector from internal/tmux
+	detector := tmux.NewPromptDetector(tool)
+	if detector.HasPrompt(content) {
+		return "waiting", true
+	}
+
+	// If no prompt detected, check for busy indicators
+	contentLower := strings.ToLower(content)
+	busyIndicators := []string{
+		"ctrl+c to interrupt",
+		"esc to interrupt",
+		"thinking",
+	}
+	for _, indicator := range busyIndicators {
+		if strings.Contains(contentLower, indicator) {
+			return "running", true
+		}
+	}
+
+	// Default to idle if we can't determine
+	return "idle", true
+}
+
+// instanceUpdate tracks status/timestamp changes that need to be persisted
+type instanceUpdate struct {
+	status            string
+	waitingSince      time.Time
+	clearWaitingSince bool
+}
+
+// updateWaitingSinceTracking adjusts waitingSince based on status transitions.
+// Sets waitingSince to now if status is "waiting" and timestamp is missing.
+// Clears waitingSince if status is no longer "waiting".
+// Updates the updates map for persistence and returns the effective waitingSince.
+func updateWaitingSinceTracking(instID string, status string, currentWaitingSince time.Time, updates map[string]instanceUpdate) time.Time {
+	waitingSince := currentWaitingSince
+
+	// Set waitingSince if session is waiting and timestamp is missing
+	if status == "waiting" && waitingSince.IsZero() {
+		waitingSince = time.Now()
+		if u, ok := updates[instID]; ok {
+			u.waitingSince = waitingSince
+			updates[instID] = u
+		} else {
+			updates[instID] = instanceUpdate{waitingSince: waitingSince}
+		}
+	}
+
+	// Clear waitingSince if session is no longer waiting
+	if status != "waiting" && !currentWaitingSince.IsZero() {
+		waitingSince = time.Time{}
+		if u, ok := updates[instID]; ok {
+			u.clearWaitingSince = true
+			updates[instID] = u
+		} else {
+			updates[instID] = instanceUpdate{clearWaitingSince: true}
+		}
+	}
+
+	return waitingSince
+}
+
 // convertInstancesToSessionInfos converts raw instance data to SessionInfo slice.
 // Includes all sessions, marking local ones without running tmux as "exited".
+// Detects actual status from pane content (in parallel) and updates waitingSince timestamps.
 // Sorts by LastAccessedAt.
 func (tm *TmuxManager) convertInstancesToSessionInfos(instances []instanceJSON) []SessionInfo {
 	runningTmux := tm.getRunningTmuxSessions()
@@ -360,17 +509,52 @@ func (tm *TmuxManager) convertInstancesToSessionInfos(instances []instanceJSON) 
 	// Load SSH host configs for display name lookup
 	sshHosts := session.GetAvailableSSHHosts()
 
+	// Phase 1: Collect local sessions that need status detection
+	var sessionsToDetect []sessionToDetect
+	for _, inst := range instances {
+		_, exists := runningTmux[inst.TmuxSession]
+		isRemote := inst.RemoteHost != ""
+		if !isRemote && exists {
+			sessionsToDetect = append(sessionsToDetect, sessionToDetect{
+				tmuxSession: inst.TmuxSession,
+				tool:        inst.Tool,
+			})
+		}
+	}
+
+	// Phase 2: Detect statuses in parallel (bounded concurrency)
+	detectedStatuses := tm.detectStatusesParallel(sessionsToDetect)
+
+	// Phase 3: Build result with detected statuses
 	result := make([]SessionInfo, 0, len(instances))
+	updates := make(map[string]instanceUpdate) // Track updates to persist
+
 	for _, inst := range instances {
 		// Check if tmux session actually exists (for local sessions)
 		_, exists := runningTmux[inst.TmuxSession]
 		isRemote := inst.RemoteHost != ""
 
-		// Determine effective status: local sessions without running tmux are "exited"
+		// Determine effective status
 		status := inst.Status
+		waitingSince := inst.WaitingSince
+
 		if !isRemote && !exists {
+			// Local session without running tmux is "exited"
 			status = "exited"
+		} else if !isRemote && exists {
+			// Use pre-detected status from parallel detection
+			if detectedStatus, ok := detectedStatuses[inst.TmuxSession]; ok {
+				if detectedStatus != inst.Status {
+					status = detectedStatus
+					updates[inst.ID] = instanceUpdate{status: detectedStatus}
+				} else {
+					status = detectedStatus
+				}
+			}
 		}
+
+		// Track waitingSince transitions (sets when entering waiting, clears when leaving)
+		waitingSince = updateWaitingSinceTracking(inst.ID, status, waitingSince, updates)
 
 		// Get git info for the project path (only for local sessions with running tmux)
 		// Skip git info for exited sessions (no point checking)
@@ -424,10 +608,16 @@ func (tm *TmuxManager) convertInstancesToSessionInfos(instances []instanceJSON) 
 			GitAhead:              gitInfo.Ahead,
 			GitBehind:             gitInfo.Behind,
 			LastAccessedAt:        lastAccessed,
+			WaitingSince:          waitingSince,
 			LaunchConfigName:      inst.LaunchConfigName,
 			LoadedMCPs:            inst.LoadedMCPNames,
 			DangerousMode:         inst.DangerousMode,
 		})
+	}
+
+	// Persist any status/timestamp updates via debounced scheduler (don't block UI)
+	if len(updates) > 0 {
+		tm.schedulePersist(updates)
 	}
 
 	// Sort by LastAccessedAt (most recent first)
@@ -436,6 +626,143 @@ func (tm *TmuxManager) convertInstancesToSessionInfos(instances []instanceJSON) 
 	})
 
 	return result
+}
+
+// persistInstanceUpdates saves status and waitingSince changes to sessions.json
+func (tm *TmuxManager) persistInstanceUpdates(updates map[string]instanceUpdate) {
+	// Acquire lock to prevent concurrent file access
+	tm.fileMu.Lock()
+	defer tm.fileMu.Unlock()
+
+	sessionsData, err := tm.loadSessionsData()
+	if err != nil {
+		log.Printf("[status-update] Failed to load sessions for update: %v", err)
+		return
+	}
+
+	modified := false
+	for i := range sessionsData.Instances {
+		inst := &sessionsData.Instances[i]
+		if update, ok := updates[inst.ID]; ok {
+			if update.status != "" && update.status != inst.Status {
+				log.Printf("[status-update] %s: %s -> %s", inst.ID, inst.Status, update.status)
+				inst.Status = update.status
+				modified = true
+			}
+			if !update.waitingSince.IsZero() {
+				log.Printf("[status-update] %s: setting waitingSince to %v", inst.ID, update.waitingSince)
+				inst.WaitingSince = update.waitingSince
+				modified = true
+			}
+			if update.clearWaitingSince && !inst.WaitingSince.IsZero() {
+				log.Printf("[status-update] %s: clearing waitingSince", inst.ID)
+				inst.WaitingSince = time.Time{}
+				modified = true
+			}
+		}
+	}
+
+	if modified {
+		if err := tm.saveSessionsData(sessionsData); err != nil {
+			log.Printf("[status-update] Failed to save sessions: %v", err)
+		}
+	}
+}
+
+// schedulePersist adds updates to a pending batch and schedules a debounced write.
+// This prevents unbounded goroutine spawning when polling rapidly.
+func (tm *TmuxManager) schedulePersist(updates map[string]instanceUpdate) {
+	if len(updates) == 0 {
+		return
+	}
+
+	tm.persistMu.Lock()
+	defer tm.persistMu.Unlock()
+
+	// Merge updates into pending batch
+	for id, update := range updates {
+		if existing, ok := tm.pendingUpdates[id]; ok {
+			// Merge: prefer non-empty values from new update
+			if update.status != "" {
+				existing.status = update.status
+			}
+			if !update.waitingSince.IsZero() {
+				existing.waitingSince = update.waitingSince
+			}
+			if update.clearWaitingSince {
+				existing.clearWaitingSince = true
+			}
+			tm.pendingUpdates[id] = existing
+		} else {
+			tm.pendingUpdates[id] = update
+		}
+	}
+
+	// Reset or start the debounce timer
+	if tm.persistTimer != nil {
+		tm.persistTimer.Stop()
+	}
+	tm.persistTimer = time.AfterFunc(tm.persistDebounce, func() {
+		tm.flushPendingUpdates()
+	})
+}
+
+// flushPendingUpdates writes all pending updates to disk.
+func (tm *TmuxManager) flushPendingUpdates() {
+	tm.persistMu.Lock()
+	if len(tm.pendingUpdates) == 0 {
+		tm.persistMu.Unlock()
+		return
+	}
+	// Swap out pending updates so we don't hold persistMu during file I/O
+	updates := tm.pendingUpdates
+	tm.pendingUpdates = make(map[string]instanceUpdate)
+	tm.persistMu.Unlock()
+
+	// Now do the actual persistence (this acquires fileMu)
+	tm.persistInstanceUpdates(updates)
+}
+
+// sessionToDetect identifies a session for status detection.
+type sessionToDetect struct {
+	tmuxSession string
+	tool        string
+}
+
+// detectStatusesParallel detects status for multiple sessions in parallel.
+// Uses a bounded worker pool to limit concurrent tmux subprocess spawning.
+func (tm *TmuxManager) detectStatusesParallel(sessions []sessionToDetect) map[string]string {
+	if len(sessions) == 0 {
+		return nil
+	}
+
+	results := make(map[string]string)
+	resultsMu := sync.Mutex{}
+
+	// Use a semaphore (buffered channel) to limit concurrency
+	sem := make(chan struct{}, maxConcurrentStatusChecks)
+	var wg sync.WaitGroup
+
+	for _, sess := range sessions {
+		wg.Add(1)
+		go func(tmuxSession, tool string) {
+			defer wg.Done()
+
+			// Acquire semaphore slot
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			status, ok := tm.detectSessionStatus(tmuxSession, tool)
+			if ok {
+				resultsMu.Lock()
+				results[tmuxSession] = status
+				resultsMu.Unlock()
+			}
+		}(sess.tmuxSession, sess.tool)
+	}
+
+	wg.Wait()
+	return results
 }
 
 // ListSessions returns all Agent Deck sessions from sessions.json.
@@ -1234,4 +1561,111 @@ func (tm *TmuxManager) UpdateSessionCustomLabel(sessionID, customLabel string) e
 			inst["custom_label"] = customLabel
 		}
 	})
+}
+
+// StatusUpdate contains the status and timestamp updates for a session.
+type StatusUpdate struct {
+	ID           string    `json:"id"`
+	Status       string    `json:"status"`
+	WaitingSince time.Time `json:"waitingSince,omitempty"`
+}
+
+// RefreshSessionStatuses detects the current status for the specified session IDs.
+// This is a lightweight operation that only checks tmux pane content - no git info.
+// Uses parallel detection with bounded concurrency for performance.
+// Returns status updates for each session. Sessions not found are omitted from result.
+func (tm *TmuxManager) RefreshSessionStatuses(sessionIDs []string) ([]StatusUpdate, error) {
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+
+	// Build lookup set for quick ID matching
+	idSet := make(map[string]bool, len(sessionIDs))
+	for _, id := range sessionIDs {
+		idSet[id] = true
+	}
+
+	// Load current sessions data (protected by fileMu via loadSessionsData)
+	tm.fileMu.Lock()
+	sessionsData, err := tm.loadSessionsData()
+	tm.fileMu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	// Get running tmux sessions (single subprocess call)
+	runningTmux := tm.getRunningTmuxSessions()
+
+	// Phase 1: Collect local sessions that need status detection
+	var sessionsToDetect []sessionToDetect
+	// Also build a map of instance data for quick lookup
+	instanceMap := make(map[string]*instanceJSON)
+	for i := range sessionsData.Instances {
+		inst := &sessionsData.Instances[i]
+		if !idSet[inst.ID] {
+			continue
+		}
+		instanceMap[inst.ID] = inst
+		_, exists := runningTmux[inst.TmuxSession]
+		isRemote := inst.RemoteHost != ""
+		if !isRemote && exists {
+			sessionsToDetect = append(sessionsToDetect, sessionToDetect{
+				tmuxSession: inst.TmuxSession,
+				tool:        inst.Tool,
+			})
+		}
+	}
+
+	// Phase 2: Detect statuses in parallel (bounded concurrency)
+	detectedStatuses := tm.detectStatusesParallel(sessionsToDetect)
+
+	// Phase 3: Build result with detected statuses
+	result := make([]StatusUpdate, 0, len(sessionIDs))
+	updates := make(map[string]instanceUpdate) // Track changes to persist
+
+	for _, id := range sessionIDs {
+		inst, ok := instanceMap[id]
+		if !ok {
+			continue
+		}
+
+		_, exists := runningTmux[inst.TmuxSession]
+		isRemote := inst.RemoteHost != ""
+
+		// Determine effective status
+		status := inst.Status
+		waitingSince := inst.WaitingSince
+
+		if !isRemote && !exists {
+			// Local session without running tmux is "exited"
+			status = "exited"
+		} else if !isRemote && exists {
+			// Use pre-detected status from parallel detection
+			if detectedStatus, ok := detectedStatuses[inst.TmuxSession]; ok {
+				if detectedStatus != inst.Status {
+					status = detectedStatus
+					updates[inst.ID] = instanceUpdate{status: detectedStatus}
+				} else {
+					status = detectedStatus
+				}
+			}
+		}
+		// For remote sessions, keep stored status (can't capture pane remotely)
+
+		// Track waitingSince transitions (sets when entering waiting, clears when leaving)
+		waitingSince = updateWaitingSinceTracking(inst.ID, status, waitingSince, updates)
+
+		result = append(result, StatusUpdate{
+			ID:           inst.ID,
+			Status:       status,
+			WaitingSince: waitingSince,
+		})
+	}
+
+	// Persist updates via debounced scheduler (don't block the response)
+	if len(updates) > 0 {
+		tm.schedulePersist(updates)
+	}
+
+	return result, nil
 }

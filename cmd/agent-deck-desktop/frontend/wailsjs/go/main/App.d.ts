@@ -74,6 +74,8 @@ export function GetSessionMetadata(arg1:string):Promise<main.SessionMetadata>;
 
 export function GetSetupDismissed():Promise<boolean>;
 
+export function GetShowActivityRibbon():Promise<boolean>;
+
 export function GetSoftNewlineMode():Promise<string>;
 
 export function GetTerminalSettings():Promise<Record<string, any>>;
@@ -107,6 +109,8 @@ export function OpenNewWindow():Promise<void>;
 export function RecordProjectUsage(arg1:string):Promise<void>;
 
 export function RefreshScrollback(arg1:string):Promise<string>;
+
+export function RefreshSessionStatuses(arg1:Array<string>):Promise<Array<main.StatusUpdate>>;
 
 export function RefreshTerminalAfterResize(arg1:string):Promise<void>;
 
@@ -145,6 +149,8 @@ export function SetScanPaths(arg1:Array<string>):Promise<void>;
 export function SetScrollSpeed(arg1:number):Promise<void>;
 
 export function SetSetupDismissed(arg1:boolean):Promise<void>;
+
+export function SetShowActivityRibbon(arg1:boolean):Promise<void>;
 
 export function SetSoftNewlineMode(arg1:string):Promise<void>;
 

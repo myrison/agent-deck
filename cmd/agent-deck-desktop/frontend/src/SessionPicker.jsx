@@ -3,6 +3,7 @@ import './SessionPicker.css';
 import { createLogger } from './logger';
 import ToolIcon from './ToolIcon';
 import { withKeyboardIsolation } from './utils/keyboardIsolation';
+import { getStatusLabel } from './utils/statusLabel';
 
 const logger = createLogger('SessionPicker');
 
@@ -203,7 +204,7 @@ export default function SessionPicker({ projectPath, projectName, sessions, onSe
                                                         {getDisplayLabel(session)}
                                                     </div>
                                                     <div className="session-picker-meta">
-                                                        {session.status}
+                                                        {getStatusLabel(session.status, session.waitingSince).label}
                                                     </div>
                                                 </div>
                                                 <span className={`session-picker-host ${session.isRemote ? 'remote' : 'local'}`}>

@@ -782,6 +782,52 @@ export function restoreTabLayout(savedNode, allSessions, assignedIds = new Set()
 }
 
 /**
+ * Update session objects in a layout tree based on a map of session updates.
+ * Creates new immutable objects for any changed panes.
+ * @param {Object} layout - Layout node
+ * @param {Map<string, Object>} updateMap - Map of session ID -> { status, waitingSince, ... }
+ * @returns {{ layout: Object, changed: boolean }} Updated layout and whether any changes were made
+ */
+export function updateSessionsInLayout(layout, updateMap) {
+    if (layout.type === 'pane') {
+        if (layout.session?.id && updateMap.has(layout.session.id)) {
+            const update = updateMap.get(layout.session.id);
+            // Check if anything actually changed
+            if (layout.session.status !== update.status || layout.session.waitingSince !== update.waitingSince) {
+                return {
+                    layout: {
+                        ...layout,
+                        session: {
+                            ...layout.session,
+                            status: update.status,
+                            waitingSince: update.waitingSince,
+                        },
+                    },
+                    changed: true,
+                };
+            }
+        }
+        return { layout, changed: false };
+    }
+
+    // Split node - recurse
+    const leftResult = updateSessionsInLayout(layout.children[0], updateMap);
+    const rightResult = updateSessionsInLayout(layout.children[1], updateMap);
+
+    if (leftResult.changed || rightResult.changed) {
+        return {
+            layout: {
+                ...layout,
+                children: [leftResult.layout, rightResult.layout],
+            },
+            changed: true,
+        };
+    }
+
+    return { layout, changed: false };
+}
+
+/**
  * Clone a layout tree with new pane IDs (preserves bindings for session resolution)
  * @param {Object} node - Layout node to clone
  * @returns {Object} Cloned layout with fresh IDs and preserved bindings
