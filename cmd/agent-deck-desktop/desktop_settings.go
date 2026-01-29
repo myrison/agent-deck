@@ -49,6 +49,10 @@ type TerminalConfig struct {
 	// FileBasedActivityDetection uses Claude/Gemini session file modification time
 	// to detect "running" status instead of terminal output parsing. Default: true
 	FileBasedActivityDetection *bool `toml:"file_based_activity_detection"`
+	// PtyStreaming enables direct PTY streaming mode instead of polling.
+	// This fixes ANSI rendering corruption during fast output but is experimental.
+	// Default: false (disabled for safe rollout)
+	PtyStreaming bool `toml:"pty_streaming"`
 }
 
 // DesktopSettingsManager manages desktop-specific settings in config.toml
@@ -190,6 +194,7 @@ func (dsm *DesktopSettingsManager) saveDesktopSettings(desktop *DesktopConfig) e
 		"scrollback":          desktop.Terminal.Scrollback,
 		"click_to_cursor":     desktop.Terminal.ClickToCursor,
 		"auto_copy_on_select": desktop.Terminal.AutoCopyOnSelect,
+		"pty_streaming":       desktop.Terminal.PtyStreaming,
 	}
 	if desktop.Terminal.ShowActivityRibbon != nil {
 		terminalConfig["show_activity_ribbon"] = *desktop.Terminal.ShowActivityRibbon
@@ -469,6 +474,28 @@ func (dsm *DesktopSettingsManager) SetFileBasedActivityDetection(enabled bool) e
 	}
 
 	config.Terminal.FileBasedActivityDetection = &enabled
+	return dsm.saveDesktopSettings(config)
+}
+
+// GetPtyStreaming returns whether PTY streaming mode is enabled.
+// When enabled, terminal output is streamed directly from PTY instead of polling.
+// This fixes ANSI rendering corruption but is experimental. Disabled by default.
+func (dsm *DesktopSettingsManager) GetPtyStreaming() (bool, error) {
+	config, err := dsm.loadDesktopSettings()
+	if err != nil {
+		return false, err // Default to disabled
+	}
+	return config.Terminal.PtyStreaming, nil
+}
+
+// SetPtyStreaming enables or disables PTY streaming mode.
+func (dsm *DesktopSettingsManager) SetPtyStreaming(enabled bool) error {
+	config, err := dsm.loadDesktopSettings()
+	if err != nil {
+		config = newDefaultDesktopConfig()
+	}
+
+	config.Terminal.PtyStreaming = enabled
 	return dsm.saveDesktopSettings(config)
 }
 

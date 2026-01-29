@@ -688,3 +688,116 @@ scrollback = 999999
 		t.Errorf("Expected scrollback clamped to 100000 on load, got %d", scrollback)
 	}
 }
+
+// =============================================================================
+// PTY Streaming Settings Tests
+// =============================================================================
+
+// TestPtyStreamingDefaultDisabled verifies that PTY streaming defaults to disabled
+// for safe rollout to production users.
+func TestPtyStreamingDefaultDisabled(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	dsm := &DesktopSettingsManager{configPath: configPath}
+
+	// Default should be false (disabled for safe rollout)
+	enabled, err := dsm.GetPtyStreaming()
+	if err != nil {
+		t.Fatalf("GetPtyStreaming failed: %v", err)
+	}
+	if enabled {
+		t.Error("Expected default PtyStreaming to be false (disabled)")
+	}
+}
+
+// TestPtyStreamingRoundTrip verifies that the setting can be toggled on and off
+// and persists correctly.
+func TestPtyStreamingRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	dsm := &DesktopSettingsManager{configPath: configPath}
+
+	// Enable the feature
+	err := dsm.SetPtyStreaming(true)
+	if err != nil {
+		t.Fatalf("SetPtyStreaming(true) failed: %v", err)
+	}
+
+	enabled, err := dsm.GetPtyStreaming()
+	if err != nil {
+		t.Fatalf("GetPtyStreaming failed: %v", err)
+	}
+	if !enabled {
+		t.Error("Expected PtyStreaming to be true after enabling")
+	}
+
+	// Disable the feature
+	err = dsm.SetPtyStreaming(false)
+	if err != nil {
+		t.Fatalf("SetPtyStreaming(false) failed: %v", err)
+	}
+
+	enabled, _ = dsm.GetPtyStreaming()
+	if enabled {
+		t.Error("Expected PtyStreaming to be false after disabling")
+	}
+}
+
+// TestPtyStreamingPersistence verifies that the setting persists across manager
+// instances (simulating app restart).
+func TestPtyStreamingPersistence(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	// First manager: enable the feature
+	dsm1 := &DesktopSettingsManager{configPath: configPath}
+	err := dsm1.SetPtyStreaming(true)
+	if err != nil {
+		t.Fatalf("SetPtyStreaming failed: %v", err)
+	}
+
+	// Second manager (simulating app restart): verify setting persisted
+	dsm2 := &DesktopSettingsManager{configPath: configPath}
+	enabled, err := dsm2.GetPtyStreaming()
+	if err != nil {
+		t.Fatalf("GetPtyStreaming failed: %v", err)
+	}
+	if !enabled {
+		t.Error("Expected PtyStreaming to remain true after 'restart'")
+	}
+}
+
+// TestPtyStreamingPreservesOtherSettings verifies that toggling PTY streaming
+// doesn't affect other settings like theme or font size.
+func TestPtyStreamingPreservesOtherSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	dsm := &DesktopSettingsManager{configPath: configPath}
+
+	// Set theme and font size first
+	dsm.SetTheme("light")
+	dsm.SetFontSize(18)
+	dsm.SetScrollback(25000)
+
+	// Toggle PTY streaming
+	dsm.SetPtyStreaming(true)
+
+	// Verify other settings preserved
+	theme, _ := dsm.GetTheme()
+	if theme != "light" {
+		t.Errorf("Expected theme 'light' preserved, got '%s'", theme)
+	}
+
+	fontSize, _ := dsm.GetFontSize()
+	if fontSize != 18 {
+		t.Errorf("Expected fontSize 18 preserved, got %d", fontSize)
+	}
+
+	scrollback, _ := dsm.GetScrollback()
+	if scrollback != 25000 {
+		t.Errorf("Expected scrollback 25000 preserved, got %d", scrollback)
+	}
+}

@@ -209,14 +209,21 @@ func NewTerminal(sessionID string) *Terminal {
 }
 
 // shouldUsePTYStreaming checks if PTY streaming mode should be used.
-// Controlled by REVDEN_PTY_STREAMING env var.
+// Checks env var first (for developers), then config file (for testers).
 // Default: disabled (false) for safe rollout.
-// Set REVDEN_PTY_STREAMING=enabled to activate PTY streaming.
+// Set REVDEN_PTY_STREAMING=enabled or config pty_streaming=true to activate.
 func shouldUsePTYStreaming() bool {
-	// TESTING: Force PTY streaming for testing
-	return true
-	// env := os.Getenv("REVDEN_PTY_STREAMING")
-	// return env == "enabled"
+	// Check env var first (for developers running from terminal)
+	if os.Getenv("REVDEN_PTY_STREAMING") == "enabled" {
+		return true
+	}
+	// Check config file (for testers/early adopters)
+	dsm := NewDesktopSettingsManager()
+	enabled, err := dsm.GetPtyStreaming()
+	if err != nil {
+		return false // Default to disabled on error
+	}
+	return enabled
 }
 
 // verifyTmuxConfig ensures tmux status bar is hidden for the session.

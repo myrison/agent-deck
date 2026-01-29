@@ -122,8 +122,7 @@ func main() {
 
 	// In dev mode, start hidden to prevent focus-stealing on hot-reload.
 	// Click dock icon to reveal window.
-	// TESTING: Disabled for PTY streaming testing
-	startHidden := false
+	startHidden := isDev
 
 	// Set app title based on mode and window number
 	appTitle := "RevvySwarm"
