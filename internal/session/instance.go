@@ -237,7 +237,7 @@ func NewInstance(title, projectPath string) *Instance {
 		ID:          id,
 		Title:       title,
 		ProjectPath: projectPath,
-		GroupPath:   extractGroupPath(projectPath), // Auto-assign group from path
+		GroupPath:   ExtractGroupPath(projectPath), // Auto-assign group from path
 		Tool:        "shell",
 		Status:      StatusIdle,
 		CreatedAt:   time.Now(),
@@ -262,7 +262,7 @@ func NewInstanceWithTool(title, projectPath, tool string) *Instance {
 		ID:          id,
 		Title:       title,
 		ProjectPath: projectPath,
-		GroupPath:   extractGroupPath(projectPath),
+		GroupPath:   ExtractGroupPath(projectPath),
 		Tool:        tool,
 		Status:      StatusIdle,
 		CreatedAt:   time.Now(),
@@ -299,7 +299,7 @@ func NewRemoteInstance(title, projectPath, tool, hostID string) (*Instance, erro
 		ID:          id,
 		Title:       title,
 		ProjectPath: projectPath,
-		GroupPath:   extractGroupPath(projectPath),
+		GroupPath:   ExtractGroupPath(projectPath),
 		Tool:        tool,
 		Status:      StatusIdle,
 		CreatedAt:   time.Now(),
@@ -320,9 +320,38 @@ func NewRemoteInstanceWithGroup(title, projectPath, groupPath, tool, hostID stri
 	return inst, nil
 }
 
-// extractGroupPath extracts a group path from project path
+// NewRegisteredInstance creates a session instance for an already-existing tmux session.
+// This is used by the register-session CLI command to register sessions that were
+// created externally (e.g., by a remote machine) without creating a new tmux session.
+// The tmuxName is stored but the tmux session is NOT verified to exist locally.
+func NewRegisteredInstance(title, projectPath, groupPath, tool, tmuxName string) *Instance {
+	id := generateID()
+
+	// Create a tmux session reference for the existing session using the provided name
+	// This does NOT verify the tmux session exists (it may be remote)
+	tmuxSess := tmux.ReconnectSession(tmuxName, title, projectPath, "")
+	tmuxSess.InstanceID = id
+
+	// Compute group path if not provided
+	if groupPath == "" {
+		groupPath = ExtractGroupPath(projectPath)
+	}
+
+	return &Instance{
+		ID:          id,
+		Title:       title,
+		ProjectPath: projectPath,
+		GroupPath:   groupPath,
+		Tool:        tool,
+		Status:      StatusIdle,
+		CreatedAt:   time.Now(),
+		tmuxSession: tmuxSess,
+	}
+}
+
+// ExtractGroupPath extracts a group path from project path
 // e.g., "/home/user/projects/devops" -> "projects"
-func extractGroupPath(projectPath string) string {
+func ExtractGroupPath(projectPath string) string {
 	parts := strings.Split(projectPath, "/")
 	// Find meaningful directory (skip Users, home, etc.)
 	for i := len(parts) - 1; i >= 0; i-- {

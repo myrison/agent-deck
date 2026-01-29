@@ -703,7 +703,7 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 		// Migrate old sessions without GroupPath
 		groupPath := instData.GroupPath
 		if groupPath == "" {
-			groupPath = extractGroupPath(instData.ProjectPath)
+			groupPath = ExtractGroupPath(instData.ProjectPath)
 		}
 
 		// Migrate remote sessions with flat group prefix (e.g., "remote") to hierarchical path

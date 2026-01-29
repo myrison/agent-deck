@@ -1267,7 +1267,49 @@ func (tm *TmuxManager) CreateRemoteSession(hostID, projectPath, title, tool, con
 		fmt.Printf("Warning: failed to persist remote session: %v\n", err)
 	}
 
+	// Register the session on the remote host so its TUI/desktop app can see it
+	// This calls `agent-deck register-session` on the remote machine
+	tm.registerSessionOnRemote(hostID, sessionName, projectPath, tool, title, sshBridge)
+
 	return sessionInfo, nil
+}
+
+// registerSessionOnRemote calls agent-deck register-session on the remote host
+// to register the session in the remote machine's sessions.json.
+// This is a best-effort operation - failures are logged but don't cause the
+// session creation to fail.
+func (tm *TmuxManager) registerSessionOnRemote(hostID, tmuxName, projectPath, tool, title string, sshBridge *SSHBridge) {
+	if sshBridge == nil {
+		return
+	}
+
+	// First check if agent-deck is installed on the remote host
+	checkCmd := "which agent-deck 2>/dev/null || command -v agent-deck 2>/dev/null || echo ''"
+	output, err := sshBridge.RunCommand(hostID, checkCmd)
+	if err != nil || strings.TrimSpace(output) == "" {
+		// agent-deck not installed on remote - this is expected for some hosts
+		log.Printf("agent-deck not installed on remote host %s, skipping remote registration", hostID)
+		return
+	}
+
+	// Build the register-session command
+	// Escape arguments for shell safety
+	escapedTmux := strings.ReplaceAll(tmuxName, "'", "'\\''")
+	escapedPath := strings.ReplaceAll(projectPath, "'", "'\\''")
+	escapedTool := strings.ReplaceAll(tool, "'", "'\\''")
+	escapedTitle := strings.ReplaceAll(title, "'", "'\\''")
+
+	registerCmd := fmt.Sprintf(
+		"agent-deck register-session --tmux '%s' --path '%s' --tool '%s' --title '%s' --json --idempotent",
+		escapedTmux, escapedPath, escapedTool, escapedTitle)
+
+	output, err = sshBridge.RunCommand(hostID, registerCmd)
+	if err != nil {
+		log.Printf("Warning: failed to register session on remote host %s: %v", hostID, err)
+		return
+	}
+
+	log.Printf("Registered session on remote host %s: %s", hostID, strings.TrimSpace(output))
 }
 
 // MarkSessionAccessed schedules a deferred update to the last_accessed_at timestamp.
