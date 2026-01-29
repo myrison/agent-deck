@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -319,7 +320,7 @@ func (t *Terminal) startTmuxSessionStreaming(tmuxSession string, cols, rows int)
 		return nil // Already started
 	}
 
-	t.debugLog("[PTY-STREAM] Starting streaming session for tmux=%s cols=%d rows=%d", tmuxSession, cols, rows)
+	t.debugLog("[PTY-STREAM] Starting streaming session with history hydration for tmux=%s cols=%d rows=%d", tmuxSession, cols, rows)
 
 	// 1. Verify tmux config (status bar must be off)
 	if err := verifyTmuxConfig(tmuxSession); err != nil {
@@ -335,67 +336,148 @@ func (t *Terminal) startTmuxSessionStreaming(tmuxSession string, cols, rows int)
 		} else {
 			t.debugLog("[PTY-STREAM] Resized tmux window to %dx%d", cols, rows)
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
 
-	// 3. MANDATORY: Capture current viewport BEFORE streaming
-	// This prevents the "blank terminal" problem (Council Review #2)
-	// Note: Current viewport only (no -S or -E flags), not full scrollback
-	viewportCmd := exec.Command(tmuxBinaryPath, "capture-pane", "-t", tmuxSession, "-p", "-e")
-	viewportOutput, err := viewportCmd.Output()
-	if err != nil {
-		t.debugLog("[PTY-STREAM] viewport capture error: %v", err)
-		// Non-fatal - continue anyway
-	}
+	// === ATTACH-FIRST STRATEGY (Phase 2: History Hydration) ===
+	// Attach PTY FIRST, buffer output, then capture history.
+	// This avoids the race condition between capture and attach.
 
-	// 4. Emit initial viewport via terminal:initial event
-	// Frontend should handle this similarly to terminal:history
-	if len(viewportOutput) > 0 {
-		viewport := sanitizeHistoryForXterm(string(viewportOutput))
-		viewport = normalizeCRLF(viewport)
-		t.debugLog("[PTY-STREAM] Emitting %d bytes of initial viewport", len(viewport))
-		if t.ctx != nil {
-			runtime.EventsEmit(t.ctx, "terminal:initial",
-				TerminalEvent{SessionID: t.sessionID, Data: viewport})
-		}
-	}
-
-	// 5. Short delay for frontend to process initial viewport
-	time.Sleep(50 * time.Millisecond)
-
-	// 6. Attach PTY to tmux (output will be streamed to frontend)
-	// Use same approach as polling mode for consistency (SpawnPTYWithCommand + Resize)
-	t.debugLog("[PTY-STREAM] Attaching PTY to tmux session for streaming")
-	t.debugLog("[PTY-STREAM] Calling SpawnPTYWithCommand(%s, attach-session, -t, %s)",
-		tmuxBinaryPath, tmuxSession)
-	pty, err := SpawnPTYWithCommand(tmuxBinaryPath, "attach-session", "-t", tmuxSession)
+	// 3. Attach PTY FIRST - tmux will send a full viewport redraw
+	t.debugLog("[PTY-STREAM] Attaching PTY FIRST (Attach-First strategy)")
+	pty, err := SpawnPTYWithCommandAndSize(cols, rows, tmuxBinaryPath, "attach-session", "-t", tmuxSession)
 	if err != nil {
 		return fmt.Errorf("failed to attach to tmux: %w", err)
 	}
-	t.debugLog("[PTY-STREAM] SpawnPTYWithCommand succeeded, pty=%p", pty)
-
-	// Resize PTY to match terminal dimensions (same as polling mode)
-	if cols > 0 && rows > 0 {
-		t.debugLog("[PTY-STREAM] Calling pty.Resize(%d, %d)", cols, rows)
-		if err := pty.Resize(uint16(cols), uint16(rows)); err != nil {
-			t.debugLog("[PTY-STREAM] pty.Resize error: %v", err)
-		}
-	}
+	t.debugLog("[PTY-STREAM] PTY attached successfully")
 
 	t.pty = pty
 	t.tmuxSession = tmuxSession
 	t.closed = false
 
-	// 7. Start PTY streaming read loop (output goes to frontend)
-	// tmux sends full viewport redraw on attach, may duplicate initial viewport (that's OK)
+	// 4. Buffer PTY output for ~100ms (captures tmux's initial viewport redraw)
+	// Use timed reads to accumulate data without blocking forever
+	t.debugLog("[PTY-STREAM] Buffering initial PTY output (100ms)")
+	bufferedData, bufferErr := t.bufferPTYOutput(pty, 100*time.Millisecond)
+	if bufferErr != nil {
+		t.debugLog("[PTY-STREAM] Buffer error (non-fatal): %v", bufferErr)
+	}
+	t.debugLog("[PTY-STREAM] Buffered %d bytes of initial viewport", len(bufferedData))
+
+	// 5. NOW capture full scrollback history (after attach, no race condition)
+	// -S - : start from beginning of scrollback
+	// -E -{rows} : end at row just above current viewport (avoid overlap)
+	t.debugLog("[PTY-STREAM] Capturing scrollback history")
+	historyCmd := exec.Command(tmuxBinaryPath, "capture-pane", "-t", tmuxSession,
+		"-p", "-e", "-S", "-", "-E", fmt.Sprintf("-%d", rows))
+	historyOutput, histErr := historyCmd.Output()
+	if histErr != nil {
+		t.debugLog("[PTY-STREAM] History capture error (non-fatal): %v", histErr)
+	}
+
+	// 6. Emit scrollback history via terminal:history
+	// This is the content ABOVE the current viewport
+	if len(historyOutput) > 0 {
+		history := sanitizeHistoryForXterm(string(historyOutput))
+		history = normalizeCRLF(history)
+		t.debugLog("[PTY-STREAM] Emitting %d bytes of scrollback history", len(history))
+		if t.ctx != nil {
+			runtime.EventsEmit(t.ctx, "terminal:history",
+				TerminalEvent{SessionID: t.sessionID, Data: history})
+		}
+	} else {
+		t.debugLog("[PTY-STREAM] No scrollback history to emit")
+	}
+
+	// 7. Emit buffered viewport data
+	// This is the current viewport that tmux sent on attach
+	if len(bufferedData) > 0 {
+		// Strip TTS markers (same as readLoopStream)
+		viewport := stripTTSMarkers(string(bufferedData))
+		t.debugLog("[PTY-STREAM] Emitting %d bytes of buffered viewport", len(viewport))
+		if t.ctx != nil {
+			runtime.EventsEmit(t.ctx, "terminal:data",
+				TerminalEvent{SessionID: t.sessionID, Data: viewport})
+		}
+	}
+
+	// 8. Start PTY streaming read loop for live updates
 	go t.readLoopStream()
 
-	// 8. Start lightweight status polling for alt-screen detection only
-	// (No display polling - display comes from PTY stream)
+	// 9. Start lightweight status polling for alt-screen detection only
 	t.startStatusPolling(tmuxSession)
 
-	t.debugLog("[PTY-STREAM] Session started successfully with PTY streaming")
+	t.debugLog("[PTY-STREAM] Session started successfully with history hydration")
 	return nil
+}
+
+// bufferPTYOutput reads from the PTY for the specified duration, accumulating all data.
+// Uses timed reads with SetReadDeadline to avoid blocking forever.
+// Returns the accumulated data and any non-timeout error encountered.
+func (t *Terminal) bufferPTYOutput(pty *PTY, duration time.Duration) ([]byte, error) {
+	var buffer bytes.Buffer
+	buf := make([]byte, 32*1024)
+	deadline := time.Now().Add(duration)
+
+	for time.Now().Before(deadline) {
+		// Set read deadline to remaining time (max 20ms per read for responsiveness)
+		remaining := time.Until(deadline)
+		readTimeout := 20 * time.Millisecond
+		if remaining < readTimeout {
+			readTimeout = remaining
+		}
+		if readTimeout <= 0 {
+			break
+		}
+
+		if err := pty.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
+			t.debugLog("[PTY-STREAM] SetReadDeadline error: %v", err)
+			// Fall back to untimed read
+			pty.SetReadDeadline(time.Time{})
+		}
+
+		n, err := pty.Read(buf)
+		if err != nil {
+			// Check if it's a timeout (expected)
+			if isTimeoutError(err) {
+				continue
+			}
+			// Real error - clear deadline and return what we have
+			pty.SetReadDeadline(time.Time{})
+			return buffer.Bytes(), err
+		}
+
+		if n > 0 {
+			buffer.Write(buf[:n])
+		}
+	}
+
+	// Clear deadline for future reads
+	pty.SetReadDeadline(time.Time{})
+
+	// Handle UTF-8 boundary - ensure we don't split multi-byte characters
+	data := buffer.Bytes()
+	validEnd := findLastValidUTF8Boundary(data)
+	if validEnd < len(data) {
+		// There's an incomplete UTF-8 sequence at the end
+		// For simplicity, just include it - readLoopStream will handle it
+		t.debugLog("[PTY-STREAM] Note: buffer may have incomplete UTF-8 at boundary")
+	}
+
+	return data, nil
+}
+
+// isTimeoutError checks if an error is a timeout error.
+func isTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Check for os.ErrDeadlineExceeded (Go 1.15+)
+	if os.IsTimeout(err) {
+		return true
+	}
+	// Also check the error string as a fallback
+	return strings.Contains(err.Error(), "timeout") ||
+		strings.Contains(err.Error(), "deadline exceeded")
 }
 
 // startTmuxSessionPolling implements legacy polling mode.

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"time"
 
 	"github.com/creack/pty"
 )
@@ -91,6 +92,12 @@ func SpawnPTYWithCommandAndSize(cols, rows int, name string, args ...string) (*P
 // Read reads from the PTY.
 func (p *PTY) Read(buf []byte) (int, error) {
 	return p.file.Read(buf)
+}
+
+// SetReadDeadline sets a deadline for future Read calls.
+// A zero value clears the deadline.
+func (p *PTY) SetReadDeadline(t time.Time) error {
+	return p.file.SetReadDeadline(t)
 }
 
 // Write writes to the PTY.

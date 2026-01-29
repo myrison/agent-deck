@@ -364,3 +364,48 @@ func TestVerifyTmuxConfig_ShowOptionFails(t *testing.T) {
 // Both use non-existent sessions and test the same error path. Creating a distinct
 // failure mode where show-option succeeds but set-option fails is not possible with
 // real tmux, so this test is redundant and has been removed.
+
+// ============================================================
+// Phase 2: History Hydration Helper Tests
+// ============================================================
+
+// TestIsTimeoutError_NilError verifies nil returns false
+func TestIsTimeoutError_NilError(t *testing.T) {
+	result := isTimeoutError(nil)
+	assert.False(t, result, "nil error should not be a timeout")
+}
+
+// TestIsTimeoutError_TimeoutError verifies os.ErrDeadlineExceeded is detected
+func TestIsTimeoutError_TimeoutError(t *testing.T) {
+	result := isTimeoutError(os.ErrDeadlineExceeded)
+	assert.True(t, result, "os.ErrDeadlineExceeded should be a timeout")
+}
+
+// TestIsTimeoutError_RegularError verifies non-timeout errors return false
+func TestIsTimeoutError_RegularError(t *testing.T) {
+	result := isTimeoutError(os.ErrNotExist)
+	assert.False(t, result, "os.ErrNotExist should not be a timeout")
+}
+
+// TestIsTimeoutError_StringContainsTimeout verifies timeout string detection
+func TestIsTimeoutError_StringContainsTimeout(t *testing.T) {
+	err := &customError{msg: "operation timeout exceeded"}
+	result := isTimeoutError(err)
+	assert.True(t, result, "error with 'timeout' in message should be detected")
+}
+
+// TestIsTimeoutError_StringContainsDeadline verifies deadline string detection
+func TestIsTimeoutError_StringContainsDeadline(t *testing.T) {
+	err := &customError{msg: "i/o deadline exceeded"}
+	result := isTimeoutError(err)
+	assert.True(t, result, "error with 'deadline exceeded' in message should be detected")
+}
+
+// customError is a simple error type for testing
+type customError struct {
+	msg string
+}
+
+func (e *customError) Error() string {
+	return e.msg
+}
