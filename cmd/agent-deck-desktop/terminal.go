@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -168,6 +169,13 @@ type Terminal struct {
 	// Pipeline instrumentation counters (Phase 1 baseline measurement)
 	// These track data flow through the pipeline to identify bottlenecks
 	pipelineStats PipelineStats
+
+	// PTY streaming mode fields (Phase 1)
+	// Resize epoch prevents race conditions during resize operations
+	resizeEpoch uint64
+
+	// Alt-screen state for status polling (PTY streaming mode)
+	lastAltScreen bool
 }
 
 // PipelineStats holds instrumentation counters for tracking data loss in the pipeline.
@@ -198,6 +206,38 @@ func NewTerminal(sessionID string) *Terminal {
 	return &Terminal{
 		sessionID: sessionID,
 	}
+}
+
+// shouldUsePTYStreaming checks if PTY streaming mode should be used.
+// Controlled by REVDEN_PTY_STREAMING env var.
+// Default: disabled (false) for safe rollout.
+// Set REVDEN_PTY_STREAMING=enabled to activate PTY streaming.
+func shouldUsePTYStreaming() bool {
+	env := os.Getenv("REVDEN_PTY_STREAMING")
+	return env == "enabled"
+}
+
+// verifyTmuxConfig ensures tmux status bar is hidden for the session.
+// The status bar would leak into the PTY stream and corrupt rendering.
+// This is called before starting PTY streaming mode.
+func verifyTmuxConfig(tmuxSession string) error {
+	// Check if status is off for this session
+	cmd := exec.Command(tmuxBinaryPath, "show-option", "-t", tmuxSession, "-v", "status")
+	output, _ := cmd.Output()
+	status := strings.TrimSpace(string(output))
+
+	if status != "off" {
+		// Force status off for this session
+		setCmd := exec.Command(tmuxBinaryPath, "set-option", "-t", tmuxSession, "status", "off")
+		if err := setCmd.Run(); err != nil {
+			return fmt.Errorf("failed to set tmux status off: %w", err)
+		}
+		// Log for debugging
+		if debugLogFile != nil {
+			fmt.Fprintf(debugLogFile, "[PTY-STREAM] Forced tmux status off for session %s\n", tmuxSession)
+		}
+	}
+	return nil
 }
 
 // SetContext sets the Wails runtime context.
@@ -234,14 +274,116 @@ func (t *Terminal) Start(cols, rows int) error {
 	return nil
 }
 
-// StartTmuxSession connects to a tmux session using polling mode:
+// StartTmuxSession connects to a tmux session.
+//
+// Mode selection (via REVDEN_PTY_STREAMING env var):
+// - PTY Streaming (enabled): Direct PTY output to xterm.js, fixes DiffViewport corruption
+// - Polling (default): Capture-pane polling with DiffViewport (legacy, has rendering issues)
+//
+// PTY Streaming mode (Phase 1):
+// 1. Verify tmux status is off (prevents status bar leakage)
+// 2. Capture current viewport and emit via terminal:initial
+// 3. Attach PTY and stream output directly via terminal:data
+// 4. Lightweight status polling for alt-screen detection only
+//
+// Polling mode (legacy):
 // 1. Fetch and emit sanitized history via terminal:history event
 // 2. Attach PTY for user input only
-// 3. Use polling for display updates (ensures scrollback accumulates properly)
-//
-// This approach solves the scrollback problem where TUI applications like Claude Code
-// use escape sequences that prevent xterm.js from building up scrollback buffer.
+// 3. Use polling for display updates (has DiffViewport bugs during fast output)
 func (t *Terminal) StartTmuxSession(tmuxSession string, cols, rows int) error {
+	// Check if PTY streaming mode is enabled
+	if shouldUsePTYStreaming() {
+		return t.startTmuxSessionStreaming(tmuxSession, cols, rows)
+	}
+
+	// Legacy polling mode
+	return t.startTmuxSessionPolling(tmuxSession, cols, rows)
+}
+
+// startTmuxSessionStreaming implements PTY streaming mode (Phase 1).
+// Streams PTY output directly to frontend instead of polling + DiffViewport.
+func (t *Terminal) startTmuxSessionStreaming(tmuxSession string, cols, rows int) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.pty != nil {
+		return nil // Already started
+	}
+
+	t.debugLog("[PTY-STREAM] Starting streaming session for tmux=%s cols=%d rows=%d", tmuxSession, cols, rows)
+
+	// 1. Verify tmux config (status bar must be off)
+	if err := verifyTmuxConfig(tmuxSession); err != nil {
+		t.debugLog("[PTY-STREAM] verifyTmuxConfig error: %v", err)
+		// Non-fatal - continue anyway
+	}
+
+	// 2. Resize tmux window to match terminal dimensions
+	if cols > 0 && rows > 0 {
+		resizeCmd := exec.Command(tmuxBinaryPath, "resize-window", "-t", tmuxSession, "-x", itoa(cols), "-y", itoa(rows))
+		if err := resizeCmd.Run(); err != nil {
+			t.debugLog("[PTY-STREAM] resize-window error: %v", err)
+		} else {
+			t.debugLog("[PTY-STREAM] Resized tmux window to %dx%d", cols, rows)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// 3. MANDATORY: Capture current viewport BEFORE streaming
+	// This prevents the "blank terminal" problem (Council Review #2)
+	// Note: Current viewport only (no -S or -E flags), not full scrollback
+	viewportCmd := exec.Command(tmuxBinaryPath, "capture-pane", "-t", tmuxSession, "-p", "-e")
+	viewportOutput, err := viewportCmd.Output()
+	if err != nil {
+		t.debugLog("[PTY-STREAM] viewport capture error: %v", err)
+		// Non-fatal - continue anyway
+	}
+
+	// 4. Emit initial viewport via terminal:initial event
+	// Frontend should handle this similarly to terminal:history
+	if len(viewportOutput) > 0 {
+		viewport := sanitizeHistoryForXterm(string(viewportOutput))
+		viewport = normalizeCRLF(viewport)
+		t.debugLog("[PTY-STREAM] Emitting %d bytes of initial viewport", len(viewport))
+		if t.ctx != nil {
+			runtime.EventsEmit(t.ctx, "terminal:initial",
+				TerminalEvent{SessionID: t.sessionID, Data: viewport})
+		}
+	}
+
+	// 5. Short delay for frontend to process initial viewport
+	time.Sleep(50 * time.Millisecond)
+
+	// 6. Attach PTY to tmux (output will be streamed to frontend)
+	t.debugLog("[PTY-STREAM] Attaching PTY to tmux session for streaming")
+	pty, err := SpawnPTYWithCommand(tmuxBinaryPath, "attach-session", "-t", tmuxSession)
+	if err != nil {
+		return fmt.Errorf("failed to attach to tmux: %w", err)
+	}
+
+	if cols > 0 && rows > 0 {
+		pty.Resize(uint16(cols), uint16(rows))
+	}
+
+	t.pty = pty
+	t.tmuxSession = tmuxSession
+	t.closed = false
+
+	// 7. Start PTY streaming read loop (output goes to frontend)
+	// tmux sends full viewport redraw on attach, may duplicate initial viewport (that's OK)
+	go t.readLoopStream()
+
+	// 8. Start lightweight status polling for alt-screen detection only
+	// (No display polling - display comes from PTY stream)
+	t.startStatusPolling(tmuxSession)
+
+	t.debugLog("[PTY-STREAM] Session started successfully with PTY streaming")
+	return nil
+}
+
+// startTmuxSessionPolling implements legacy polling mode.
+// Uses capture-pane polling with DiffViewport for display updates.
+func (t *Terminal) startTmuxSessionPolling(tmuxSession string, cols, rows int) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -739,6 +881,104 @@ func (t *Terminal) readLoopDiscard() {
 	}
 }
 
+// readLoopStream reads from PTY and emits output directly to frontend.
+// This is the core of PTY streaming mode - replaces polling for display.
+//
+// IMPORTANT: Only buffers for UTF-8 byte boundaries, NOT ANSI sequences.
+// xterm.js has a robust internal state machine that handles ANSI escape
+// sequences split across packet boundaries perfectly. (Council directive)
+func (t *Terminal) readLoopStream() {
+	buf := make([]byte, 32*1024)
+	var incompleteUTF8 []byte // Buffer for incomplete UTF-8 sequences
+
+	t.debugLog("[PTY-STREAM] Starting readLoopStream for session=%s", t.sessionID)
+
+	for {
+		t.mu.Lock()
+		p := t.pty
+		closed := t.closed
+		t.mu.Unlock()
+
+		if p == nil || closed {
+			t.debugLog("[PTY-STREAM] Exiting - pty=%v closed=%v", p != nil, closed)
+			return
+		}
+
+		n, err := p.Read(buf)
+		if err != nil {
+			t.debugLog("[PTY-STREAM] Read error: %v", err)
+			if t.ctx != nil && !t.closed {
+				runtime.EventsEmit(t.ctx, "terminal:exit",
+					TerminalEvent{SessionID: t.sessionID, Data: err.Error()})
+			}
+			return
+		}
+
+		if n > 0 && t.ctx != nil {
+			// Combine with any previous incomplete UTF-8 sequence
+			var data []byte
+			if len(incompleteUTF8) > 0 {
+				data = make([]byte, len(incompleteUTF8)+n)
+				copy(data, incompleteUTF8)
+				copy(data[len(incompleteUTF8):], buf[:n])
+				incompleteUTF8 = nil
+			} else {
+				data = buf[:n]
+			}
+
+			// Find last valid UTF-8 boundary
+			validEnd := findLastValidUTF8Boundary(data)
+
+			// Save incomplete bytes for next iteration
+			if validEnd < len(data) {
+				incompleteUTF8 = make([]byte, len(data)-validEnd)
+				copy(incompleteUTF8, data[validEnd:])
+				data = data[:validEnd]
+			}
+
+			// Strip TTS markers and emit
+			if len(data) > 0 {
+				output := stripTTSMarkers(string(data))
+				if len(output) > 0 {
+					runtime.EventsEmit(t.ctx, "terminal:data",
+						TerminalEvent{SessionID: t.sessionID, Data: output})
+				}
+			}
+		}
+	}
+}
+
+// findLastValidUTF8Boundary finds the last position where UTF-8 is complete.
+// Returns the byte index up to which all UTF-8 sequences are complete.
+// Any bytes after this index are part of an incomplete multi-byte sequence.
+func findLastValidUTF8Boundary(data []byte) int {
+	if len(data) == 0 {
+		return 0
+	}
+
+	// Walk backwards to find the start of any incomplete UTF-8 sequence
+	// UTF-8 sequences are at most 4 bytes, so we only need to check last 4
+	for i := len(data) - 1; i >= 0 && i >= len(data)-4; i-- {
+		if utf8.RuneStart(data[i]) {
+			// Found a rune start byte, check if the rune is complete
+			r, size := utf8.DecodeRune(data[i:])
+			if r != utf8.RuneError && i+size == len(data) {
+				// Rune is complete and reaches end of data
+				return len(data)
+			}
+			if r == utf8.RuneError && size == 1 {
+				// Invalid or incomplete - return up to this point
+				return i
+			}
+			// Rune is complete but doesn't reach end - there's more data after
+			// Continue checking next byte
+		}
+	}
+
+	// All bytes are part of complete runes (or data is too short to matter)
+	return len(data)
+}
+
 // startTmuxPolling begins polling tmux for display updates.
 func (t *Terminal) startTmuxPolling(tmuxSession string, rows int) {
 	t.tmuxPolling = true
@@ -747,6 +987,79 @@ func (t *Terminal) startTmuxPolling(tmuxSession string, rows int) {
 	t.historyTracker = NewHistoryTracker(tmuxSession, rows)
 
 	go t.pollTmuxLoop()
+}
+
+// startStatusPolling begins lightweight polling for alt-screen status only.
+// This is used in PTY streaming mode where we don't poll for display,
+// but still need to track when apps enter/exit alt-screen mode.
+func (t *Terminal) startStatusPolling(tmuxSession string) {
+	t.mu.Lock()
+	t.tmuxPolling = true
+	t.tmuxStopChan = make(chan struct{})
+	t.tmuxSession = tmuxSession
+	t.mu.Unlock()
+
+	go t.pollStatusLoop()
+}
+
+// pollStatusLoop continuously polls tmux for alt-screen status.
+// Much slower than display polling (500ms vs 80ms) since we only need
+// to detect mode changes, not display updates.
+func (t *Terminal) pollStatusLoop() {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	t.debugLog("[STATUS-POLL] Started for session=%s", t.sessionID)
+
+	for {
+		select {
+		case <-t.tmuxStopChan:
+			t.debugLog("[STATUS-POLL] Stopped")
+			return
+		case <-ticker.C:
+			t.pollStatusOnly()
+		}
+	}
+}
+
+// pollStatusOnly queries tmux for alt-screen status only.
+// Does not capture pane content - just checks #{alternate_on}.
+func (t *Terminal) pollStatusOnly() {
+	t.mu.Lock()
+	session := t.tmuxSession
+	polling := t.tmuxPolling
+	t.mu.Unlock()
+
+	if !polling || session == "" {
+		return
+	}
+
+	// Query tmux for alt-screen status
+	cmd := exec.Command(tmuxBinaryPath, "display-message", "-t", session,
+		"-p", "#{alternate_on}")
+	output, err := cmd.Output()
+	if err != nil {
+		// Session might have ended
+		t.debugLog("[STATUS-POLL] display-message error: %v", err)
+		return
+	}
+
+	inAltScreen := strings.TrimSpace(string(output)) == "1"
+
+	t.mu.Lock()
+	changed := inAltScreen != t.lastAltScreen
+	t.lastAltScreen = inAltScreen
+	ctx := t.ctx
+	sessionID := t.sessionID
+	t.mu.Unlock()
+
+	if changed && ctx != nil {
+		t.debugLog("[STATUS-POLL] Alt-screen changed: %v", inAltScreen)
+		runtime.EventsEmit(ctx, "terminal:altscreen", map[string]interface{}{
+			"sessionId":   sessionID,
+			"inAltScreen": inAltScreen,
+		})
+	}
 }
 
 // stopTmuxPolling stops the polling goroutine.
@@ -1057,6 +1370,7 @@ func (t *Terminal) Write(data string) error {
 }
 
 // Resize changes the PTY dimensions and resizes tmux window if in hybrid mode.
+// In PTY streaming mode, also emits resize epoch to help frontend handle race conditions.
 func (t *Terminal) Resize(cols, rows int) error {
 	t.mu.Lock()
 	p := t.pty
@@ -1064,7 +1378,23 @@ func (t *Terminal) Resize(cols, rows int) error {
 	tracker := t.historyTracker
 	remoteHost := t.remoteHostID
 	sshBridge := t.sshBridge
+	ctx := t.ctx
+	sessionID := t.sessionID
+
+	// Increment resize epoch (for PTY streaming mode race condition handling)
+	t.resizeEpoch++
+	epoch := t.resizeEpoch
 	t.mu.Unlock()
+
+	// Emit resize epoch to frontend (used in PTY streaming mode)
+	// Helps frontend discard stale data formatted for old dimensions
+	if ctx != nil && shouldUsePTYStreaming() {
+		runtime.EventsEmit(ctx, "terminal:resize-epoch", map[string]interface{}{
+			"sessionId": sessionID,
+			"epoch":     epoch,
+		})
+		t.debugLog("[RESIZE] Emitted resize epoch %d", epoch)
+	}
 
 	// Resize the PTY if attached
 	if p != nil {
@@ -1092,6 +1422,7 @@ func (t *Terminal) Resize(cols, rows int) error {
 		}
 
 		// Reset history tracker on resize - content will reflow at new width
+		// (Only used in polling mode)
 		if tracker != nil {
 			tracker.Reset()
 			tracker.SetViewportRows(rows)

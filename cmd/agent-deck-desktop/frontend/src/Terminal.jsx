@@ -84,6 +84,11 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
     const [showDebugOverlay, setShowDebugOverlay] = useState(false);
     const [debugRefreshKey, setDebugRefreshKey] = useState(0); // Forces debug overlay re-render
 
+    // Resize epoch tracking for PTY streaming mode (prevents race conditions)
+    // Data formatted for old dimensions during resize transition should be handled gracefully
+    const resizeEpochRef = useRef(0);
+    const resizeGraceUntilRef = useRef(0);
+
     // Update terminal theme when app theme changes
     useEffect(() => {
         if (xtermRef.current) {
@@ -679,6 +684,45 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         };
         const cancelHistory = EventsOn('terminal:history', handleTerminalHistory);
 
+        // Handle initial viewport snapshot (PTY streaming mode - Phase 1)
+        // This is sent before PTY streaming starts to prevent "blank terminal" on connect
+        // Similar to terminal:history but used specifically in PTY streaming mode
+        const handleTerminalInitial = (payload) => {
+            // Filter: only process events for this terminal's session
+            if (payload?.sessionId !== sessionId) return;
+
+            const viewport = payload.data;
+            logger.info('[PTY-STREAM] Received initial viewport:', viewport?.length || 0, 'bytes');
+            if (xtermRef.current && viewport) {
+                // Write initial viewport to xterm
+                xtermRef.current.write(viewport);
+                xtermRef.current.scrollToBottom();
+
+                // Mark session load complete for scroll tracking
+                setTimeout(() => {
+                    if (xtermRef.current?._markSessionLoadComplete) {
+                        xtermRef.current._markSessionLoadComplete();
+                    }
+                }, 100);
+            }
+        };
+        const cancelInitial = EventsOn('terminal:initial', handleTerminalInitial);
+
+        // Handle resize epoch updates (PTY streaming mode)
+        // Used to track resize operations and handle race conditions between
+        // resize events and in-flight data formatted for old dimensions
+        const handleResizeEpoch = (payload) => {
+            if (payload?.sessionId !== sessionId) return;
+
+            const epoch = payload.epoch;
+            resizeEpochRef.current = epoch;
+            // Set grace period: 100ms after resize, be cautious with incoming data
+            // tmux's SIGWINCH-triggered redraw will fix any transient issues
+            resizeGraceUntilRef.current = Date.now() + 100;
+            logger.debug('[RESIZE-EPOCH] Received epoch:', epoch);
+        };
+        const cancelResizeEpoch = EventsOn('terminal:resize-epoch', handleResizeEpoch);
+
         // Listen for data from backend (polling mode - history gaps and viewport diffs)
         // In polling mode, this receives:
         // 1. History gap lines (content that scrolled off viewport)
@@ -940,6 +984,8 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             cancelPaste();
             cancelCopy();
             cancelHistory();
+            cancelInitial();
+            cancelResizeEpoch();
             cancelData();
             cancelExit();
             cancelConnLost();
