@@ -84,7 +84,8 @@ export default function StatusBar({ session }) {
                     className="status-bar-item status-bar-session-id"
                     title={`Session ID: ${session.id} (click to copy)`}
                     onClick={() => {
-                        navigator.clipboard.writeText(session.id);
+                        navigator.clipboard.writeText(session.id)
+                            .catch(err => console.warn('Failed to copy session ID:', err));
                     }}
                 >
                     <span className="status-bar-text">{session.id.slice(0, 8)}</span>

@@ -836,19 +836,12 @@ func (t *Terminal) pollTmuxOnce() {
 		}
 	}
 
-	// Step 3: Fetch history gap (if any) - but don't emit yet
-	// We'll combine it with viewport diff into a single emission to prevent cursor state bugs
-	var historyGap string
-	if !inAltScreen && historySize > 0 {
-		gap, err := tracker.FetchHistoryGap(historySize)
-		if err != nil {
-			t.debugLog("[POLL] FetchHistoryGap error: %v", err)
-		} else if len(gap) > 0 {
-			historyGap = gap
-			historyGapLineCount = strings.Count(gap, "\n")
-			t.debugLog("[POLL] Fetched %d bytes of history gap (historySize=%d)", len(gap), historySize)
-		}
-	}
+	// Step 3: History gap fetch DISABLED
+	// History gap injection via escape sequences causes rendering corruption in xterm.js.
+	// The escape sequences (cursor save/restore, move to bottom, CRLF scroll) conflict
+	// with xterm.js internal cursor state. Skipping the FetchHistoryGap call entirely
+	// to avoid unnecessary tmux subprocess overhead.
+	// TODO: For lossless scrollback, implement pipe-pane architecture (Phase 4).
 
 	// Step 4: Capture current viewport
 	cmd := exec.Command(tmuxBinaryPath, "capture-pane", "-t", session, "-p", "-e")
@@ -882,25 +875,14 @@ func (t *Terminal) pollTmuxOnce() {
 			viewportUpdate := tracker.DiffViewport(content)
 			viewportDiffBytes = len(viewportUpdate)
 
-			// Step 7: Emit viewport update only
-			// NOTE: History gap injection via escape sequences is DISABLED because it causes
-			// rendering corruption. The escape sequences (cursor save/restore, move to bottom,
-			// CRLF scroll) conflict with xterm.js internal cursor state. This was tested again
-			// on 2026-01-28 after fixing the terminal remount bug - still broken.
-			// Scrollback is still available via tmux - resize triggers a full history refresh.
-			// TODO: For lossless scrollback, implement pipe-pane architecture (Phase 4).
-			var combined strings.Builder
-			_ = historyGap // Acknowledge but don't use - causes rendering bugs
-			combined.WriteString(viewportUpdate)
-
-			if combined.Len() > 0 {
-				combinedStr := combined.String()
-				bytesSent = len(combinedStr)
-				linesSent = strings.Count(combinedStr, "\n")
+			// Step 7: Emit viewport update
+			if len(viewportUpdate) > 0 {
+				bytesSent = len(viewportUpdate)
+				linesSent = strings.Count(viewportUpdate, "\n")
 				lines := strings.Count(content, "\n")
-				t.debugLog("[POLL] Combined update: %d bytes (gap=%d, viewport=%d), %d content lines, historySize=%d, altScreen=%v",
-					bytesSent, len(historyGap), len(viewportUpdate), lines, historySize, inAltScreen)
-				runtime.EventsEmit(t.ctx, "terminal:data", TerminalEvent{SessionID: t.sessionID, Data: combinedStr})
+				t.debugLog("[POLL] Viewport update: %d bytes, %d content lines, historySize=%d, altScreen=%v",
+					bytesSent, lines, historySize, inAltScreen)
+				runtime.EventsEmit(t.ctx, "terminal:data", TerminalEvent{SessionID: t.sessionID, Data: viewportUpdate})
 			}
 		}
 	}
