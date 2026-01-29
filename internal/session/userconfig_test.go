@@ -611,9 +611,7 @@ func TestSaveUserConfig_PreservesUnknownSections(t *testing.T) {
 	// This test verifies that SaveUserConfig preserves sections not defined in
 	// the UserConfig struct (like [desktop] from the desktop app).
 	tempDir := t.TempDir()
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	t.Setenv("HOME", tempDir)
 	ClearUserConfigCache()
 
 	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
@@ -700,9 +698,7 @@ max_size_mb = 10
 func TestSaveUserConfig_OverwritesKnownSections(t *testing.T) {
 	// Verify that known sections (defined in UserConfig struct) ARE overwritten
 	tempDir := t.TempDir()
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	t.Setenv("HOME", tempDir)
 	ClearUserConfigCache()
 
 	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
@@ -758,9 +754,7 @@ remove_orphans = false
 func TestSaveUserConfig_CreatesNewFile(t *testing.T) {
 	// Verify SaveUserConfig works when no config file exists
 	tempDir := t.TempDir()
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	t.Setenv("HOME", tempDir)
 	ClearUserConfigCache()
 
 	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
@@ -805,9 +799,7 @@ func TestSaveUserConfig_CreatesNewFile(t *testing.T) {
 func TestSaveUserConfig_HandlesCorruptedExistingFile(t *testing.T) {
 	// Verify SaveUserConfig handles a corrupted config.toml gracefully
 	tempDir := t.TempDir()
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	t.Setenv("HOME", tempDir)
 	ClearUserConfigCache()
 
 	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
@@ -849,9 +841,7 @@ func TestSaveUserConfig_PreservesComplexUnknownStructures(t *testing.T) {
 	// Verify complex unknown structures are preserved: nested tables, arrays,
 	// and top-level keys that might be added by future features or plugins.
 	tempDir := t.TempDir()
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	t.Setenv("HOME", tempDir)
 	ClearUserConfigCache()
 
 	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
