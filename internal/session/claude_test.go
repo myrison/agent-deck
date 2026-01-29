@@ -265,11 +265,12 @@ func TestToggleLocalMCP_DefaultToBlacklist(t *testing.T) {
 	// Check state
 	servers, _ := GetLocalMCPState(tmpDir)
 	for _, s := range servers {
-		if s.Name == "mcp-a" {
+		switch s.Name {
+		case "mcp-a":
 			if s.Enabled {
 				t.Error("mcp-a should be disabled after toggle")
 			}
-		} else if s.Name == "mcp-b" {
+		case "mcp-b":
 			if !s.Enabled {
 				t.Error("mcp-b should still be enabled")
 			}

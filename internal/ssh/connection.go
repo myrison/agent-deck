@@ -172,10 +172,10 @@ func (c *Connection) LastError() error {
 // GetStatusSnapshot returns the connection's status atomically.
 // This is more efficient than calling IsConnected(), LastError(), and reading
 // lastCheck separately, and ensures a consistent view of the state.
-func (c *Connection) GetStatusSnapshot() (connected bool, lastError error, lastCheck time.Time) {
+func (c *Connection) GetStatusSnapshot() (connected bool, lastCheck time.Time, lastError error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.connected, c.lastError, c.lastCheck
+	return c.connected, c.lastCheck, c.lastError
 }
 
 // RunCommand executes a command on the remote host and returns the output
