@@ -30,7 +30,6 @@ func SetAppContext(ctx context.Context) {
 	appContext = ctx
 }
 
-
 // createAppMenu builds a custom menu for macOS that:
 // 1. Removes the Redo keyboard shortcut (Cmd+Shift+Z) to allow JS zoom toggle
 // 2. Handles Paste via callback to emit clipboard content to JS
@@ -120,11 +119,6 @@ func main() {
 		logLevel = logger.DEBUG
 	}
 
-	// In dev mode, always start hidden to prevent focus-stealing.
-	// The dock icon is visible; click it to reveal the window.
-	// This applies to both fresh launches and hot-reloads.
-	startHidden := isDev
-
 	// Set app title based on mode and window number
 	appTitle := "RevvySwarm"
 	if isDev {
@@ -156,9 +150,6 @@ func main() {
 		},
 		LogLevel:           logLevel,
 		LogLevelProduction: logger.ERROR,
-		// In dev mode, start hidden to prevent focus-stealing.
-		// The dock icon is visible; click it to reveal the window.
-		StartHidden: startHidden,
 		DragAndDrop: &options.DragAndDrop{
 			EnableFileDrop:     true,
 			DisableWebViewDrop: true,
