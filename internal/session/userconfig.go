@@ -636,7 +636,11 @@ func SaveUserConfig(config *UserConfig) error {
 	}
 
 	// Read existing config to preserve unknown sections (e.g., [desktop])
-	existingData, _ := os.ReadFile(configPath)
+	existingData, err := os.ReadFile(configPath)
+	if err != nil && !os.IsNotExist(err) {
+		// File exists but can't be read - fail rather than risk losing unknown sections
+		return fmt.Errorf("failed to read existing config: %w", err)
+	}
 	var existingConfig map[string]interface{}
 	if len(existingData) > 0 {
 		if err := toml.Unmarshal(existingData, &existingConfig); err != nil {
