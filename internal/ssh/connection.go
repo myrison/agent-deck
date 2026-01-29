@@ -315,7 +315,7 @@ func (c *Connection) ForwardPort(localPort, remotePort int, remoteHost string) (
 		_ = cmd.Process.Kill()
 		return nil, fmt.Errorf("port forward failed to establish: %w", err)
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	return cmd, nil
 }

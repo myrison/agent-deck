@@ -607,7 +607,7 @@ func (idx *GlobalSearchIndex) updateFile(path string) {
 		if err != nil {
 			return
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		_, _ = f.Seek(tracker.LastOffset, 0)
 		data, _ = io.ReadAll(f)
 	} else {
@@ -769,7 +769,7 @@ func (idx *GlobalSearchIndex) IsLoading() bool {
 func (idx *GlobalSearchIndex) Close() {
 	idx.cancel()
 	if idx.watcher != nil {
-		idx.watcher.Close()
+		_ = idx.watcher.Close()
 	}
 	idx.wg.Wait()
 }

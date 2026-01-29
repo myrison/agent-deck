@@ -98,14 +98,14 @@ func TestInstance_Fork(t *testing.T) {
 	// Isolate from user's environment to ensure CLAUDE_CONFIG_DIR is NOT explicit
 	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	origHome := os.Getenv("HOME")
-	os.Unsetenv("CLAUDE_CONFIG_DIR")
-	os.Setenv("HOME", t.TempDir())
+	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+	_ = os.Setenv("HOME", t.TempDir())
 	ClearUserConfigCache()
 	defer func() {
 		if origConfigDir != "" {
-			os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir)
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir)
 		}
-		os.Setenv("HOME", origHome)
+		_ = os.Setenv("HOME", origHome)
 		ClearUserConfigCache()
 	}()
 
@@ -161,13 +161,13 @@ func TestInstance_Fork_ExplicitConfig(t *testing.T) {
 	// Isolate from user's environment (don't pick up their config.toml)
 	origHome := os.Getenv("HOME")
 	tmpDir := t.TempDir()
-	os.Setenv("HOME", tmpDir)
+	_ = os.Setenv("HOME", tmpDir)
 	ClearUserConfigCache()
 
-	os.Setenv("CLAUDE_CONFIG_DIR", "/tmp/test-claude-config")
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", "/tmp/test-claude-config")
 	defer func() {
-		os.Unsetenv("CLAUDE_CONFIG_DIR")
-		os.Setenv("HOME", origHome)
+		_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+		_ = os.Setenv("HOME", origHome)
 		ClearUserConfigCache()
 	}()
 
@@ -191,14 +191,14 @@ func TestInstance_CreateForkedInstance(t *testing.T) {
 	// Isolate from user's environment to ensure CLAUDE_CONFIG_DIR is NOT explicit
 	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	origHome := os.Getenv("HOME")
-	os.Unsetenv("CLAUDE_CONFIG_DIR")
-	os.Setenv("HOME", t.TempDir())
+	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+	_ = os.Setenv("HOME", t.TempDir())
 	ClearUserConfigCache()
 	defer func() {
 		if origConfigDir != "" {
-			os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir)
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir)
 		}
-		os.Setenv("HOME", origHome)
+		_ = os.Setenv("HOME", origHome)
 		ClearUserConfigCache()
 	}()
 
@@ -260,13 +260,13 @@ func TestInstance_CreateForkedInstance_ExplicitConfig(t *testing.T) {
 	// Isolate from user's environment (don't pick up their config.toml)
 	origHome := os.Getenv("HOME")
 	tmpDir := t.TempDir()
-	os.Setenv("HOME", tmpDir)
+	_ = os.Setenv("HOME", tmpDir)
 	ClearUserConfigCache()
 
-	os.Setenv("CLAUDE_CONFIG_DIR", "/tmp/test-claude-config")
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", "/tmp/test-claude-config")
 	defer func() {
-		os.Unsetenv("CLAUDE_CONFIG_DIR")
-		os.Setenv("HOME", origHome)
+		_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+		_ = os.Setenv("HOME", origHome)
 		ClearUserConfigCache()
 	}()
 
@@ -312,14 +312,14 @@ func TestBuildClaudeCommand(t *testing.T) {
 	// Isolate from user's environment to ensure CLAUDE_CONFIG_DIR is NOT explicit
 	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	origHome := os.Getenv("HOME")
-	os.Unsetenv("CLAUDE_CONFIG_DIR")
-	os.Setenv("HOME", t.TempDir()) // Use temp dir so config.toml isn't found
+	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+	_ = os.Setenv("HOME", t.TempDir()) // Use temp dir so config.toml isn't found
 	ClearUserConfigCache()
 	defer func() {
 		if origConfigDir != "" {
-			os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir)
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir)
 		}
-		os.Setenv("HOME", origHome)
+		_ = os.Setenv("HOME", origHome)
 		ClearUserConfigCache()
 	}()
 
@@ -376,14 +376,14 @@ func TestBuildClaudeCommand_ExplicitConfig(t *testing.T) {
 	// Isolate from user's environment
 	origHome := os.Getenv("HOME")
 	tmpDir := t.TempDir()
-	os.Setenv("HOME", tmpDir) // Use temp dir so config.toml isn't found
+	_ = os.Setenv("HOME", tmpDir) // Use temp dir so config.toml isn't found
 	ClearUserConfigCache()
 
 	// Set environment variable to explicitly configure CLAUDE_CONFIG_DIR
-	os.Setenv("CLAUDE_CONFIG_DIR", "/tmp/test-claude-config")
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", "/tmp/test-claude-config")
 	defer func() {
-		os.Unsetenv("CLAUDE_CONFIG_DIR")
-		os.Setenv("HOME", origHome)
+		_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+		_ = os.Setenv("HOME", origHome)
 		ClearUserConfigCache()
 	}()
 
@@ -411,7 +411,7 @@ func TestBuildClaudeCommand_CustomAlias(t *testing.T) {
 	// Create temp config with custom command
 	origHome := os.Getenv("HOME")
 	tmpDir := t.TempDir()
-	os.Setenv("HOME", tmpDir)
+	_ = os.Setenv("HOME", tmpDir)
 
 	// Create ~/.agent-deck/config.toml with custom command
 	configDir := filepath.Join(tmpDir, ".agent-deck")
@@ -428,7 +428,7 @@ config_dir = "~/.claude-work"
 
 	ClearUserConfigCache()
 	defer func() {
-		os.Setenv("HOME", origHome)
+		_ = os.Setenv("HOME", origHome)
 		ClearUserConfigCache()
 	}()
 
@@ -459,14 +459,14 @@ func TestBuildClaudeCommand_SubagentAddDir(t *testing.T) {
 	// Isolate from user's environment
 	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	origHome := os.Getenv("HOME")
-	os.Unsetenv("CLAUDE_CONFIG_DIR")
-	os.Setenv("HOME", t.TempDir())
+	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+	_ = os.Setenv("HOME", t.TempDir())
 	ClearUserConfigCache()
 	defer func() {
 		if origConfigDir != "" {
-			os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir)
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir)
 		}
-		os.Setenv("HOME", origHome)
+		_ = os.Setenv("HOME", origHome)
 		ClearUserConfigCache()
 	}()
 
@@ -744,10 +744,10 @@ func TestInstance_Restart_InterruptsAndResumes(t *testing.T) {
 	// Isolate from user's environment (don't pick up their config.toml)
 	origHome := os.Getenv("HOME")
 	tmpDir := t.TempDir()
-	os.Setenv("HOME", tmpDir)
+	_ = os.Setenv("HOME", tmpDir)
 	ClearUserConfigCache()
 	defer func() {
-		os.Setenv("HOME", origHome)
+		_ = os.Setenv("HOME", origHome)
 		ClearUserConfigCache()
 	}()
 
@@ -943,7 +943,7 @@ func TestInstance_RegenerateMCPConfig_ReturnsError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Create an empty .mcp.json
 	mcpPath := filepath.Join(tmpDir, ".mcp.json")
@@ -1424,8 +1424,8 @@ func TestInstance_GetJSONLPath(t *testing.T) {
 
 		// Override claude config dir for test - must be done BEFORE clearing cache
 		oldClaudeConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
-		os.Setenv("CLAUDE_CONFIG_DIR", resolvedClaudeDir)
-		defer os.Setenv("CLAUDE_CONFIG_DIR", oldClaudeConfigDir)
+		_ = os.Setenv("CLAUDE_CONFIG_DIR", resolvedClaudeDir)
+		defer func() { _ = os.Setenv("CLAUDE_CONFIG_DIR", oldClaudeConfigDir) }()
 
 		// Clear cached config so GetClaudeConfigDir picks up the new env var
 		userConfigCacheMu.Lock()
@@ -1473,8 +1473,8 @@ func TestSessionHasConversationData(t *testing.T) {
 
 	// Override config dir for test
 	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
-	os.Setenv("CLAUDE_CONFIG_DIR", tmpDir)
-	defer os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir)
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", tmpDir)
+	defer func() { _ = os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir) }()
 	ClearUserConfigCache()
 	defer ClearUserConfigCache()
 
@@ -1606,7 +1606,7 @@ func TestClearErrorLockout_RecoveryWithLiveSession(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 	tmuxName := inst.GetTmuxSession().Name
-	defer exec.Command("tmux", "kill-session", "-t", tmuxName).Run()
+	defer func() { _ = exec.Command("tmux", "kill-session", "-t", tmuxName).Run() }()
 
 	// Poll for session to become alive (replaces fixed 2s sleep)
 	deadline := time.Now().Add(3 * time.Second)
@@ -1649,7 +1649,7 @@ func TestClearErrorLockout_RecoveryWithLiveSession(t *testing.T) {
 	if err := restartCmd.Run(); err != nil {
 		t.Fatalf("Failed to recreate tmux session: %v", err)
 	}
-	defer exec.Command("tmux", "kill-session", "-t", tmuxName).Run()
+	defer func() { _ = exec.Command("tmux", "kill-session", "-t", tmuxName).Run() }()
 
 	// Without ClearErrorLockout, the lockout prevents recovery
 	if err := inst.UpdateStatus(); err != nil {

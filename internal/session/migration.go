@@ -105,7 +105,7 @@ func MigrateToProfiles() (*MigrationResult, error) {
 		if fileExists(oldPath) {
 			if err := copyFileSafe(oldPath, newPath); err != nil {
 				// Rollback: remove the new directory
-				os.RemoveAll(defaultProfileDir)
+				_ = os.RemoveAll(defaultProfileDir)
 				return nil, fmt.Errorf("failed to copy %s: %w", filename, err)
 			}
 			log.Printf("Copied %s to profiles/default/", filename)
@@ -115,18 +115,18 @@ func MigrateToProfiles() (*MigrationResult, error) {
 	// Step 4: Verify the new file is valid
 	newData, err := os.ReadFile(newSessionsPath)
 	if err != nil {
-		os.RemoveAll(defaultProfileDir)
+		_ = os.RemoveAll(defaultProfileDir)
 		return nil, fmt.Errorf("failed to verify migrated file: %w", err)
 	}
 
 	var verifyData StorageData
 	if err := json.Unmarshal(newData, &verifyData); err != nil {
-		os.RemoveAll(defaultProfileDir)
+		_ = os.RemoveAll(defaultProfileDir)
 		return nil, fmt.Errorf("migrated file is corrupted: %w", err)
 	}
 
 	if len(verifyData.Instances) != sessionCount {
-		os.RemoveAll(defaultProfileDir)
+		_ = os.RemoveAll(defaultProfileDir)
 		return nil, fmt.Errorf("session count mismatch after migration: expected %d, got %d",
 			sessionCount, len(verifyData.Instances))
 	}
@@ -213,12 +213,12 @@ func copyFileSafe(src, dst string) error {
 	// Verify by reading back
 	verifyData, err := os.ReadFile(dst)
 	if err != nil {
-		os.Remove(dst)
+		_ = os.Remove(dst)
 		return fmt.Errorf("failed to verify destination: %w", err)
 	}
 
 	if len(data) != len(verifyData) {
-		os.Remove(dst)
+		_ = os.Remove(dst)
 		return fmt.Errorf("size mismatch: source %d, destination %d", len(data), len(verifyData))
 	}
 

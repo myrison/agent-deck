@@ -107,7 +107,7 @@ func WriteGeminiMCPSettings(enabledNames []string) error {
 	}
 
 	if err := os.Rename(tmpPath, configFile); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 

@@ -3694,11 +3694,11 @@ func (h *Home) performQuit(shutdownPool bool) tea.Cmd {
 		}
 
 		if h.logWatcher != nil {
-			h.logWatcher.Close()
+			_ = h.logWatcher.Close()
 		}
 		// Close storage watcher
 		if h.storageWatcher != nil {
-			h.storageWatcher.Close()
+			_ = h.storageWatcher.Close()
 		}
 		// Close global search index
 		if h.globalSearchIndex != nil {

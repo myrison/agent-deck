@@ -10,7 +10,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	os.Setenv("AGENTDECK_PROFILE", "_test")
+	_ = os.Setenv("AGENTDECK_PROFILE", "_test")
 
 	// Run tests
 	code := m.Run()
