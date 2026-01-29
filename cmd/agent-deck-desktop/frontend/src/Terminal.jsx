@@ -620,6 +620,10 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // Handle paste from menu (Cmd+V triggers Go callback which emits this)
         const handleMenuPaste = (text) => {
             if (!xtermRef.current) return;
+            // Skip if focus is not in any terminal (e.g., user is in a modal input)
+            // This allows non-terminal inputs to handle paste via useInputPaste hook
+            const focused = document.activeElement;
+            if (!focused?.closest?.('.xterm')) return;
             // Multi-pane filter: only paste in the last-active terminal.
             // If no terminal has been active yet, allow paste (single-pane graceful fallback).
             const activeId = window.__activeTerminalSessionId;
