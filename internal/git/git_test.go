@@ -9,25 +9,23 @@ import (
 )
 
 // Helper function to create a git repo for testing
+// IMPORTANT: Uses git -C to avoid polluting parent repo when running from worktrees
 func createTestRepo(t *testing.T, dir string) {
 	t.Helper()
 
-	// Initialize git repo
-	cmd := exec.Command("git", "init")
-	cmd.Dir = dir
+	// Initialize git repo - use -C to ensure git operates in the correct directory
+	cmd := exec.Command("git", "-C", dir, "init")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("failed to init git repo: %v", err)
 	}
 
-	// Configure git user for commits
-	cmd = exec.Command("git", "config", "user.email", "test@test.com")
-	cmd.Dir = dir
+	// Configure git user for commits - use -C to isolate config to test repo
+	cmd = exec.Command("git", "-C", dir, "config", "user.email", "test@test.com")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("failed to configure git email: %v", err)
 	}
 
-	cmd = exec.Command("git", "config", "user.name", "Test User")
-	cmd.Dir = dir
+	cmd = exec.Command("git", "-C", dir, "config", "user.name", "Test User")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("failed to configure git name: %v", err)
 	}
@@ -38,24 +36,22 @@ func createTestRepo(t *testing.T, dir string) {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	cmd = exec.Command("git", "add", ".")
-	cmd.Dir = dir
+	cmd = exec.Command("git", "-C", dir, "add", ".")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("failed to git add: %v", err)
 	}
 
-	cmd = exec.Command("git", "commit", "-m", "Initial commit")
-	cmd.Dir = dir
+	cmd = exec.Command("git", "-C", dir, "commit", "-m", "Initial commit")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("failed to git commit: %v", err)
 	}
 }
 
 // Helper to create a branch in a repo
+// IMPORTANT: Uses git -C to avoid polluting parent repo when running from worktrees
 func createBranch(t *testing.T, dir, branchName string) {
 	t.Helper()
-	cmd := exec.Command("git", "branch", branchName)
-	cmd.Dir = dir
+	cmd := exec.Command("git", "-C", dir, "branch", branchName)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("failed to create branch %s: %v", branchName, err)
 	}
@@ -172,8 +168,7 @@ func TestGetCurrentBranch(t *testing.T) {
 		createTestRepo(t, dir)
 		createBranch(t, dir, "feature-branch")
 
-		cmd := exec.Command("git", "checkout", "feature-branch")
-		cmd.Dir = dir
+		cmd := exec.Command("git", "-C", dir, "checkout", "feature-branch")
 		if err := cmd.Run(); err != nil {
 			t.Fatalf("failed to checkout branch: %v", err)
 		}
@@ -246,22 +241,22 @@ func TestValidateBranchName(t *testing.T) {
 
 	t.Run("rejects invalid branch names", func(t *testing.T) {
 		invalidNames := []string{
-			"",                // empty
-			".hidden",         // starts with dot
-			"branch..double",  // double dots
-			"branch.lock",     // ends with .lock
-			"branch ",         // trailing space
-			" branch",         // leading space
-			"branch\tname",    // contains tab
-			"branch~name",     // contains tilde
-			"branch^name",     // contains caret
-			"branch:name",     // contains colon
-			"branch?name",     // contains question mark
-			"branch*name",     // contains asterisk
-			"branch[name",     // contains open bracket
-			"branch\\name",    // contains backslash
-			"@",               // just @
-			"branch@{name",    // contains @{
+			"",               // empty
+			".hidden",        // starts with dot
+			"branch..double", // double dots
+			"branch.lock",    // ends with .lock
+			"branch ",        // trailing space
+			" branch",        // leading space
+			"branch\tname",   // contains tab
+			"branch~name",    // contains tilde
+			"branch^name",    // contains caret
+			"branch:name",    // contains colon
+			"branch?name",    // contains question mark
+			"branch*name",    // contains asterisk
+			"branch[name",    // contains open bracket
+			"branch\\name",   // contains backslash
+			"@",              // just @
+			"branch@{name",   // contains @{
 		}
 
 		for _, name := range invalidNames {
