@@ -232,6 +232,9 @@ func main() {
 		case "debug":
 			handleDebug(profile, args[1:])
 			return
+		case "register-session":
+			handleRegisterSession(profile, args[1:])
+			return
 		}
 	}
 
@@ -1515,6 +1518,7 @@ func printHelp() {
 	fmt.Println("  session fork <id>         Fork Claude session with context")
 	fmt.Println("  session attach <id>       Attach to session interactively")
 	fmt.Println("  session show [id]         Show session details")
+	fmt.Println("  register-session          Register an existing tmux session (for remote use)")
 	fmt.Println()
 	fmt.Println("MCP Commands:")
 	fmt.Println("  mcp list                  List available MCPs from config.toml")
