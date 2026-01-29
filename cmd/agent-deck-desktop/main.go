@@ -119,9 +119,9 @@ func main() {
 		logLevel = logger.DEBUG
 	}
 
-	// In dev mode, start hidden to prevent focus-stealing on hot-reload.
-	// Click dock icon to reveal window.
-	startHidden := isDev
+	// In dev mode from worktree, start visible so window appears.
+	// (Main repo has startHidden = isDev to prevent focus-stealing on hot-reload)
+	startHidden := false
 
 	// Set app title based on mode and window number
 	appTitle := "RevvySwarm"
