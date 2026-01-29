@@ -455,20 +455,65 @@ if diffPercent > 80 || lineMismatch {
 
 - ✅ **Stable** - No more 5-second flicker
 - ✅ **Events display correctly** in debug overlay
-- ✅ **Rendering clean** for `/context` and other output
+- ✅ **Rendering clean** for normal output and `/context`
 - ⚠️ **History gap injection disabled** - streaming scrollback won't accumulate (resize still works)
-- ❓ **Untested:** Whether history gap injection works correctly now that terminal remount bug is fixed
+- ✅ **History gap injection CONFIRMED BROKEN** - Tested 2026-01-28 evening, still causes rendering corruption independent of remount bug
+
+### Phase 2.7: History Gap Re-test (2026-01-28 Late Evening)
+
+**Test performed:** Re-enabled history gap escape sequence injection after terminal remount bug was fixed.
+
+**Result:** FAILED - Rendering corruption immediately visible. Multiple "Claude Code v2.1.23" headers overlapping, text from different scrollback regions mixing together.
+
+**Conclusion:** The escape sequence approach (`\x1b7` save cursor → `\x1b[row;1H` move → emit CRLF → `\x1b8` restore) is fundamentally incompatible with xterm.js. This is NOT caused by the terminal remount bug - the two issues are independent.
+
+**Code reverted:** History gap injection disabled again with updated comment noting the 2026-01-28 test.
+
+### Remaining Issue: Fast Output Corruption
+
+With history gap disabled, rendering is clean for normal use. However, **fast output still corrupts the display**:
+- When large amounts of text stream quickly (e.g., `/context`, `seq 1 10000`)
+- The viewport can become corrupted (partial output, missing lines)
+- Resize fixes it (triggers full tmux history refresh)
+
+### Phase 2.8: Fast Output Corruption Investigation (2026-01-28 Night)
+
+**Experiments performed:**
+
+| Experiment | Result | Conclusion |
+|------------|--------|------------|
+| 20ms polling (vs 80ms) | Still corrupts | Not a polling speed issue |
+| Burst detection + auto-recovery | Doesn't fix | Can't undo corruption after it happens |
+| Full viewport redraws (no diff) | **Works** but glitchy | **Diff algorithm is the culprit** |
+
+**Key finding:** When `DiffViewport()` is bypassed and every poll does a full viewport redraw, the fast output renders correctly. However, 50 full redraws per second causes unacceptable visual flickering.
+
+**Root cause confirmed:** The `DiffViewport()` smart diff algorithm in `history_tracker.go` generates incorrect ANSI escape sequences during fast output bursts. The algorithm compares previous and current viewport states and emits cursor positioning + line updates, but during rapid changes this produces invalid sequences that corrupt xterm.js rendering.
+
+**Code reverted:** All experimental changes removed:
+- Polling interval restored to 80ms
+- Burst detection code removed
+- Smart diff re-enabled (with known corruption issue)
+
+### Current Workaround
+
+Users can resize the window to trigger a full refresh and fix any corruption. This is suboptimal but functional.
+
+### Real Fix Options
+
+1. **Fix the diff algorithm** - Deep dive into `DiffViewport()` to understand why it generates bad ANSI sequences during fast output. May need fundamental redesign.
+
+2. **Hybrid approach** - Use smart diff normally, detect stabilization after burst, do ONE full redraw. Similar to burst detection but only refresh once after output stops.
+
+3. **pipe-pane architecture (Phase 4)** - Bypass polling entirely. Use tmux `pipe-pane` to stream output to a file, read file in Go, emit to xterm.js. This is the "proper" fix but significant work.
+
+4. **Frontend accumulation** - Let xterm.js manage scrollback directly instead of backend polling.
 
 ### Next Steps
 
-1. **Test history gap re-enablement:** The rendering corruption may have been caused by the combination of history gap injection + terminal remounting. With the remount bug fixed, history gap injection might work correctly now.
+1. **Prioritize pipe-pane architecture** - The diff algorithm is fundamentally flawed for fast output. Rather than patching it, implement the lossless streaming approach.
 
-2. **If re-enabling history gap causes issues:** Consider implementing proper scrollback via:
-   - pipe-pane architecture (Phase 4 in original plan)
-   - xterm.js API to write directly to scrollback buffer
-   - Frontend-side history accumulation
-
-3. **Wide character (emoji) rendering:** Still an open issue, not addressed this session.
+2. **Wide character (emoji) rendering** - Still an open issue, not addressed this session.
 
 ---
 

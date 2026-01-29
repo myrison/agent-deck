@@ -466,7 +466,7 @@ func (t *Terminal) startRemoteTmuxPolling(hostID, tmuxSession string, rows int) 
 
 // pollRemoteTmuxLoop continuously polls remote tmux for display updates.
 func (t *Terminal) pollRemoteTmuxLoop(hostID, tmuxSession string) {
-	ticker := time.NewTicker(80 * time.Millisecond) // Match local polling rate for responsive typing
+	ticker := time.NewTicker(80 * time.Millisecond) // Balanced for SSH latency and typing feel
 	defer ticker.Stop()
 
 	for {
@@ -771,7 +771,7 @@ func (t *Terminal) stopTmuxPolling() {
 
 // pollTmuxLoop continuously polls tmux for display updates.
 func (t *Terminal) pollTmuxLoop() {
-	ticker := time.NewTicker(80 * time.Millisecond) // ~12.5 fps
+	ticker := time.NewTicker(80 * time.Millisecond) // ~12.5 fps, balanced for performance
 	defer ticker.Stop()
 
 	t.debugLog("[POLL-LOOP] Started for session=%s", t.sessionID)
@@ -884,10 +884,11 @@ func (t *Terminal) pollTmuxOnce() {
 
 			// Step 7: Emit viewport update only
 			// NOTE: History gap injection via escape sequences is DISABLED because it causes
-			// rendering corruption when combined with viewport updates. The escape sequences
-			// (cursor save/restore, move to bottom, CRLF scroll) conflict with xterm.js state.
-			// Scrollback is still available via tmux - resize triggers a full refresh.
-			// TODO: Implement proper scrollback via pipe-pane or xterm.js API instead.
+			// rendering corruption. The escape sequences (cursor save/restore, move to bottom,
+			// CRLF scroll) conflict with xterm.js internal cursor state. This was tested again
+			// on 2026-01-28 after fixing the terminal remount bug - still broken.
+			// Scrollback is still available via tmux - resize triggers a full history refresh.
+			// TODO: For lossless scrollback, implement pipe-pane architecture (Phase 4).
 			var combined strings.Builder
 			_ = historyGap // Acknowledge but don't use - causes rendering bugs
 			combined.WriteString(viewportUpdate)
@@ -903,7 +904,7 @@ func (t *Terminal) pollTmuxOnce() {
 			}
 		}
 	}
-	// NOTE: "history gap only" case removed - see comment above about rendering corruption
+	// NOTE: "history gap only" case removed - escape sequence approach causes rendering corruption
 
 	// Record instrumentation stats
 	t.recordPollStats(linesProduced, historyGapLineCount, viewportDiffBytes, bytesSent, linesSent, time.Since(pollStart).Milliseconds(), captureErr)
@@ -1365,3 +1366,4 @@ func (t *Terminal) recordPollStats(linesProduced, historyGapLines int, viewportD
 		t.pipelineStats.CaptureErrors++
 	}
 }
+
