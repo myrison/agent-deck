@@ -420,7 +420,7 @@ func TestFileBasedActivityDetectionPreservesOtherSettings(t *testing.T) {
 // Scrollback Buffer Size Settings Tests
 // =============================================================================
 
-// TestGetScrollbackDefault verifies that GetScrollback returns 10000 when no
+// TestGetScrollbackDefault verifies that GetScrollback returns 50000 when no
 // config exists (default value for xterm.js scrollback buffer).
 func TestGetScrollbackDefault(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -432,8 +432,8 @@ func TestGetScrollbackDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetScrollback failed: %v", err)
 	}
-	if scrollback != 10000 {
-		t.Errorf("Expected default scrollback 10000, got %d", scrollback)
+	if scrollback != 50000 {
+		t.Errorf("Expected default scrollback 50000, got %d", scrollback)
 	}
 }
 
