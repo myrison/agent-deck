@@ -590,7 +590,7 @@ func ToggleLocalMCP(projectPath, mcpName string) error {
 	}
 
 	if err := os.Rename(tmpPath, settingsPath); err != nil {
-		os.Remove(tmpPath) // Clean up on failure
+		_ = os.Remove(tmpPath) // Clean up on failure
 		return fmt.Errorf("failed to rename settings file: %w", err)
 	}
 

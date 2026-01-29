@@ -164,6 +164,33 @@ type Terminal struct {
 	reconnectAttempts int
 	lastReconnectTime time.Time
 	reconnecting      bool
+
+	// Pipeline instrumentation counters (Phase 1 baseline measurement)
+	// These track data flow through the pipeline to identify bottlenecks
+	pipelineStats PipelineStats
+}
+
+// PipelineStats holds instrumentation counters for tracking data loss in the pipeline.
+// Used to identify where scrollback data loss occurs.
+type PipelineStats struct {
+	mu sync.Mutex
+
+	// Counters for local polling
+	TmuxCaptureCount      int64 // Number of tmux capture-pane calls
+	TmuxLinesProduced     int64 // Total lines returned by capture-pane
+	HistoryGapLines       int64 // Lines fetched from history gap
+	ViewportDiffBytes     int64 // Bytes emitted from viewport diff
+	GoBackendLinesSent    int64 // Total lines sent via EventsEmit
+	GoBackendBytesSent    int64 // Total bytes sent via EventsEmit
+
+	// Timing metrics
+	LastPollDurationMs    int64 // Duration of last poll cycle
+	TotalPollTimeMs       int64 // Total time spent polling
+	PollCount             int64 // Number of poll cycles completed
+
+	// Error tracking
+	CaptureErrors int64 // Number of capture-pane errors
+	EmitErrors    int64 // Reserved: Wails EventsEmit is fire-and-forget (no error return)
 }
 
 // NewTerminal creates a new Terminal instance for the given session ID.
@@ -762,6 +789,8 @@ func (t *Terminal) pollTmuxLoop() {
 // 1. Fetch any history gap (lines that scrolled off between polls)
 // 2. Diff viewport for in-place updates (spinners, progress bars)
 func (t *Terminal) pollTmuxOnce() {
+	pollStart := time.Now()
+
 	t.mu.Lock()
 	session := t.tmuxSession
 	polling := t.tmuxPolling
@@ -772,10 +801,16 @@ func (t *Terminal) pollTmuxOnce() {
 		return
 	}
 
+	// Instrumentation variables
+	var linesProduced, historyGapLineCount, viewportDiffBytes, bytesSent, linesSent int
+	var captureErr bool
+
 	// Step 1: Get tmux info - history size and alt-screen status
 	historySize, inAltScreen, err := tracker.GetTmuxInfo()
 	if err != nil {
 		t.debugLog("[POLL] GetTmuxInfo error: %v", err)
+		captureErr = true
+		t.recordPollStats(0, 0, 0, 0, 0, time.Since(pollStart).Milliseconds(), captureErr)
 		// Session might have ended
 		if t.ctx != nil {
 			runtime.EventsEmit(t.ctx, "terminal:exit", TerminalEvent{SessionID: t.sessionID, Data: "tmux session ended"})
@@ -807,6 +842,7 @@ func (t *Terminal) pollTmuxOnce() {
 			t.debugLog("[POLL] FetchHistoryGap error: %v", err)
 		} else if len(gap) > 0 {
 			historyGap = gap
+			historyGapLineCount = strings.Count(gap, "\n")
 			t.debugLog("[POLL] Fetched %d bytes of history gap (historySize=%d)", len(gap), historySize)
 		}
 	}
@@ -816,10 +852,13 @@ func (t *Terminal) pollTmuxOnce() {
 	output, err := cmd.Output()
 	if err != nil {
 		t.debugLog("[POLL] capture-pane error: %v", err)
+		captureErr = true
+		t.recordPollStats(0, historyGapLineCount, 0, 0, 0, time.Since(pollStart).Milliseconds(), captureErr)
 		return
 	}
 
 	currentState := string(output)
+	linesProduced = strings.Count(currentState, "\n")
 
 	// Step 5: Only process if viewport changed
 	t.mu.Lock()
@@ -836,6 +875,7 @@ func (t *Terminal) pollTmuxOnce() {
 
 			// Step 6: Diff viewport
 			viewportUpdate := tracker.DiffViewport(content)
+			viewportDiffBytes = len(viewportUpdate)
 
 			// Step 7: Combine history gap + viewport update into single emission
 			// This prevents cursor state bugs from separate emissions
@@ -855,10 +895,13 @@ func (t *Terminal) pollTmuxOnce() {
 			combined.WriteString(viewportUpdate)
 
 			if combined.Len() > 0 {
+				combinedStr := combined.String()
+				bytesSent = len(combinedStr)
+				linesSent = strings.Count(combinedStr, "\n")
 				lines := strings.Count(content, "\n")
 				t.debugLog("[POLL] Combined update: %d bytes (gap=%d, viewport=%d), %d content lines, historySize=%d, altScreen=%v",
-					combined.Len(), len(historyGap), len(viewportUpdate), lines, historySize, inAltScreen)
-				runtime.EventsEmit(t.ctx, "terminal:data", TerminalEvent{SessionID: t.sessionID, Data: combined.String()})
+					bytesSent, len(historyGap), len(viewportUpdate), lines, historySize, inAltScreen)
+				runtime.EventsEmit(t.ctx, "terminal:data", TerminalEvent{SessionID: t.sessionID, Data: combinedStr})
 			}
 		}
 	} else if len(historyGap) > 0 {
@@ -869,10 +912,16 @@ func (t *Terminal) pollTmuxOnce() {
 			combined.WriteString(fmt.Sprintf("\x1b[%d;1H", tracker.viewportRows)) // Go to bottom row
 			combined.WriteString(historyGap)
 			combined.WriteString("\x1b8") // Restore cursor
+			combinedStr := combined.String()
+			bytesSent = len(combinedStr)
+			linesSent = strings.Count(combinedStr, "\n")
 			t.debugLog("[POLL] History gap only: %d bytes, historySize=%d", len(historyGap), historySize)
-			runtime.EventsEmit(t.ctx, "terminal:data", TerminalEvent{SessionID: t.sessionID, Data: combined.String()})
+			runtime.EventsEmit(t.ctx, "terminal:data", TerminalEvent{SessionID: t.sessionID, Data: combinedStr})
 		}
 	}
+
+	// Record instrumentation stats
+	t.recordPollStats(linesProduced, historyGapLineCount, viewportDiffBytes, bytesSent, linesSent, time.Since(pollStart).Milliseconds(), captureErr)
 }
 
 // sanitizeHistoryForXterm removes escape sequences that would interfere
@@ -1268,4 +1317,66 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return digits
+}
+
+// GetPipelineStats returns the current pipeline instrumentation stats.
+// Used by the debug overlay to show data flow through the pipeline.
+func (t *Terminal) GetPipelineStats() PipelineStats {
+	t.pipelineStats.mu.Lock()
+	defer t.pipelineStats.mu.Unlock()
+
+	// Return a copy to avoid race conditions
+	return PipelineStats{
+		TmuxCaptureCount:   t.pipelineStats.TmuxCaptureCount,
+		TmuxLinesProduced:  t.pipelineStats.TmuxLinesProduced,
+		HistoryGapLines:    t.pipelineStats.HistoryGapLines,
+		ViewportDiffBytes:  t.pipelineStats.ViewportDiffBytes,
+		GoBackendLinesSent: t.pipelineStats.GoBackendLinesSent,
+		GoBackendBytesSent: t.pipelineStats.GoBackendBytesSent,
+		LastPollDurationMs: t.pipelineStats.LastPollDurationMs,
+		TotalPollTimeMs:    t.pipelineStats.TotalPollTimeMs,
+		PollCount:          t.pipelineStats.PollCount,
+		CaptureErrors:      t.pipelineStats.CaptureErrors,
+		EmitErrors:         t.pipelineStats.EmitErrors,
+	}
+}
+
+// ResetPipelineStats resets all pipeline instrumentation counters.
+func (t *Terminal) ResetPipelineStats() {
+	t.pipelineStats.mu.Lock()
+	defer t.pipelineStats.mu.Unlock()
+
+	// Zero all counters individually to preserve the mutex
+	t.pipelineStats.TmuxCaptureCount = 0
+	t.pipelineStats.TmuxLinesProduced = 0
+	t.pipelineStats.HistoryGapLines = 0
+	t.pipelineStats.ViewportDiffBytes = 0
+	t.pipelineStats.GoBackendLinesSent = 0
+	t.pipelineStats.GoBackendBytesSent = 0
+	t.pipelineStats.LastPollDurationMs = 0
+	t.pipelineStats.TotalPollTimeMs = 0
+	t.pipelineStats.PollCount = 0
+	t.pipelineStats.CaptureErrors = 0
+	t.pipelineStats.EmitErrors = 0
+}
+
+// recordPollStats records stats from a single poll cycle.
+// linesSent is the actual count of newlines in the emitted data.
+func (t *Terminal) recordPollStats(linesProduced, historyGapLines int, viewportDiffBytes int, bytesSent int, linesSent int, durationMs int64, captureErr bool) {
+	t.pipelineStats.mu.Lock()
+	defer t.pipelineStats.mu.Unlock()
+
+	t.pipelineStats.TmuxCaptureCount++
+	t.pipelineStats.TmuxLinesProduced += int64(linesProduced)
+	t.pipelineStats.HistoryGapLines += int64(historyGapLines)
+	t.pipelineStats.ViewportDiffBytes += int64(viewportDiffBytes)
+	t.pipelineStats.GoBackendBytesSent += int64(bytesSent)
+	t.pipelineStats.GoBackendLinesSent += int64(linesSent)
+	t.pipelineStats.LastPollDurationMs = durationMs
+	t.pipelineStats.TotalPollTimeMs += durationMs
+	t.pipelineStats.PollCount++
+
+	if captureErr {
+		t.pipelineStats.CaptureErrors++
+	}
 }

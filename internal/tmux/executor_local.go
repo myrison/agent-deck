@@ -221,7 +221,7 @@ func (e *LocalExecutor) Attach(ctx context.Context, session string, stdin io.Rea
 	if err != nil {
 		return fmt.Errorf("failed to start pty: %w", err)
 	}
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 
 	// Get stdin as file for raw mode
 	stdinFile, ok := stdin.(*os.File)

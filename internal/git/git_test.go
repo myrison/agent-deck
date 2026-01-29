@@ -575,7 +575,7 @@ func TestIntegration_WorktreeLifecycle(t *testing.T) {
 	}
 
 	// Cleanup - remove the worktree directory if it still exists
-	os.RemoveAll(worktreePath)
+	_ = os.RemoveAll(worktreePath)
 }
 
 func TestGenerateWorktreePath_EdgeCases(t *testing.T) {

@@ -44,7 +44,7 @@ func TestStorageSaveLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	storage := &Storage{
 		path: filepath.Join(tmpDir, "sessions.json"),
@@ -84,7 +84,7 @@ func TestOpenCodeFieldsSerialization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	storage := &Storage{
 		path: filepath.Join(tmpDir, "sessions.json"),

@@ -13,7 +13,7 @@ func TestWriteMCPJsonFromConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Test with empty enabled list
 	err = WriteMCPJsonFromConfig(tmpDir, []string{})
@@ -130,16 +130,16 @@ func TestGetGlobalMCPNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Set CLAUDE_CONFIG_DIR to temp
 	oldConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
-	os.Setenv("CLAUDE_CONFIG_DIR", tmpDir)
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", tmpDir)
 	defer func() {
 		if oldConfigDir != "" {
-			os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
 		} else {
-			os.Unsetenv("CLAUDE_CONFIG_DIR")
+			_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
 		}
 	}()
 
@@ -179,16 +179,16 @@ func TestGetProjectMCPNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Set CLAUDE_CONFIG_DIR to temp
 	oldConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
-	os.Setenv("CLAUDE_CONFIG_DIR", tmpDir)
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", tmpDir)
 	defer func() {
 		if oldConfigDir != "" {
-			os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
 		} else {
-			os.Unsetenv("CLAUDE_CONFIG_DIR")
+			_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
 		}
 	}()
 
@@ -251,8 +251,8 @@ func TestGetUserMCPNames(t *testing.T) {
 	// Create temp home dir
 	tmpHome := t.TempDir()
 	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", originalHome)
+	_ = os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", originalHome) }()
 
 	// Create ~/.claude.json with test MCPs
 	claudeJSON := filepath.Join(tmpHome, ".claude.json")
@@ -280,8 +280,8 @@ func TestGetUserMCPNamesNoFile(t *testing.T) {
 	// Create temp home dir with no .claude.json
 	tmpHome := t.TempDir()
 	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", originalHome)
+	_ = os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", originalHome) }()
 
 	// Test - should return nil when file doesn't exist
 	names := GetUserMCPNames()
@@ -294,8 +294,8 @@ func TestGetUserMCPNamesEmptyServers(t *testing.T) {
 	// Create temp home dir
 	tmpHome := t.TempDir()
 	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", originalHome)
+	_ = os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", originalHome) }()
 
 	// Create ~/.claude.json with empty mcpServers
 	claudeJSON := filepath.Join(tmpHome, ".claude.json")
@@ -318,8 +318,8 @@ func TestWriteUserMCP(t *testing.T) {
 	// Create temp home dir
 	tmpHome := t.TempDir()
 	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", originalHome)
+	_ = os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", originalHome) }()
 
 	// Create initial ~/.claude.json with other fields to preserve
 	claudeJSON := filepath.Join(tmpHome, ".claude.json")
@@ -351,8 +351,8 @@ func TestWriteUserMCPCreatesFile(t *testing.T) {
 	// Create temp home dir (no .claude.json exists)
 	tmpHome := t.TempDir()
 	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", originalHome)
+	_ = os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", originalHome) }()
 
 	// Test writing to non-existent file
 	err := WriteUserMCP([]string{})

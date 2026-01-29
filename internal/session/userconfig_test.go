@@ -154,8 +154,8 @@ func TestSaveUserConfig(t *testing.T) {
 	// Setup: use temp directory
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	_ = os.Setenv("HOME", tempDir)
+	defer func() { _ = os.Setenv("HOME", originalHome) }()
 
 	// Clear cache
 	ClearUserConfigCache()
@@ -210,8 +210,8 @@ func TestGetTheme_Default(t *testing.T) {
 	// Setup: use temp directory with no config
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	_ = os.Setenv("HOME", tempDir)
+	defer func() { _ = os.Setenv("HOME", originalHome) }()
 	ClearUserConfigCache()
 
 	theme := GetTheme()
@@ -223,8 +223,8 @@ func TestGetTheme_Default(t *testing.T) {
 func TestGetTheme_Light(t *testing.T) {
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	_ = os.Setenv("HOME", tempDir)
+	defer func() { _ = os.Setenv("HOME", originalHome) }()
 	ClearUserConfigCache()
 
 	// Create config with light theme
@@ -297,8 +297,8 @@ func TestGetWorktreeSettings(t *testing.T) {
 	// Setup: use temp directory with no config
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	_ = os.Setenv("HOME", tempDir)
+	defer func() { _ = os.Setenv("HOME", originalHome) }()
 	ClearUserConfigCache()
 
 	// With no config, should return defaults
@@ -314,8 +314,8 @@ func TestGetWorktreeSettings(t *testing.T) {
 func TestGetWorktreeSettings_FromConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	_ = os.Setenv("HOME", tempDir)
+	defer func() { _ = os.Setenv("HOME", originalHome) }()
 	ClearUserConfigCache()
 
 	// Create config with custom worktree settings
@@ -446,8 +446,8 @@ func TestGetPreviewSettings(t *testing.T) {
 	// Setup: use temp directory with no config
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	_ = os.Setenv("HOME", tempDir)
+	defer func() { _ = os.Setenv("HOME", originalHome) }()
 	ClearUserConfigCache()
 
 	// With no config, should return defaults (both true)
@@ -463,8 +463,8 @@ func TestGetPreviewSettings(t *testing.T) {
 func TestGetPreviewSettings_FromConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	_ = os.Setenv("HOME", tempDir)
+	defer func() { _ = os.Setenv("HOME", originalHome) }()
 	ClearUserConfigCache()
 
 	// Create config with custom preview settings
@@ -500,8 +500,8 @@ func TestNotificationsConfig_Defaults(t *testing.T) {
 	// Test that default values are applied when section not present
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	_ = os.Setenv("HOME", tempDir)
+	defer func() { _ = os.Setenv("HOME", originalHome) }()
 	ClearUserConfigCache()
 
 	// With no config file, GetNotificationsSettings should return defaults
@@ -544,8 +544,8 @@ max_shown = 4
 func TestGetNotificationsSettings(t *testing.T) {
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	_ = os.Setenv("HOME", tempDir)
+	defer func() { _ = os.Setenv("HOME", originalHome) }()
 	ClearUserConfigCache()
 
 	// Create config with custom notification settings
@@ -576,8 +576,8 @@ func TestGetNotificationsSettings_PartialConfig(t *testing.T) {
 	// Test that missing fields get defaults
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	_ = os.Setenv("HOME", tempDir)
+	defer func() { _ = os.Setenv("HOME", originalHome) }()
 	ClearUserConfigCache()
 
 	agentDeckDir := filepath.Join(tempDir, ".agent-deck")

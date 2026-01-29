@@ -36,7 +36,7 @@ func getExternalSocketPath(mcpName string) string {
 		log.Printf("[MCP-POOL] Socket %s exists but not alive: %v", socketPath, err)
 		return ""
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	return socketPath
 }
@@ -154,7 +154,7 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 	}
 
 	if err := os.Rename(tmpPath, mcpFile); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to save .mcp.json: %w", err)
 	}
 
@@ -284,7 +284,7 @@ func WriteGlobalMCP(enabledNames []string) error {
 	}
 
 	if err := os.Rename(tmpPath, configFile); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
@@ -391,7 +391,7 @@ func ClearProjectMCPs(projectPath string) error {
 	}
 
 	if err := os.Rename(tmpPath, configFile); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
@@ -535,7 +535,7 @@ func WriteUserMCP(enabledNames []string) error {
 	}
 
 	if err := os.Rename(tmpPath, configFile); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 

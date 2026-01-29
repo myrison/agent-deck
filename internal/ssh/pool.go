@@ -223,7 +223,7 @@ func (p *Pool) Status() []Status {
 
 			if exists {
 				// Use atomic snapshot to get consistent state
-				connected, lastError, lastCheck := conn.GetStatusSnapshot()
+				connected, lastCheck, lastError := conn.GetStatusSnapshot()
 
 				// If recently checked, use cached status
 				if time.Since(lastCheck) < statusCheckCacheDuration {
@@ -261,7 +261,7 @@ func (p *Pool) Status() []Status {
 
 			if exists {
 				// Use atomic snapshot for consistent state
-				result.connected, result.lastError, result.lastCheck = conn.GetStatusSnapshot()
+				result.connected, result.lastCheck, result.lastError = conn.GetStatusSnapshot()
 			} else if err != nil {
 				// Get failed but didn't create a connection (config missing, etc.)
 				result.connected = false

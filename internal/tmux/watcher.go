@@ -28,13 +28,13 @@ func NewLogWatcher(logDir string, callback func(sessionName string)) (*LogWatche
 
 	// Ensure log directory exists
 	if err := os.MkdirAll(logDir, 0755); err != nil {
-		w.Close()
+		_ = w.Close()
 		return nil, err
 	}
 
 	// Watch the log directory
 	if err := w.Add(logDir); err != nil {
-		w.Close()
+		_ = w.Close()
 		return nil, err
 	}
 
@@ -96,7 +96,7 @@ func RotateLog(sessionName string, maxSize int64) error {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 
 		keepSize := int64(10 * 1024)
 		if info.Size() > keepSize {

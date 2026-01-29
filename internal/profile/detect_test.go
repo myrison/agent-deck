@@ -11,14 +11,14 @@ func TestDetectCurrentProfile(t *testing.T) {
 	origClaudeConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	defer func() {
 		if origAgentdeckProfile != "" {
-			os.Setenv("AGENTDECK_PROFILE", origAgentdeckProfile)
+			_ = os.Setenv("AGENTDECK_PROFILE", origAgentdeckProfile)
 		} else {
-			os.Unsetenv("AGENTDECK_PROFILE")
+			_ = os.Unsetenv("AGENTDECK_PROFILE")
 		}
 		if origClaudeConfigDir != "" {
-			os.Setenv("CLAUDE_CONFIG_DIR", origClaudeConfigDir)
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", origClaudeConfigDir)
 		} else {
-			os.Unsetenv("CLAUDE_CONFIG_DIR")
+			_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
 		}
 	}()
 
@@ -57,15 +57,15 @@ func TestDetectCurrentProfile(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clear env vars
-			os.Unsetenv("AGENTDECK_PROFILE")
-			os.Unsetenv("CLAUDE_CONFIG_DIR")
+			_ = os.Unsetenv("AGENTDECK_PROFILE")
+			_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
 
 			// Set test env vars
 			if tt.agentdeckProfile != "" {
-				os.Setenv("AGENTDECK_PROFILE", tt.agentdeckProfile)
+				_ = os.Setenv("AGENTDECK_PROFILE", tt.agentdeckProfile)
 			}
 			if tt.claudeConfigDir != "" {
-				os.Setenv("CLAUDE_CONFIG_DIR", tt.claudeConfigDir)
+				_ = os.Setenv("CLAUDE_CONFIG_DIR", tt.claudeConfigDir)
 			}
 
 			result := DetectCurrentProfile()
@@ -82,20 +82,20 @@ func TestDetectCurrentProfile_DefaultFallback(t *testing.T) {
 	origClaudeConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	defer func() {
 		if origAgentdeckProfile != "" {
-			os.Setenv("AGENTDECK_PROFILE", origAgentdeckProfile)
+			_ = os.Setenv("AGENTDECK_PROFILE", origAgentdeckProfile)
 		} else {
-			os.Unsetenv("AGENTDECK_PROFILE")
+			_ = os.Unsetenv("AGENTDECK_PROFILE")
 		}
 		if origClaudeConfigDir != "" {
-			os.Setenv("CLAUDE_CONFIG_DIR", origClaudeConfigDir)
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", origClaudeConfigDir)
 		} else {
-			os.Unsetenv("CLAUDE_CONFIG_DIR")
+			_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
 		}
 	}()
 
 	// Clear all env vars
-	os.Unsetenv("AGENTDECK_PROFILE")
-	os.Unsetenv("CLAUDE_CONFIG_DIR")
+	_ = os.Unsetenv("AGENTDECK_PROFILE")
+	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
 
 	result := DetectCurrentProfile()
 	// Should return either the config default or "default"

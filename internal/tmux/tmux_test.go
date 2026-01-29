@@ -1932,7 +1932,7 @@ func TestStartEnablesPipePaneLogging(t *testing.T) {
 	assert.Contains(t, string(content), "pipe-pane test", "Log should contain output")
 
 	// Cleanup
-	os.Remove(logFile)
+	_ = os.Remove(logFile)
 }
 
 func TestSession_SetAndGetEnvironment(t *testing.T) {

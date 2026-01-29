@@ -1319,7 +1319,8 @@ func (h *Home) fetchAnalytics(inst *session.Instance) tea.Cmd {
 	}
 	sessionID := inst.ID
 
-	if inst.Tool == "claude" {
+	switch inst.Tool {
+	case "claude":
 		claudeSessionID := inst.ClaudeSessionID
 		return func() tea.Msg {
 			// Get JSONL path for this session
@@ -1350,7 +1351,7 @@ func (h *Home) fetchAnalytics(inst *session.Instance) tea.Cmd {
 				err:       nil,
 			}
 		}
-	} else if inst.Tool == "gemini" {
+	case "gemini":
 		return func() tea.Msg {
 			// Gemini analytics are updated via UpdateGeminiSession which is called in background
 			// during UpdateStatus(). We just return the current snapshot.
@@ -1360,9 +1361,9 @@ func (h *Home) fetchAnalytics(inst *session.Instance) tea.Cmd {
 				err:             nil,
 			}
 		}
+	default:
+		return nil
 	}
-
-	return nil
 }
 
 // getSelectedSession returns the currently selected session, or nil if a group is selected
@@ -2456,7 +2457,8 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Analytics fetch (for Claude/Gemini sessions with analytics enabled)
 			// Use TTL cache - only fetch if cache miss/expired and not already fetching
 			if (inst.Tool == "claude" || inst.Tool == "gemini") && h.analyticsFetchingID != inst.ID {
-				if inst.Tool == "claude" {
+				switch inst.Tool {
+				case "claude":
 					cached := h.getAnalyticsForSession(inst)
 					if cached != nil {
 						// Use cached analytics
@@ -2474,7 +2476,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							cmds = append(cmds, h.fetchAnalytics(inst))
 						}
 					}
-				} else if inst.Tool == "gemini" {
+				case "gemini":
 					// Check Gemini cache
 					var cached *session.GeminiSessionAnalytics
 					if c, ok := h.geminiAnalyticsCache[inst.ID]; ok {
@@ -3124,7 +3126,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if item.Type == session.ItemTypeSession && item.Session != nil {
 				// Block attachment during animations (must match renderPreviewPane display logic)
 				if h.hasActiveAnimation(item.Session.ID) {
-					h.setError(fmt.Errorf("session is starting, please wait..."))
+					h.setError(fmt.Errorf("session is starting, please wait"))
 					return h, nil
 				}
 				if item.Session.Exists() {
@@ -3176,9 +3178,10 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Move item up
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
-			if item.Type == session.ItemTypeGroup {
+			switch item.Type {
+			case session.ItemTypeGroup:
 				h.groupTree.MoveGroupUp(item.Path)
-			} else if item.Type == session.ItemTypeSession {
+			case session.ItemTypeSession:
 				h.groupTree.MoveSessionUp(item.Session)
 			}
 			h.rebuildFlatItems()
@@ -3193,9 +3196,10 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Move item down
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
-			if item.Type == session.ItemTypeGroup {
+			switch item.Type {
+			case session.ItemTypeGroup:
 				h.groupTree.MoveGroupDown(item.Path)
-			} else if item.Type == session.ItemTypeSession {
+			case session.ItemTypeSession:
 				h.groupTree.MoveSessionDown(item.Session)
 			}
 			h.rebuildFlatItems()
@@ -3422,10 +3426,11 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		groupName := session.DefaultGroupName
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
-			if item.Type == session.ItemTypeGroup {
+			switch item.Type {
+			case session.ItemTypeGroup:
 				groupPath = item.Group.Path
 				groupName = item.Group.Name
-			} else if item.Type == session.ItemTypeSession {
+			case session.ItemTypeSession:
 				// Use the session's group
 				groupPath = item.Path
 				if group, exists := h.groupTree.Groups[groupPath]; exists {
@@ -3694,11 +3699,11 @@ func (h *Home) performQuit(shutdownPool bool) tea.Cmd {
 		}
 
 		if h.logWatcher != nil {
-			h.logWatcher.Close()
+			_ = h.logWatcher.Close()
 		}
 		// Close storage watcher
 		if h.storageWatcher != nil {
-			h.storageWatcher.Close()
+			_ = h.storageWatcher.Close()
 		}
 		// Close global search index
 		if h.globalSearchIndex != nil {
@@ -3965,21 +3970,6 @@ func (h *Home) saveInstancesWithForce(force bool) {
 			h.setError(fmt.Errorf("failed to save: %w", err))
 		}
 	}
-}
-
-// getUsedClaudeSessionIDs returns a map of all Claude session IDs currently in use
-// This is used for deduplication when detecting new session IDs
-func (h *Home) getUsedClaudeSessionIDs() map[string]bool {
-	h.instancesMu.RLock()
-	defer h.instancesMu.RUnlock()
-
-	usedIDs := make(map[string]bool)
-	for _, inst := range h.instances {
-		if inst.ClaudeSessionID != "" {
-			usedIDs[inst.ClaudeSessionID] = true
-		}
-	}
-	return usedIDs
 }
 
 // createSessionInGroupWithWorktreeAndOptions creates a new session with full options including YOLO mode and Claude options

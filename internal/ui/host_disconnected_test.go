@@ -17,9 +17,9 @@ func setupSSHHostConfigForUI(t *testing.T, configTOML string) {
 
 	tempDir := t.TempDir()
 	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
+	_ = os.Setenv("HOME", tempDir)
 	t.Cleanup(func() {
-		os.Setenv("HOME", origHome)
+		_ = os.Setenv("HOME", origHome)
 		session.ClearUserConfigCache()
 	})
 
