@@ -1568,10 +1568,45 @@ https://github.com/myrison/agent-deck/pull/99
 - `db1d4f6` - docs: add implementation troubleshooting log for PTY streaming
 - (This commit) - test: enable PTY streaming for manual testing
 
-### Next Steps
+### Merge Strategy Decision
+
+**Problem identified:** Environment variables don't work for macOS GUI apps spawned by Wails.
+
+**Solution:** Add config file toggle to `desktop-settings.json` (already exists):
+```go
+func shouldUsePTYStreaming() bool {
+    // Check env var first (for developers)
+    if os.Getenv("REVDEN_PTY_STREAMING") == "enabled" {
+        return true
+    }
+    // Check config file (for testers/early adopters)
+    settings := loadDesktopSettings()
+    return settings.PtyStreaming
+}
+```
+
+**Merge plan:**
+1. Implement config file toggle (`PtyStreaming` field in DesktopSettings)
+2. Revert testing changes (`return true` → config check, `startHidden := false` → `isDev`)
+3. Merge PR #99 with PTY streaming **OFF by default**
+4. Testers opt-in via `~/.agent-deck/desktop-settings.json`: `{"pty_streaming": true}`
+5. Continue Phase 2-5 in subsequent PRs
+
+This allows incremental delivery without affecting production users.
+
+### Next Steps (Immediate)
+
+1. **Add config file toggle** - Add `PtyStreaming bool` to `DesktopSettings` struct
+2. **Update `shouldUsePTYStreaming()`** - Check config file in addition to env var
+3. **Revert testing changes** - Restore `startHidden := isDev` in main.go
+4. **Code review PR #99** - Ready for merge after above changes
+
+### Next Steps (Future PRs)
 
 1. **Phase 2: History Hydration** - Implement the "Attach-First" strategy to capture scrollback history before streaming, allowing users to scroll through pre-connect content.
 
 2. **Phase 3: Resize Handling** - Verify SIGWINCH propagation and add resize epoch handling if needed.
 
-3. **Revert testing changes** - Before final merge, restore `shouldUsePTYStreaming()` to use environment variable and `startHidden := isDev`.
+3. **Phase 4: SSH Support** - Extend PTY streaming to remote sessions.
+
+4. **Phase 5: Cleanup** - Remove deprecated polling code, make PTY streaming the default.
