@@ -619,8 +619,10 @@ func ReloadUserConfig() (*UserConfig, error) {
 	return LoadUserConfig()
 }
 
-// SaveUserConfig writes the config to config.toml using atomic write pattern
-// This clears the cache so next LoadUserConfig() reads fresh values
+// SaveUserConfig writes the config to config.toml using atomic write pattern.
+// This preserves unknown sections (like [desktop] from the desktop app) by
+// reading the existing file, merging UserConfig fields on top, and writing back.
+// This clears the cache so next LoadUserConfig() reads fresh values.
 func SaveUserConfig(config *UserConfig) error {
 	configPath, err := GetUserConfigPath()
 	if err != nil {
@@ -633,7 +635,34 @@ func SaveUserConfig(config *UserConfig) error {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	// Build config content in memory first
+	// Read existing config to preserve unknown sections (e.g., [desktop])
+	existingData, _ := os.ReadFile(configPath)
+	var existingConfig map[string]interface{}
+	if len(existingData) > 0 {
+		if err := toml.Unmarshal(existingData, &existingConfig); err != nil {
+			existingConfig = make(map[string]interface{})
+		}
+	} else {
+		existingConfig = make(map[string]interface{})
+	}
+
+	// Encode UserConfig to intermediate map so we can merge
+	var configBuf bytes.Buffer
+	if err := toml.NewEncoder(&configBuf).Encode(config); err != nil {
+		return fmt.Errorf("failed to encode config: %w", err)
+	}
+	var configMap map[string]interface{}
+	if err := toml.Unmarshal(configBuf.Bytes(), &configMap); err != nil {
+		return fmt.Errorf("failed to parse encoded config: %w", err)
+	}
+
+	// Merge UserConfig fields onto existing config (overwrites known sections,
+	// preserves unknown sections like [desktop])
+	for key, value := range configMap {
+		existingConfig[key] = value
+	}
+
+	// Build final output
 	var buf bytes.Buffer
 
 	// Write header comment
@@ -644,9 +673,9 @@ func SaveUserConfig(config *UserConfig) error {
 		return fmt.Errorf("failed to write header: %w", err)
 	}
 
-	// Encode to TOML
+	// Encode merged config to TOML
 	encoder := toml.NewEncoder(&buf)
-	if err := encoder.Encode(config); err != nil {
+	if err := encoder.Encode(existingConfig); err != nil {
 		return fmt.Errorf("failed to encode config: %w", err)
 	}
 
