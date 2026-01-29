@@ -119,6 +119,18 @@ func stripTTSMarkers(s string) string {
 	return s
 }
 
+// deviceAttributesRegex matches terminal device attribute responses that tmux sends on attach.
+// These should not be displayed as text - they're control sequences.
+// Matches: ESC[?...c (Primary DA), ESC[>...c (Secondary DA), ESC[...c (DA response)
+var deviceAttributesRegex = regexp.MustCompile(`\x1b\[[\?>]?[0-9;]*c`)
+
+// stripDeviceAttributes removes terminal device attribute escape sequences from output.
+// These are sent by tmux when it attaches and queries terminal capabilities.
+// If displayed as text, they appear as garbage like "[?1;2c[>0;276;0c".
+func stripDeviceAttributes(s string) string {
+	return deviceAttributesRegex.ReplaceAllString(s, "")
+}
+
 // Connection state constants for remote sessions
 const (
 	connStateConnected    = "connected"
@@ -391,8 +403,9 @@ func (t *Terminal) startTmuxSessionStreaming(tmuxSession string, cols, rows int)
 	// 7. Emit buffered viewport data
 	// This is the current viewport that tmux sent on attach
 	if len(bufferedData) > 0 {
-		// Strip TTS markers (same as readLoopStream)
+		// Strip TTS markers and device attribute responses (e.g., [?1;2c)
 		viewport := stripTTSMarkers(string(bufferedData))
+		viewport = stripDeviceAttributes(viewport)
 		t.debugLog("[PTY-STREAM] Emitting %d bytes of buffered viewport", len(viewport))
 		if t.ctx != nil {
 			runtime.EventsEmit(t.ctx, "terminal:data",
@@ -1037,9 +1050,10 @@ func (t *Terminal) readLoopStream() {
 				data = data[:validEnd]
 			}
 
-			// Strip TTS markers and emit
+			// Strip TTS markers and device attributes, then emit
 			if len(data) > 0 {
 				output := stripTTSMarkers(string(data))
+				output = stripDeviceAttributes(output)
 				if len(output) > 0 {
 					t.debugLog("[PTY-STREAM] Emitting %d bytes via terminal:data", len(output))
 					runtime.EventsEmit(t.ctx, "terminal:data",
