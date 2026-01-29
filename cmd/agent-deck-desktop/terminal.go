@@ -148,11 +148,16 @@ type Terminal struct {
 	// Current tmux session (for hybrid mode)
 	tmuxSession string
 
-	// Polling mode - for proper scrollback accumulation
+	// Polling mode - for proper scrollback accumulation (fallback when pipe-pane unavailable)
 	tmuxPolling    bool
 	tmuxStopChan   chan struct{}
 	tmuxLastState  string
 	historyTracker *HistoryTracker
+
+	// Pipe-pane streaming mode - preferred for fast output without corruption
+	pipePaneTailer  *PipePaneTailer
+	pipePaneLogPath string
+	pipePaneEnabled bool
 
 	// Remote session support (SSH)
 	remoteHostID string     // Empty for local, hostID for remote sessions
@@ -288,10 +293,36 @@ func (t *Terminal) StartTmuxSession(tmuxSession string, cols, rows int) error {
 	// 4. Short delay for frontend to process history
 	time.Sleep(50 * time.Millisecond)
 
-	// 5. Attach PTY to tmux (for user input only - output is handled by polling)
-	t.debugLog("[POLLING] Attaching PTY to tmux session for input")
+	// 5. Try to enable pipe-pane streaming (preferred for fast output)
+	logPath := GetPipePaneLogPath(t.sessionID)
+	pipePaneEnabled := false
+	if err := EnablePipePane(tmuxSession, logPath); err != nil {
+		t.debugLog("[PIPE-PANE] Failed to enable: %v, will fall back to polling", err)
+	} else {
+		tailer := NewPipePaneTailer(t.sessionID, logPath)
+		tailer.SetContext(t.ctx)
+		if err := tailer.Start(); err != nil {
+			t.debugLog("[PIPE-PANE] Tailer failed to start: %v, falling back to polling", err)
+			DisablePipePane(tmuxSession)
+		} else {
+			t.pipePaneLogPath = logPath
+			t.pipePaneTailer = tailer
+			pipePaneEnabled = true
+			t.debugLog("[PIPE-PANE] Streaming enabled successfully")
+		}
+	}
+
+	// 6. Attach PTY to tmux (for user input only - output is handled by streaming or polling)
+	t.debugLog("[TERMINAL] Attaching PTY to tmux session for input")
 	pty, err := SpawnPTYWithCommand(tmuxBinaryPath, "attach-session", "-t", tmuxSession)
 	if err != nil {
+		// Cleanup pipe-pane if we enabled it
+		if pipePaneEnabled {
+			if t.pipePaneTailer != nil {
+				t.pipePaneTailer.Cleanup()
+			}
+			DisablePipePane(tmuxSession)
+		}
 		return fmt.Errorf("failed to attach to tmux: %w", err)
 	}
 
@@ -301,16 +332,23 @@ func (t *Terminal) StartTmuxSession(tmuxSession string, cols, rows int) error {
 
 	t.pty = pty
 	t.tmuxSession = tmuxSession
+	t.pipePaneEnabled = pipePaneEnabled
 	t.closed = false
 
-	// 6. Start PTY read loop (we'll discard output, using polling for display instead)
-	// This keeps the PTY connection alive and allows tmux to detect our terminal size
+	// 7. Start PTY read loop (discard output - display comes from streaming or polling)
 	go t.readLoopDiscard()
 
-	// 7. Start polling mode for display updates
-	t.startTmuxPolling(tmuxSession, rows)
+	// 8. Start appropriate display mode
+	if pipePaneEnabled {
+		// Pipe-pane mode: only detect alt-screen state, no capture-pane polling
+		t.startAltScreenDetection(tmuxSession)
+		t.debugLog("[TERMINAL] Session started with pipe-pane streaming mode")
+	} else {
+		// Fallback: full polling mode
+		t.startTmuxPolling(tmuxSession, rows)
+		t.debugLog("[TERMINAL] Session started with polling mode (pipe-pane unavailable)")
+	}
 
-	t.debugLog("[POLLING] Session started successfully with polling mode")
 	return nil
 }
 
@@ -740,6 +778,7 @@ func (t *Terminal) readLoopDiscard() {
 }
 
 // startTmuxPolling begins polling tmux for display updates.
+// This is the fallback mode when pipe-pane is unavailable.
 func (t *Terminal) startTmuxPolling(tmuxSession string, rows int) {
 	t.tmuxPolling = true
 	t.tmuxStopChan = make(chan struct{})
@@ -747,6 +786,52 @@ func (t *Terminal) startTmuxPolling(tmuxSession string, rows int) {
 	t.historyTracker = NewHistoryTracker(tmuxSession, rows)
 
 	go t.pollTmuxLoop()
+}
+
+// startAltScreenDetection begins lightweight polling that only checks alt-screen status.
+// Used when pipe-pane streaming is enabled - no capture-pane, no diff.
+func (t *Terminal) startAltScreenDetection(tmuxSession string) {
+	t.tmuxPolling = true
+	t.tmuxStopChan = make(chan struct{})
+
+	go t.altScreenLoop(tmuxSession)
+}
+
+// altScreenLoop polls tmux for alt-screen status changes (100ms interval).
+// This is much lighter than full polling - just queries #{alternate_on}.
+func (t *Terminal) altScreenLoop(tmuxSession string) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	lastAltScreen := false
+	t.debugLog("[ALT-SCREEN] Detection loop started for session=%s", tmuxSession)
+
+	for {
+		select {
+		case <-t.tmuxStopChan:
+			t.debugLog("[ALT-SCREEN] Detection loop stopped")
+			return
+		case <-ticker.C:
+			// Only query #{alternate_on}, not capture-pane
+			cmd := exec.Command(tmuxBinaryPath, "display-message", "-t", tmuxSession, "-p", "#{alternate_on}")
+			out, err := cmd.Output()
+			if err != nil {
+				// Session might have ended
+				continue
+			}
+			inAltScreen := strings.TrimSpace(string(out)) == "1"
+			if inAltScreen != lastAltScreen {
+				lastAltScreen = inAltScreen
+				t.debugLog("[ALT-SCREEN] State changed: %v", inAltScreen)
+				if t.ctx != nil {
+					runtime.EventsEmit(t.ctx, "terminal:altscreen", map[string]interface{}{
+						"sessionId":   t.sessionID,
+						"inAltScreen": inAltScreen,
+					})
+				}
+			}
+		}
+	}
 }
 
 // stopTmuxPolling stops the polling goroutine.
@@ -1064,7 +1149,15 @@ func (t *Terminal) Resize(cols, rows int) error {
 	tracker := t.historyTracker
 	remoteHost := t.remoteHostID
 	sshBridge := t.sshBridge
+	pipePaneEnabled := t.pipePaneEnabled
+	tailer := t.pipePaneTailer
 	t.mu.Unlock()
+
+	// PAUSE pipe-pane streaming during resize to avoid interleaving corruption
+	if pipePaneEnabled && tailer != nil {
+		tailer.Pause()
+		t.debugLog("[RESIZE] Paused pipe-pane streaming")
+	}
 
 	// Resize the PTY if attached
 	if p != nil {
@@ -1106,6 +1199,7 @@ func (t *Terminal) Resize(cols, rows int) error {
 // This is called by the frontend after xterm.clear() to restore content.
 // It captures the current tmux content and emits it via terminal:history event,
 // which triggers the same handler used during initial connection.
+// For pipe-pane mode, it also truncates the log and resumes streaming.
 func (t *Terminal) RefreshAfterResize() error {
 	t.mu.Lock()
 	session := t.tmuxSession
@@ -1113,6 +1207,8 @@ func (t *Terminal) RefreshAfterResize() error {
 	sshBridge := t.sshBridge
 	ctx := t.ctx
 	sessionID := t.sessionID
+	pipePaneEnabled := t.pipePaneEnabled
+	tailer := t.pipePaneTailer
 	t.mu.Unlock()
 
 	if session == "" {
@@ -1154,6 +1250,15 @@ func (t *Terminal) RefreshAfterResize() error {
 		if ctx != nil {
 			runtime.EventsEmit(ctx, "terminal:history", TerminalEvent{SessionID: sessionID, Data: history})
 		}
+	}
+
+	// Resume pipe-pane streaming after capture-pane refresh
+	if pipePaneEnabled && tailer != nil {
+		// Truncate log file to discard stale bytes from before/during resize
+		tailer.Truncate()
+		// Resume streaming - new bytes will apply on top of fresh history
+		tailer.Resume()
+		t.debugLog("[REFRESH] Resumed pipe-pane streaming")
 	}
 
 	return nil
@@ -1221,16 +1326,36 @@ func (t *Terminal) GetScrollback() (string, error) {
 	return content, nil
 }
 
-// Close terminates the PTY and stops polling.
+// Close terminates the PTY, stops polling, and cleans up pipe-pane.
 func (t *Terminal) Close() error {
-	// Stop polling first (uses its own lock)
+	// Stop polling/alt-screen detection first (uses its own lock)
 	t.stopTmuxPolling()
+
+	t.mu.Lock()
+	tmuxSession := t.tmuxSession
+	pipePaneEnabled := t.pipePaneEnabled
+	tailer := t.pipePaneTailer
+	t.mu.Unlock()
+
+	// Cleanup pipe-pane resources
+	if pipePaneEnabled {
+		t.debugLog("[CLOSE] Cleaning up pipe-pane resources")
+		if tailer != nil {
+			tailer.Cleanup() // Stops tailer + deletes log file
+		}
+		if tmuxSession != "" {
+			DisablePipePane(tmuxSession)
+		}
+	}
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	t.closed = true
 	t.tmuxSession = ""
+	t.pipePaneEnabled = false
+	t.pipePaneTailer = nil
+	t.pipePaneLogPath = ""
 
 	if t.pty != nil {
 		err := t.pty.Close()
