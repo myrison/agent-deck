@@ -374,6 +374,104 @@ All Phase 2 unit tests PASS:
 
 ---
 
+## Phase 2.6 Resolution (2026-01-28 Evening Session)
+
+### Summary
+
+The "zero events" issue was a **misdiagnosis** - events WERE being received, but the debug overlay wasn't auto-refreshing to show them. The real issues were:
+
+1. **Debug overlay not auto-refreshing** - Used refs instead of state, fixed with interval
+2. **Terminal remounting every 5 seconds** - Session status polling created new object refs, causing full terminal teardown/rebuild
+3. **History gap escape sequences causing rendering corruption** - ANSI cursor save/restore conflicting with xterm.js state
+
+### Root Causes Found
+
+| Issue | Root Cause | Fix Applied |
+|-------|-----------|-------------|
+| "Zero events" in overlay | Overlay used `ref` (no re-render) | Added 200ms auto-refresh interval |
+| 5-second flicker | `useEffect` depended on entire `session` object | Changed to stable IDs: `session?.id, session?.tmuxSession` |
+| Rendering corruption (seq numbers mixing with /context) | History gap escape sequences conflicting with xterm.js | Disabled history gap injection |
+| Full viewport redraw every poll | Debug code forcing `buildFullViewportOutput()` | Re-enabled smart diff |
+
+### Changes Made This Session
+
+#### 1. Debug Overlay Auto-Refresh (KEEP)
+**File:** `frontend/src/Terminal.jsx`
+**Change:** Added `useEffect` with 200ms interval to refresh overlay when visible
+**Why:** The overlay used a ref to store stats, which doesn't trigger re-renders. Now auto-updates.
+
+#### 2. Session ID in Status Bar (KEEP)
+**File:** `frontend/src/StatusBar.jsx`, `frontend/src/StatusBar.css`
+**Change:** Added session ID (first 8 chars) to status bar, clickable to copy full ID
+**Why:** Useful for debugging, helps identify which session is attached
+
+#### 3. Removed POLL-DEBUG Logging (KEEP)
+**File:** `cmd/agent-deck-desktop/terminal.go`
+**Change:** Removed `fmt.Printf("[POLL-DEBUG]...")` statements added during investigation
+**Why:** Cleanup after investigation complete
+
+#### 4. Disabled History Gap Injection (CONSIDER REVERTING)
+**File:** `cmd/agent-deck-desktop/terminal.go`
+**Change:** Commented out the escape sequence logic that injects history gaps:
+```go
+// Before: cursor save → move to bottom → emit gap with CRLF → restore cursor
+// After: just emit viewport update, ignore history gap
+_ = historyGap // Acknowledge but don't use
+combined.WriteString(viewportUpdate)
+```
+**Why:** The escape sequences caused rendering corruption (old scrollback mixing with new content)
+**Trade-off:** Streaming scrollback won't accumulate during fast output. Resize still fetches full history from tmux.
+**RECOMMENDATION FOR NEXT AGENT:** Now that the 5-second remount bug is fixed, consider **re-enabling history gap injection** to test if it works correctly without the constant terminal remounting. The rendering corruption may have been caused by the interaction of history gap injection WITH the terminal remounting, not history gap injection alone.
+
+#### 5. Re-enabled Smart Diff (KEEP)
+**File:** `cmd/agent-deck-desktop/history_tracker.go`
+**Change:** Removed debug code that forced full viewport redraw every poll:
+```go
+// Removed:
+// DEBUG: Always use full viewport redraw to diagnose rendering artifacts
+// return ht.buildFullViewportOutput(newLines)
+
+// Re-enabled circuit breaker logic:
+if diffPercent > 80 || lineMismatch {
+    return ht.buildFullViewportOutput(newLines)
+}
+// Then smart diff for changed lines only
+```
+**Why:** Full redraws every 80ms caused flicker. Smart diff only updates changed lines.
+
+#### 6. Fixed Terminal useEffect Dependencies (KEEP - THE REAL FIX)
+**File:** `frontend/src/Terminal.jsx`
+**Change:**
+```javascript
+// Before:
+}, [searchRef, session, paneId, onFocus, fontSize, scrollSpeed]);
+
+// After:
+}, [searchRef, session?.id, session?.tmuxSession, session?.remoteHost, paneId, onFocus, fontSize, scrollSpeed]);
+```
+**Why:** Session status polling (every 5 seconds) creates new object references. Using the whole `session` object as a dependency caused the entire terminal to unmount/remount every 5 seconds. Using stable identifiers (`session?.id`, etc.) means the terminal only re-initializes when the actual session changes.
+
+### Current Status
+
+- ✅ **Stable** - No more 5-second flicker
+- ✅ **Events display correctly** in debug overlay
+- ✅ **Rendering clean** for `/context` and other output
+- ⚠️ **History gap injection disabled** - streaming scrollback won't accumulate (resize still works)
+- ❓ **Untested:** Whether history gap injection works correctly now that terminal remount bug is fixed
+
+### Next Steps
+
+1. **Test history gap re-enablement:** The rendering corruption may have been caused by the combination of history gap injection + terminal remounting. With the remount bug fixed, history gap injection might work correctly now.
+
+2. **If re-enabling history gap causes issues:** Consider implementing proper scrollback via:
+   - pipe-pane architecture (Phase 4 in original plan)
+   - xterm.js API to write directly to scrollback buffer
+   - Frontend-side history accumulation
+
+3. **Wide character (emoji) rendering:** Still an open issue, not addressed this session.
+
+---
+
 ## Remote Session Considerations
 
 **Issue:** If tmux runs on a remote server (SSH), the pipe-pane log file is on the remote filesystem and cannot be directly read by the desktop app.

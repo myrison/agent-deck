@@ -78,6 +78,19 @@ export default function StatusBar({ session }) {
             {/* Spacer to push right items */}
             <div className="status-bar-spacer" />
 
+            {/* Session ID - subtle, clickable to copy */}
+            {session?.id && (
+                <div
+                    className="status-bar-item status-bar-session-id"
+                    title={`Session ID: ${session.id} (click to copy)`}
+                    onClick={() => {
+                        navigator.clipboard.writeText(session.id);
+                    }}
+                >
+                    <span className="status-bar-text">{session.id.slice(0, 8)}</span>
+                </div>
+            )}
+
             {/* Session Name */}
             <div className="status-bar-item status-bar-session" title={`Session: ${sessionName}`}>
                 <span className="status-bar-text">{sessionName}</span>

@@ -774,21 +774,14 @@ func (t *Terminal) pollTmuxLoop() {
 	ticker := time.NewTicker(80 * time.Millisecond) // ~12.5 fps
 	defer ticker.Stop()
 
-	pollCount := 0
 	t.debugLog("[POLL-LOOP] Started for session=%s", t.sessionID)
-	fmt.Printf("[POLL-DEBUG] pollTmuxLoop STARTED session=%s\n", t.sessionID)
 
 	for {
 		select {
 		case <-t.tmuxStopChan:
-			t.debugLog("[POLL-LOOP] Stopped after %d polls", pollCount)
-			fmt.Printf("[POLL-DEBUG] pollTmuxLoop STOPPED session=%s polls=%d\n", t.sessionID, pollCount)
+			t.debugLog("[POLL-LOOP] Stopped")
 			return
 		case <-ticker.C:
-			pollCount++
-			if pollCount%25 == 0 {
-				fmt.Printf("[POLL-DEBUG] Poll #%d session=%s\n", pollCount, t.sessionID)
-			}
 			t.pollTmuxOnce()
 		}
 	}
@@ -808,7 +801,6 @@ func (t *Terminal) pollTmuxOnce() {
 	t.mu.Unlock()
 
 	if !polling || session == "" || tracker == nil {
-		fmt.Printf("[POLL-DEBUG] BAILED: polling=%v session='%s' tracker=%v\n", polling, session, tracker != nil)
 		return
 	}
 
@@ -877,11 +869,6 @@ func (t *Terminal) pollTmuxOnce() {
 	t.mu.Unlock()
 
 	viewportChanged := currentState != lastState
-	hasGap := len(historyGap) > 0
-	if viewportChanged || hasGap {
-		fmt.Printf("[POLL-DEBUG] session=%s viewportChanged=%v gapBytes=%d ctx=%v\n",
-			t.sessionID, viewportChanged, len(historyGap), t.ctx != nil)
-	}
 
 	if viewportChanged {
 		t.mu.Lock()
@@ -895,21 +882,14 @@ func (t *Terminal) pollTmuxOnce() {
 			viewportUpdate := tracker.DiffViewport(content)
 			viewportDiffBytes = len(viewportUpdate)
 
-			// Step 7: Combine history gap + viewport update into single emission
-			// This prevents cursor state bugs from separate emissions
+			// Step 7: Emit viewport update only
+			// NOTE: History gap injection via escape sequences is DISABLED because it causes
+			// rendering corruption when combined with viewport updates. The escape sequences
+			// (cursor save/restore, move to bottom, CRLF scroll) conflict with xterm.js state.
+			// Scrollback is still available via tmux - resize triggers a full refresh.
+			// TODO: Implement proper scrollback via pipe-pane or xterm.js API instead.
 			var combined strings.Builder
-
-			// First: emit history gap at bottom of viewport (will scroll up into scrollback)
-			// We position cursor to the last viewport row, so CRLF scrolls content up
-			if len(historyGap) > 0 {
-				// Save cursor, move to bottom row, emit history, restore cursor
-				combined.WriteString("\x1b7")                                        // Save cursor (DEC)
-				combined.WriteString(fmt.Sprintf("\x1b[%d;1H", tracker.viewportRows)) // Go to bottom row
-				combined.WriteString(historyGap)                                      // History lines with CRLF scroll up
-				combined.WriteString("\x1b8")                                         // Restore cursor (DEC)
-			}
-
-			// Then: emit viewport diff (which starts with cursor home)
+			_ = historyGap // Acknowledge but don't use - causes rendering bugs
 			combined.WriteString(viewportUpdate)
 
 			if combined.Len() > 0 {
@@ -917,27 +897,13 @@ func (t *Terminal) pollTmuxOnce() {
 				bytesSent = len(combinedStr)
 				linesSent = strings.Count(combinedStr, "\n")
 				lines := strings.Count(content, "\n")
-				fmt.Printf("[POLL-DEBUG] EMIT terminal:data session=%s bytes=%d lines=%d\n", t.sessionID, bytesSent, linesSent)
 				t.debugLog("[POLL] Combined update: %d bytes (gap=%d, viewport=%d), %d content lines, historySize=%d, altScreen=%v",
 					bytesSent, len(historyGap), len(viewportUpdate), lines, historySize, inAltScreen)
 				runtime.EventsEmit(t.ctx, "terminal:data", TerminalEvent{SessionID: t.sessionID, Data: combinedStr})
 			}
 		}
-	} else if len(historyGap) > 0 {
-		// Viewport unchanged but we have history gap - emit it with proper cursor management
-		if t.ctx != nil {
-			var combined strings.Builder
-			combined.WriteString("\x1b7")                                        // Save cursor
-			combined.WriteString(fmt.Sprintf("\x1b[%d;1H", tracker.viewportRows)) // Go to bottom row
-			combined.WriteString(historyGap)
-			combined.WriteString("\x1b8") // Restore cursor
-			combinedStr := combined.String()
-			bytesSent = len(combinedStr)
-			linesSent = strings.Count(combinedStr, "\n")
-			t.debugLog("[POLL] History gap only: %d bytes, historySize=%d", len(historyGap), historySize)
-			runtime.EventsEmit(t.ctx, "terminal:data", TerminalEvent{SessionID: t.sessionID, Data: combinedStr})
-		}
 	}
+	// NOTE: "history gap only" case removed - see comment above about rendering corruption
 
 	// Record instrumentation stats
 	t.recordPollStats(linesProduced, historyGapLineCount, viewportDiffBytes, bytesSent, linesSent, time.Since(pollStart).Milliseconds(), captureErr)
