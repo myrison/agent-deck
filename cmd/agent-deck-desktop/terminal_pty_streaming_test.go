@@ -1,11 +1,108 @@
 package main
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// TestShouldUsePTYStreaming removed - was trivial projection test of hardcoded constant.
-// See adversarial review: tests should verify behavior, not constants.
+// ============================================================
+// shouldUsePTYStreaming() Tests
+// ============================================================
+
+// TestShouldUsePTYStreaming_EnvEnabled verifies env var takes precedence over config
+func TestShouldUsePTYStreaming_EnvEnabled(t *testing.T) {
+	os.Setenv("REVDEN_PTY_STREAMING", "enabled")
+	defer os.Unsetenv("REVDEN_PTY_STREAMING")
+
+	result := shouldUsePTYStreaming()
+	assert.True(t, result, "should return true when REVDEN_PTY_STREAMING=enabled")
+}
+
+// TestShouldUsePTYStreaming_EnvDisabled verifies non-"enabled" env value returns false
+func TestShouldUsePTYStreaming_EnvDisabled(t *testing.T) {
+	os.Setenv("REVDEN_PTY_STREAMING", "disabled")
+	defer os.Unsetenv("REVDEN_PTY_STREAMING")
+
+	result := shouldUsePTYStreaming()
+	assert.False(t, result, "should return false when REVDEN_PTY_STREAMING=disabled")
+}
+
+// TestShouldUsePTYStreaming_EnvUnsetConfigEnabled verifies config fallback when env unset
+func TestShouldUsePTYStreaming_EnvUnsetConfigEnabled(t *testing.T) {
+	os.Unsetenv("REVDEN_PTY_STREAMING")
+
+	// Create temp HOME with config file
+	tmpHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	configDir := filepath.Join(tmpHome, ".agent-deck")
+	require.NoError(t, os.MkdirAll(configDir, 0700))
+
+	configPath := filepath.Join(configDir, "config.toml")
+	configContent := `[desktop.terminal]
+pty_streaming = true
+`
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0644))
+
+	result := shouldUsePTYStreaming()
+	assert.True(t, result, "should return true when config has pty_streaming=true")
+}
+
+// TestShouldUsePTYStreaming_EnvUnsetConfigDisabled verifies config disables when env unset
+func TestShouldUsePTYStreaming_EnvUnsetConfigDisabled(t *testing.T) {
+	os.Unsetenv("REVDEN_PTY_STREAMING")
+
+	// Create temp HOME with config file
+	tmpHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	configDir := filepath.Join(tmpHome, ".agent-deck")
+	require.NoError(t, os.MkdirAll(configDir, 0700))
+
+	configPath := filepath.Join(configDir, "config.toml")
+	configContent := `[desktop.terminal]
+pty_streaming = false
+`
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0644))
+
+	result := shouldUsePTYStreaming()
+	assert.False(t, result, "should return false when config has pty_streaming=false")
+}
+
+// TestShouldUsePTYStreaming_ConfigCorrupt verifies error handling returns default (false)
+func TestShouldUsePTYStreaming_ConfigCorrupt(t *testing.T) {
+	os.Unsetenv("REVDEN_PTY_STREAMING")
+
+	// Create temp HOME with corrupt config file
+	tmpHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	configDir := filepath.Join(tmpHome, ".agent-deck")
+	require.NoError(t, os.MkdirAll(configDir, 0700))
+
+	configPath := filepath.Join(configDir, "config.toml")
+	configContent := `[desktop.terminal
+invalid toml syntax`
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0644))
+
+	result := shouldUsePTYStreaming()
+	assert.False(t, result, "should return false (default) when config is corrupt")
+}
+
+// ============================================================
+// findLastValidUTF8Boundary() Tests
+// ============================================================
 
 // TestFindLastValidUTF8Boundary tests UTF-8 boundary detection.
 // This is critical for preventing corrupted multi-byte characters in streaming mode.
@@ -211,3 +308,59 @@ func TestNormalizeCRLF(t *testing.T) {
 // TestItoa removed - was testing language operators instead of application logic.
 // See adversarial review: Go's type system already guarantees int-to-string conversion works.
 // Recommendation: Use strconv.Itoa() in production code and remove custom implementation.
+
+// ============================================================
+// verifyTmuxConfig() Tests
+// ============================================================
+
+// TestVerifyTmuxConfig_StatusAlreadyOff removed per adversarial review.
+// Verdict: REMOVE - Tests implementation detail (no-op optimization) rather than
+// behavioral outcome. Users only care that status ends up off, not whether the
+// function skipped the set-option call when it was already off.
+
+// TestVerifyTmuxConfig_StatusOn verifies status set to off when currently on
+func TestVerifyTmuxConfig_StatusOn(t *testing.T) {
+	// Skip if tmux not available
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	// Create test session
+	sessionName := "test-verify-status-on"
+	createCmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
+	require.NoError(t, createCmd.Run())
+	defer exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+
+	// Set status to on explicitly
+	setOnCmd := exec.Command("tmux", "set-option", "-t", sessionName, "status", "on")
+	require.NoError(t, setOnCmd.Run())
+
+	// Verify config - should set to off
+	err := verifyTmuxConfig(sessionName)
+	assert.NoError(t, err, "should succeed and set status to off")
+
+	// Confirm status now off
+	checkCmd := exec.Command("tmux", "show-option", "-t", sessionName, "-v", "status")
+	output, err := checkCmd.Output()
+	require.NoError(t, err)
+	assert.Equal(t, "off\n", string(output), "status should be set to off")
+}
+
+// TestVerifyTmuxConfig_ShowOptionFails verifies non-fatal error when show-option fails
+func TestVerifyTmuxConfig_ShowOptionFails(t *testing.T) {
+	// Use non-existent session - show-option will fail but is non-fatal
+	sessionName := "non-existent-session-show-fail"
+
+	// Function ignores show-option errors and tries set-option anyway
+	err := verifyTmuxConfig(sessionName)
+
+	// Expect error from set-option (session doesn't exist)
+	assert.Error(t, err, "should return error when session doesn't exist")
+	assert.Contains(t, err.Error(), "failed to set tmux status off", "error should mention set-option failure")
+}
+
+// TestVerifyTmuxConfig_SetOptionFails removed per adversarial review.
+// Verdict: REWRITE->REMOVE - Duplicates TestVerifyTmuxConfig_ShowOptionFails.
+// Both use non-existent sessions and test the same error path. Creating a distinct
+// failure mode where show-option succeeds but set-option fails is not possible with
+// real tmux, so this test is redundant and has been removed.
