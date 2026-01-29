@@ -98,6 +98,10 @@ export function GetOpenTabState() {
   return window['go']['main']['App']['GetOpenTabState']();
 }
 
+export function GetPipelineStats(arg1) {
+  return window['go']['main']['App']['GetPipelineStats'](arg1);
+}
+
 export function GetProjectRoots() {
   return window['go']['main']['App']['GetProjectRoots']();
 }
@@ -140,6 +144,10 @@ export function GetScrollSpeed() {
 
 export function GetScrollback(arg1) {
   return window['go']['main']['App']['GetScrollback'](arg1);
+}
+
+export function GetScrollbackSize() {
+  return window['go']['main']['App']['GetScrollbackSize']();
 }
 
 export function GetSessionMetadata(arg1) {
@@ -242,6 +250,10 @@ export function ResetGroupSettings() {
   return window['go']['main']['App']['ResetGroupSettings']();
 }
 
+export function ResetPipelineStats(arg1) {
+  return window['go']['main']['App']['ResetPipelineStats'](arg1);
+}
+
 export function ResizeTerminal(arg1, arg2, arg3) {
   return window['go']['main']['App']['ResizeTerminal'](arg1, arg2, arg3);
 }
@@ -300,6 +312,10 @@ export function SetScanPaths(arg1) {
 
 export function SetScrollSpeed(arg1) {
   return window['go']['main']['App']['SetScrollSpeed'](arg1);
+}
+
+export function SetScrollbackSize(arg1) {
+  return window['go']['main']['App']['SetScrollbackSize'](arg1);
 }
 
 export function SetSetupDismissed(arg1) {

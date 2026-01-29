@@ -50,6 +50,8 @@ export function GetLaunchConfigsForTool(arg1:string):Promise<Array<main.LaunchCo
 
 export function GetOpenTabState():Promise<main.WindowTabState>;
 
+export function GetPipelineStats(arg1:string):Promise<Record<string, any>>;
+
 export function GetProjectRoots():Promise<Array<string>>;
 
 export function GetQuickLaunchBarVisibility():Promise<boolean>;
@@ -71,6 +73,8 @@ export function GetScanPaths():Promise<Array<string>>;
 export function GetScrollSpeed():Promise<number>;
 
 export function GetScrollback(arg1:string):Promise<string>;
+
+export function GetScrollbackSize():Promise<number>;
 
 export function GetSessionMetadata(arg1:string):Promise<main.SessionMetadata>;
 
@@ -122,6 +126,8 @@ export function RemoveScanPath(arg1:string):Promise<void>;
 
 export function ResetGroupSettings():Promise<void>;
 
+export function ResetPipelineStats(arg1:string):Promise<void>;
+
 export function ResizeTerminal(arg1:string,arg2:number,arg3:number):Promise<void>;
 
 export function SaveLaunchConfig(arg1:string,arg2:string,arg3:string,arg4:string,arg5:boolean,arg6:string,arg7:Array<string>,arg8:boolean):Promise<void>;
@@ -151,6 +157,8 @@ export function SetScanMaxDepth(arg1:number):Promise<void>;
 export function SetScanPaths(arg1:Array<string>):Promise<void>;
 
 export function SetScrollSpeed(arg1:number):Promise<void>;
+
+export function SetScrollbackSize(arg1:number):Promise<void>;
 
 export function SetSetupDismissed(arg1:boolean):Promise<void>;
 
