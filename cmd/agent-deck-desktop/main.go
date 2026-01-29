@@ -119,6 +119,10 @@ func main() {
 		logLevel = logger.DEBUG
 	}
 
+	// In dev mode, start hidden to prevent focus-stealing on hot-reload.
+	// Click dock icon to reveal window.
+	startHidden := isDev
+
 	// Set app title based on mode and window number
 	appTitle := "RevvySwarm"
 	if isDev {
@@ -150,6 +154,7 @@ func main() {
 		},
 		LogLevel:           logLevel,
 		LogLevelProduction: logger.ERROR,
+		StartHidden:        startHidden,
 		DragAndDrop: &options.DragAndDrop{
 			EnableFileDrop:     true,
 			DisableWebViewDrop: true,
