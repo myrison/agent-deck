@@ -14,7 +14,7 @@ func BenchmarkGetMCPInfo_NoMCPJson(b *testing.B) {
 	if err != nil {
 		b.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Create a deep path (10 levels)
 	deepPath := tmpDir
@@ -28,13 +28,13 @@ func BenchmarkGetMCPInfo_NoMCPJson(b *testing.B) {
 	// Setup minimal Claude config
 	oldConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	tmpClaudeConfig, _ := os.MkdirTemp("", "claude-config-*")
-	defer os.RemoveAll(tmpClaudeConfig)
-	os.Setenv("CLAUDE_CONFIG_DIR", tmpClaudeConfig)
+	defer func() { _ = os.RemoveAll(tmpClaudeConfig) }()
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", tmpClaudeConfig)
 	defer func() {
 		if oldConfigDir != "" {
-			os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
 		} else {
-			os.Unsetenv("CLAUDE_CONFIG_DIR")
+			_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
 		}
 	}()
 	claudeConfig := map[string]interface{}{"mcpServers": map[string]interface{}{}}
@@ -53,7 +53,7 @@ func BenchmarkGetMCPInfo_WithMCPJson(b *testing.B) {
 	if err != nil {
 		b.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Write .mcp.json with a few MCPs
 	mcpConfig := map[string]interface{}{
@@ -74,13 +74,13 @@ func BenchmarkGetMCPInfo_WithMCPJson(b *testing.B) {
 	// Setup minimal Claude config
 	oldConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	tmpClaudeConfig, _ := os.MkdirTemp("", "claude-config-*")
-	defer os.RemoveAll(tmpClaudeConfig)
-	os.Setenv("CLAUDE_CONFIG_DIR", tmpClaudeConfig)
+	defer func() { _ = os.RemoveAll(tmpClaudeConfig) }()
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", tmpClaudeConfig)
 	defer func() {
 		if oldConfigDir != "" {
-			os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
 		} else {
-			os.Unsetenv("CLAUDE_CONFIG_DIR")
+			_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
 		}
 	}()
 	claudeConfig := map[string]interface{}{"mcpServers": map[string]interface{}{}}
@@ -99,7 +99,7 @@ func BenchmarkGetMCPInfo_ParentDirectory(b *testing.B) {
 	if err != nil {
 		b.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpRoot)
+	defer func() { _ = os.RemoveAll(tmpRoot) }()
 
 	// Create .mcp.json in root
 	mcpConfig := map[string]interface{}{
@@ -122,13 +122,13 @@ func BenchmarkGetMCPInfo_ParentDirectory(b *testing.B) {
 	// Setup minimal Claude config
 	oldConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	tmpClaudeConfig, _ := os.MkdirTemp("", "claude-config-*")
-	defer os.RemoveAll(tmpClaudeConfig)
-	os.Setenv("CLAUDE_CONFIG_DIR", tmpClaudeConfig)
+	defer func() { _ = os.RemoveAll(tmpClaudeConfig) }()
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", tmpClaudeConfig)
 	defer func() {
 		if oldConfigDir != "" {
-			os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
 		} else {
-			os.Unsetenv("CLAUDE_CONFIG_DIR")
+			_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
 		}
 	}()
 	claudeConfig := map[string]interface{}{"mcpServers": map[string]interface{}{}}

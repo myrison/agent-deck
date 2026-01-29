@@ -33,6 +33,9 @@ type TerminalConfig struct {
 	// ScrollSpeed controls mouse/trackpad scroll speed as a percentage
 	// Range: 50-250, Default: 100 (100% = normal speed)
 	ScrollSpeed int `toml:"scroll_speed"`
+	// Scrollback controls xterm.js scrollback buffer size (lines)
+	// Range: 1000-100000, Default: 10000
+	Scrollback int `toml:"scrollback"`
 	// ClickToCursor enables experimental click-to-position cursor feature
 	// When enabled and in alt-screen mode (nano/vim), clicking sends arrow keys
 	// to move the cursor to the clicked position. Default: false
@@ -73,9 +76,10 @@ func newDefaultDesktopConfig() *DesktopConfig {
 	return &DesktopConfig{
 		Theme: "dark",
 		Terminal: TerminalConfig{
-			SoftNewline: "both", // Both Shift+Enter and Alt+Enter by default
-			FontSize:    14,     // Default font size
-			ScrollSpeed: 100,    // Default scroll speed (100%)
+			SoftNewline: "both",  // Both Shift+Enter and Alt+Enter by default
+			FontSize:    14,      // Default font size
+			ScrollSpeed: 100,     // Default scroll speed (100%)
+			Scrollback:  10000,   // Default scrollback buffer size (lines)
 		},
 	}
 }
@@ -139,6 +143,15 @@ func (dsm *DesktopSettingsManager) loadDesktopSettings() (*DesktopConfig, error)
 		config.Desktop.Terminal.ScrollSpeed = 250
 	}
 
+	// Validate and apply defaults for scrollback (1000-100000, default 10000)
+	if config.Desktop.Terminal.Scrollback == 0 {
+		config.Desktop.Terminal.Scrollback = 10000
+	} else if config.Desktop.Terminal.Scrollback < 1000 {
+		config.Desktop.Terminal.Scrollback = 1000
+	} else if config.Desktop.Terminal.Scrollback > 100000 {
+		config.Desktop.Terminal.Scrollback = 100000
+	}
+
 	// Apply default for ShowActivityRibbon (enabled by default)
 	if config.Desktop.Terminal.ShowActivityRibbon == nil {
 		enabled := true
@@ -174,6 +187,7 @@ func (dsm *DesktopSettingsManager) saveDesktopSettings(desktop *DesktopConfig) e
 		"soft_newline":        desktop.Terminal.SoftNewline,
 		"font_size":           desktop.Terminal.FontSize,
 		"scroll_speed":        desktop.Terminal.ScrollSpeed,
+		"scrollback":          desktop.Terminal.Scrollback,
 		"click_to_cursor":     desktop.Terminal.ClickToCursor,
 		"auto_copy_on_select": desktop.Terminal.AutoCopyOnSelect,
 	}
@@ -275,7 +289,7 @@ func (dsm *DesktopSettingsManager) SetSoftNewline(mode string) error {
 func (dsm *DesktopSettingsManager) GetTerminalConfig() (*TerminalConfig, error) {
 	config, err := dsm.loadDesktopSettings()
 	if err != nil {
-		return &TerminalConfig{SoftNewline: "both", FontSize: 14, ScrollSpeed: 100}, err
+		return &TerminalConfig{SoftNewline: "both", FontSize: 14, ScrollSpeed: 100, Scrollback: 10000}, err
 	}
 	return &config.Terminal, nil
 }

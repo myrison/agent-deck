@@ -89,7 +89,7 @@ func isSocketAlive(socketPath string) bool {
 		// Socket file exists but no one listening - it's stale
 		return false
 	}
-	conn.Close()
+	_ = conn.Close()
 	return true
 }
 
@@ -116,7 +116,7 @@ func NewSocketProxy(ctx context.Context, name, command string, args []string, en
 	}
 
 	// Socket doesn't exist or is stale - remove and create fresh
-	os.Remove(socketPath)
+	_ = os.Remove(socketPath)
 
 	return &SocketProxy{
 		name:       name,
@@ -219,7 +219,7 @@ func (p *SocketProxy) handleClient(sessionID string, conn net.Conn) {
 		p.clientsMu.Lock()
 		delete(p.clients, sessionID)
 		p.clientsMu.Unlock()
-		conn.Close()
+		_ = conn.Close()
 		log.Printf("[%s] Client disconnected: %s", p.name, sessionID)
 	}()
 
@@ -314,7 +314,7 @@ func (p *SocketProxy) Stop() error {
 	// Close all client connections first
 	p.clientsMu.Lock()
 	for sessionID, conn := range p.clients {
-		conn.Close()
+		_ = conn.Close()
 		log.Printf("[Pool] %s: Closed client connection: %s", p.name, sessionID)
 	}
 	p.clients = make(map[string]net.Conn)
@@ -326,22 +326,22 @@ func (p *SocketProxy) Stop() error {
 	p.requestMu.Unlock()
 
 	if p.listener != nil {
-		p.listener.Close()
+		_ = p.listener.Close()
 	}
 
 	// Only kill process and remove socket if we OWN it (mcpProcess != nil)
 	if p.mcpProcess != nil {
-		p.mcpStdin.Close()
+		_ = p.mcpStdin.Close()
 		_ = p.mcpProcess.Process.Signal(syscall.SIGTERM)
 		_ = p.mcpProcess.Wait()
-		os.Remove(p.socketPath)
+		_ = os.Remove(p.socketPath)
 		log.Printf("[Pool] %s: Stopped owned process and removed socket", p.name)
 	} else {
 		log.Printf("[Pool] %s: Disconnected from external socket (not removing)", p.name)
 	}
 
 	if p.logWriter != nil {
-		p.logWriter.Close()
+		_ = p.logWriter.Close()
 	}
 
 	p.SetStatus(StatusStopped)

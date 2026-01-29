@@ -674,7 +674,7 @@ func SaveUserConfig(config *UserConfig) error {
 	// Step 3: Atomic rename (this is atomic on POSIX systems)
 	if err := os.Rename(tmpPath, configPath); err != nil {
 		// Clean up temp file on failure
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to finalize config save: %w", err)
 	}
 
@@ -690,7 +690,7 @@ func syncConfigFile(path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return f.Sync()
 }
 

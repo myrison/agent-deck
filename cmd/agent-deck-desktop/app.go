@@ -586,6 +586,55 @@ func (a *App) SetScrollSpeed(speed int) error {
 	return a.desktopSettings.SetScrollSpeed(speed)
 }
 
+// GetScrollbackSize returns the terminal scrollback buffer size setting (1000-100000, default 10000).
+// Note: This is the size setting, not the content. See GetScrollback() for content.
+func (a *App) GetScrollbackSize() int {
+	lines, err := a.desktopSettings.GetScrollback()
+	if err != nil {
+		return 10000
+	}
+	return lines
+}
+
+// SetScrollbackSize sets the terminal scrollback buffer size (clamped to 1000-100000).
+func (a *App) SetScrollbackSize(lines int) error {
+	return a.desktopSettings.SetScrollback(lines)
+}
+
+// GetPipelineStats returns pipeline instrumentation stats for a terminal session.
+// Used by the debug overlay to identify data loss bottlenecks.
+func (a *App) GetPipelineStats(sessionID string) map[string]interface{} {
+	t := a.terminals.Get(sessionID)
+	if t == nil {
+		return map[string]interface{}{
+			"error": "terminal not found",
+		}
+	}
+
+	stats := t.GetPipelineStats()
+	return map[string]interface{}{
+		"tmuxCaptureCount":   stats.TmuxCaptureCount,
+		"tmuxLinesProduced":  stats.TmuxLinesProduced,
+		"historyGapLines":    stats.HistoryGapLines,
+		"viewportDiffBytes":  stats.ViewportDiffBytes,
+		"goBackendLinesSent": stats.GoBackendLinesSent,
+		"goBackendBytesSent": stats.GoBackendBytesSent,
+		"lastPollDurationMs": stats.LastPollDurationMs,
+		"totalPollTimeMs":    stats.TotalPollTimeMs,
+		"pollCount":          stats.PollCount,
+		"captureErrors":      stats.CaptureErrors,
+		"emitErrors":         stats.EmitErrors,
+	}
+}
+
+// ResetPipelineStats resets pipeline instrumentation stats for a terminal session.
+func (a *App) ResetPipelineStats(sessionID string) {
+	t := a.terminals.Get(sessionID)
+	if t != nil {
+		t.ResetPipelineStats()
+	}
+}
+
 // GetClickToCursorEnabled returns whether click-to-cursor is enabled.
 // This is an experimental feature for positioning cursor in nano/vim via clicks.
 func (a *App) GetClickToCursorEnabled() bool {

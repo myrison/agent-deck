@@ -208,13 +208,14 @@ func (d *ForkDialog) View() string {
 
 	// Build content
 	var nameLabel, groupLabel string
-	if d.focusIndex == 0 {
+	switch d.focusIndex {
+	case 0:
 		nameLabel = activeLabelStyle.Render("▶ Name:")
 		groupLabel = labelStyle.Render("  Group:")
-	} else if d.focusIndex == 1 {
+	case 1:
 		nameLabel = labelStyle.Render("  Name:")
 		groupLabel = activeLabelStyle.Render("▶ Group:")
-	} else {
+	default:
 		nameLabel = labelStyle.Render("  Name:")
 		groupLabel = labelStyle.Render("  Group:")
 	}

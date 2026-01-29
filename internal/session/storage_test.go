@@ -207,8 +207,8 @@ func TestStorageRemoteGroupPathMigration(t *testing.T) {
 	// SETUP: redirect HOME so LoadUserConfig reads our test config
 	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	_ = os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	// Write a config.toml with an SSH host that has a group_name
 	configDir := filepath.Join(tmpHome, ".agent-deck")
@@ -229,7 +229,7 @@ auto_discover = true
 	if _, err := ReloadUserConfig(); err != nil {
 		t.Fatalf("ReloadUserConfig failed: %v", err)
 	}
-	defer ReloadUserConfig() // Reset cache after test
+	defer func() { _, _ = ReloadUserConfig() }() // Reset cache after test
 
 	// Write sessions.json with a remote session that has the flat "remote" GroupPath
 	// (the pre-fix state from desktop commit 911bdce)
@@ -288,8 +288,8 @@ auto_discover = true
 func TestStorageRemoteGroupPathNoMigrationWhenCorrect(t *testing.T) {
 	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	_ = os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	configDir := filepath.Join(tmpHome, ".agent-deck")
 	if err := os.MkdirAll(configDir, 0700); err != nil {
@@ -307,7 +307,7 @@ auto_discover = true
 	if _, err := ReloadUserConfig(); err != nil {
 		t.Fatalf("ReloadUserConfig failed: %v", err)
 	}
-	defer ReloadUserConfig()
+	defer func() { _, _ = ReloadUserConfig() }()
 
 	storageDir := filepath.Join(tmpHome, "test-storage")
 	if err := os.MkdirAll(storageDir, 0700); err != nil {
@@ -363,8 +363,8 @@ auto_discover = true
 func TestStorageRemoteGroupPathMigrationFallbackToHostID(t *testing.T) {
 	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	_ = os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	// Write config without any SSH host definitions
 	configDir := filepath.Join(tmpHome, ".agent-deck")
@@ -379,7 +379,7 @@ func TestStorageRemoteGroupPathMigrationFallbackToHostID(t *testing.T) {
 	if _, err := ReloadUserConfig(); err != nil {
 		t.Fatalf("ReloadUserConfig failed: %v", err)
 	}
-	defer ReloadUserConfig()
+	defer func() { _, _ = ReloadUserConfig() }()
 
 	storageDir := filepath.Join(tmpHome, "test-storage")
 	if err := os.MkdirAll(storageDir, 0700); err != nil {
@@ -435,8 +435,8 @@ func TestStorageRemoteGroupPathMigrationFallbackToHostID(t *testing.T) {
 func TestStorageRemoteTmuxNameBackfill(t *testing.T) {
 	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	_ = os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	configDir := filepath.Join(tmpHome, ".agent-deck")
 	if err := os.MkdirAll(configDir, 0700); err != nil {
@@ -448,7 +448,7 @@ func TestStorageRemoteTmuxNameBackfill(t *testing.T) {
 	if _, err := ReloadUserConfig(); err != nil {
 		t.Fatalf("ReloadUserConfig failed: %v", err)
 	}
-	defer ReloadUserConfig()
+	defer func() { _, _ = ReloadUserConfig() }()
 
 	storageDir := filepath.Join(tmpHome, "test-storage")
 	if err := os.MkdirAll(storageDir, 0700); err != nil {
@@ -503,8 +503,8 @@ func TestStorageRemoteTmuxNameBackfill(t *testing.T) {
 func TestStorageRemoteDefaultGroupPathMigration(t *testing.T) {
 	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	_ = os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	configDir := filepath.Join(tmpHome, ".agent-deck")
 	if err := os.MkdirAll(configDir, 0700); err != nil {
@@ -522,7 +522,7 @@ auto_discover = true
 	if _, err := ReloadUserConfig(); err != nil {
 		t.Fatalf("ReloadUserConfig failed: %v", err)
 	}
-	defer ReloadUserConfig()
+	defer func() { _, _ = ReloadUserConfig() }()
 
 	storageDir := filepath.Join(tmpHome, "test-storage")
 	if err := os.MkdirAll(storageDir, 0700); err != nil {
@@ -578,8 +578,8 @@ auto_discover = true
 func TestStorageLocalSessionNotMigratedFromDefault(t *testing.T) {
 	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	_ = os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	configDir := filepath.Join(tmpHome, ".agent-deck")
 	if err := os.MkdirAll(configDir, 0700); err != nil {
@@ -591,7 +591,7 @@ func TestStorageLocalSessionNotMigratedFromDefault(t *testing.T) {
 	if _, err := ReloadUserConfig(); err != nil {
 		t.Fatalf("ReloadUserConfig failed: %v", err)
 	}
-	defer ReloadUserConfig()
+	defer func() { _, _ = ReloadUserConfig() }()
 
 	storageDir := filepath.Join(tmpHome, "test-storage")
 	if err := os.MkdirAll(storageDir, 0700); err != nil {
@@ -740,8 +740,8 @@ func TestStorageSaveDoesNotFallbackForLocalSession(t *testing.T) {
 func TestStorageLoadFallsBackToRemoteTmuxName(t *testing.T) {
 	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	_ = os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	configDir := filepath.Join(tmpHome, ".agent-deck")
 	if err := os.MkdirAll(configDir, 0700); err != nil {
@@ -753,7 +753,7 @@ func TestStorageLoadFallsBackToRemoteTmuxName(t *testing.T) {
 	if _, err := ReloadUserConfig(); err != nil {
 		t.Fatalf("ReloadUserConfig failed: %v", err)
 	}
-	defer ReloadUserConfig()
+	defer func() { _, _ = ReloadUserConfig() }()
 
 	storageDir := filepath.Join(tmpHome, "test-storage")
 	if err := os.MkdirAll(storageDir, 0700); err != nil {
@@ -1157,8 +1157,8 @@ func TestStorageDataSaveCreatesBackup(t *testing.T) {
 func TestStorageRemoteTmuxRecoveryMultiCycle(t *testing.T) {
 	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	_ = os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	configDir := filepath.Join(tmpHome, ".agent-deck")
 	if err := os.MkdirAll(configDir, 0700); err != nil {
@@ -1170,7 +1170,7 @@ func TestStorageRemoteTmuxRecoveryMultiCycle(t *testing.T) {
 	if _, err := ReloadUserConfig(); err != nil {
 		t.Fatalf("ReloadUserConfig failed: %v", err)
 	}
-	defer ReloadUserConfig()
+	defer func() { _, _ = ReloadUserConfig() }()
 
 	storageDir := filepath.Join(tmpHome, "test-storage")
 	if err := os.MkdirAll(storageDir, 0700); err != nil {
