@@ -79,7 +79,7 @@ func newDefaultDesktopConfig() *DesktopConfig {
 			SoftNewline: "both",  // Both Shift+Enter and Alt+Enter by default
 			FontSize:    14,      // Default font size
 			ScrollSpeed: 100,     // Default scroll speed (100%)
-			Scrollback:  10000,   // Default scrollback buffer size (lines)
+			Scrollback:  50000,   // Default scrollback buffer size (lines) - matches frontend
 		},
 	}
 }
@@ -143,9 +143,9 @@ func (dsm *DesktopSettingsManager) loadDesktopSettings() (*DesktopConfig, error)
 		config.Desktop.Terminal.ScrollSpeed = 250
 	}
 
-	// Validate and apply defaults for scrollback (1000-100000, default 10000)
+	// Validate and apply defaults for scrollback (1000-100000, default 50000)
 	if config.Desktop.Terminal.Scrollback == 0 {
-		config.Desktop.Terminal.Scrollback = 10000
+		config.Desktop.Terminal.Scrollback = 50000
 	} else if config.Desktop.Terminal.Scrollback < 1000 {
 		config.Desktop.Terminal.Scrollback = 1000
 	} else if config.Desktop.Terminal.Scrollback > 100000 {
@@ -289,7 +289,7 @@ func (dsm *DesktopSettingsManager) SetSoftNewline(mode string) error {
 func (dsm *DesktopSettingsManager) GetTerminalConfig() (*TerminalConfig, error) {
 	config, err := dsm.loadDesktopSettings()
 	if err != nil {
-		return &TerminalConfig{SoftNewline: "both", FontSize: 14, ScrollSpeed: 100, Scrollback: 10000}, err
+		return &TerminalConfig{SoftNewline: "both", FontSize: 14, ScrollSpeed: 100, Scrollback: 50000}, err
 	}
 	return &config.Terminal, nil
 }
@@ -353,17 +353,17 @@ func (dsm *DesktopSettingsManager) SetScrollSpeed(speed int) error {
 }
 
 // GetScrollback returns the terminal scrollback buffer size (lines)
-// Returns: 1000-100000, default 10000
+// Returns: 1000-100000, default 50000
 func (dsm *DesktopSettingsManager) GetScrollback() (int, error) {
 	config, err := dsm.loadDesktopSettings()
 	if err != nil {
-		return 10000, err
+		return 50000, err
 	}
 	return config.Terminal.Scrollback, nil
 }
 
 // SetScrollback sets the terminal scrollback buffer size (lines)
-// Valid range: 1000-100000 (default 10000)
+// Valid range: 1000-100000 (default 50000)
 func (dsm *DesktopSettingsManager) SetScrollback(lines int) error {
 	// Clamp to valid range
 	if lines < 1000 {

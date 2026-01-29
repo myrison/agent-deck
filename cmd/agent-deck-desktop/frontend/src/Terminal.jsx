@@ -82,6 +82,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         bytesWritten: 0,
     });
     const [showDebugOverlay, setShowDebugOverlay] = useState(false);
+    const [debugRefreshKey, setDebugRefreshKey] = useState(0); // Forces debug overlay re-render
 
     // Update terminal theme when app theme changes
     useEffect(() => {
@@ -942,10 +943,15 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             cancelConnRestored();
             cancelConnFailed();
 
-            // Cancel pending RAF write if any
+            // Flush any pending RAF buffer data before cleanup to prevent data loss
             if (rafWriteIdRef.current !== null) {
                 cancelAnimationFrame(rafWriteIdRef.current);
                 rafWriteIdRef.current = null;
+            }
+            // Write any remaining buffered data synchronously before dispose
+            if (xtermRef.current && writeBufferRef.current.length > 0) {
+                xtermRef.current.write(writeBufferRef.current);
+                writeBufferRef.current = '';
             }
 
             // Close the PTY backend for this session
@@ -1085,8 +1091,8 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                             rafFlushes: 0,
                             bytesWritten: 0,
                         };
-                        // Force re-render
-                        setShowDebugOverlay(prev => prev);
+                        // Force re-render by incrementing key
+                        setDebugRefreshKey(k => k + 1);
                     }}
                 >
                     Reset Stats
