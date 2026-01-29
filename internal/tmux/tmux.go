@@ -870,6 +870,15 @@ func (s *Session) EnableMouseMode() error {
 		debugLog("%s: failed to enable hyperlinks (tmux < 3.4?): %v", s.DisplayName, err)
 	}
 
+	// Set window-size to 'largest' for optimal multi-client experience
+	// When both TUI and desktop app attach to same session, this prevents dot fill patterns
+	// in the smaller client by sizing the window to the largest attached client
+	// Smaller clients (TUI) can scroll to see full content, like VNC/screen sharing
+	if err := exec.SetServerOption("window-size", "largest"); err != nil {
+		// Non-fatal: older tmux versions may not support this option
+		debugLog("%s: failed to set window-size: %v", s.DisplayName, err)
+	}
+
 	// Set large history limit for AI agent sessions (default is 2000)
 	// AI agents produce a lot of output, so we need more scrollback
 	if err := exec.SetOption(s.Name, "history-limit", "10000"); err != nil {
