@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -28,6 +29,9 @@ type PipePaneTailer struct {
 	paused   bool // True when streaming is paused (e.g., during resize)
 	stopChan chan struct{}
 	position int64 // Current read position in file
+
+	// UTF-8 buffering: holds incomplete multi-byte characters between reads
+	pendingBytes []byte
 
 	// Stats for debugging
 	bytesRead int64
@@ -52,6 +56,7 @@ func (pt *PipePaneTailer) SetContext(ctx context.Context) {
 
 // Start begins tailing the log file and emitting bytes to the frontend.
 // Call this after enabling pipe-pane in tmux.
+// If SetStartPosition was called before Start, tailing begins from that position.
 func (pt *PipePaneTailer) Start() error {
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
@@ -75,7 +80,10 @@ func (pt *PipePaneTailer) Start() error {
 	}
 
 	pt.file = f
-	pt.position = 0
+	// DON'T reset pt.position here - may have been set by SetStartPosition()
+	if pt.position < 0 {
+		pt.position = 0
+	}
 	pt.bytesRead = 0
 	pt.emitCount = 0
 	pt.running = true
@@ -96,6 +104,9 @@ func (pt *PipePaneTailer) Stop() {
 	if !running {
 		return
 	}
+
+	// Flush pending bytes before stopping
+	pt.Flush()
 
 	// Signal stop
 	close(stopChan)
@@ -134,8 +145,9 @@ func (pt *PipePaneTailer) Truncate() {
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
 
-	// Reset read position
+	// Reset read position and clear pending UTF-8 bytes
 	pt.position = 0
+	pt.pendingBytes = nil
 
 	// Truncate the log file if open
 	if pt.file != nil {
@@ -176,6 +188,7 @@ func (pt *PipePaneTailer) tailLoop() {
 }
 
 // readAndEmit reads new bytes from the log file and emits them to the frontend.
+// It handles UTF-8 multi-byte characters that may be split across reads.
 func (pt *PipePaneTailer) readAndEmit(buf []byte) {
 	pt.mu.Lock()
 	f := pt.file
@@ -183,6 +196,7 @@ func (pt *PipePaneTailer) readAndEmit(buf []byte) {
 	sessionID := pt.sessionID
 	position := pt.position
 	paused := pt.paused
+	pending := pt.pendingBytes
 	pt.mu.Unlock()
 
 	if f == nil || ctx == nil || paused {
@@ -198,7 +212,9 @@ func (pt *PipePaneTailer) readAndEmit(buf []byte) {
 		// File was truncated, reset to beginning
 		pt.mu.Lock()
 		pt.position = 0
+		pt.pendingBytes = nil
 		position = 0
+		pending = nil
 		pt.mu.Unlock()
 	}
 
@@ -215,23 +231,103 @@ func (pt *PipePaneTailer) readAndEmit(buf []byte) {
 	}
 
 	if n > 0 {
-		// Update position and stats
+		// Update position
 		pt.mu.Lock()
 		pt.position = position + int64(n)
 		pt.bytesRead += int64(n)
 		pt.emitCount++
 		pt.mu.Unlock()
 
-		// Emit to frontend
-		data := string(buf[:n])
-		// Strip TTS markers if present
-		data = stripTTSMarkers(data)
+		// Combine pending bytes with new bytes
+		combined := append(pending, buf[:n]...)
 
-		if len(data) > 0 {
-			runtime.EventsEmit(ctx, "terminal:data",
-				TerminalEvent{SessionID: sessionID, Data: data})
+		// Find the boundary of the last complete rune.
+		// Look back up to UTFMax (4 bytes) to find a potential rune start.
+		validEnd := len(combined)
+		checkLen := 0
+
+		for i := 1; i <= utf8.UTFMax && i <= len(combined); i++ {
+			// If this byte is a start byte (top 2 bits are not 10)
+			if utf8.RuneStart(combined[len(combined)-i]) {
+				checkLen = i
+				break
+			}
+		}
+
+		// If we found a start byte, check if the sequence is incomplete
+		if checkLen > 0 {
+			tail := combined[len(combined)-checkLen:]
+			// FullRune returns false ONLY if the bytes are a valid prefix
+			// of a rune that is not yet complete.
+			if !utf8.FullRune(tail) {
+				validEnd = len(combined) - checkLen
+			}
+		}
+
+		// Safety valve: If buffer grows too large (garbage stream), force emit
+		// to prevent infinite buffering of invalid UTF-8
+		if len(combined)-validEnd > utf8.UTFMax {
+			validEnd = len(combined)
+		}
+
+		// Update pending bytes
+		pt.mu.Lock()
+		if validEnd < len(combined) {
+			pt.pendingBytes = make([]byte, len(combined)-validEnd)
+			copy(pt.pendingBytes, combined[validEnd:])
+		} else {
+			pt.pendingBytes = nil
+		}
+		pt.mu.Unlock()
+
+		// Emit valid chunk
+		if validEnd > 0 {
+			data := string(combined[:validEnd])
+			// Strip TTS markers if present
+			data = stripTTSMarkers(data)
+
+			if len(data) > 0 {
+				runtime.EventsEmit(ctx, "terminal:data",
+					TerminalEvent{SessionID: sessionID, Data: data})
+			}
 		}
 	}
+}
+
+// Flush emits any remaining pending bytes on close.
+// Call this before stopping the tailer.
+func (pt *PipePaneTailer) Flush() {
+	pt.mu.Lock()
+	pending := pt.pendingBytes
+	pt.pendingBytes = nil
+	ctx := pt.ctx
+	sessionID := pt.sessionID
+	pt.mu.Unlock()
+
+	if len(pending) > 0 && ctx != nil {
+		// Emit remaining bytes (may be invalid UTF-8, but better than loss)
+		data := string(pending)
+		runtime.EventsEmit(ctx, "terminal:data",
+			TerminalEvent{SessionID: sessionID, Data: data})
+	}
+}
+
+// GetPosition returns the current size of the log file.
+// Used to establish a sync point before capture-pane.
+func (pt *PipePaneTailer) GetPosition() (int64, error) {
+	stat, err := os.Stat(pt.logPath)
+	if err != nil {
+		return 0, err
+	}
+	return stat.Size(), nil
+}
+
+// SetStartPosition sets the initial read position for the tailer.
+// Call this before Start() to skip bytes already captured via capture-pane.
+func (pt *PipePaneTailer) SetStartPosition(pos int64) {
+	pt.mu.Lock()
+	pt.position = pos
+	pt.mu.Unlock()
 }
 
 // GetStats returns debugging statistics.

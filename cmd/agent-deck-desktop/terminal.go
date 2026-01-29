@@ -239,13 +239,17 @@ func (t *Terminal) Start(cols, rows int) error {
 	return nil
 }
 
-// StartTmuxSession connects to a tmux session using polling mode:
-// 1. Fetch and emit sanitized history via terminal:history event
-// 2. Attach PTY for user input only
-// 3. Use polling for display updates (ensures scrollback accumulates properly)
+// StartTmuxSession connects to a tmux session using pipe-pane streaming mode:
+// 1. Resize tmux window
+// 2. Enable pipe-pane FIRST (creates log, starts capture)
+// 3. Get current log file position (SYNC POINT) - BEFORE capture-pane
+// 4. Fetch and emit sanitized history via terminal:history event
+// 5. Attach PTY for user input only
+// 6. Start tailer from SYNC POINT
 //
-// This approach solves the scrollback problem where TUI applications like Claude Code
-// use escape sequences that prevent xterm.js from building up scrollback buffer.
+// The "overlap strategy" ensures no data loss: if data arrives between getting
+// the sync position and capture-pane, it appears in BOTH. Slight duplication is
+// acceptable; data loss is not. The terminal renders duplicated chars identically.
 func (t *Terminal) StartTmuxSession(tmuxSession string, cols, rows int) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -254,65 +258,89 @@ func (t *Terminal) StartTmuxSession(tmuxSession string, cols, rows int) error {
 		return nil // Already started
 	}
 
-	t.debugLog("[POLLING] Starting polling session for tmux=%s cols=%d rows=%d", tmuxSession, cols, rows)
+	t.debugLog("[PIPE-PANE] Starting session for tmux=%s cols=%d rows=%d", tmuxSession, cols, rows)
 
 	// 1. Resize tmux window to match terminal dimensions
 	if cols > 0 && rows > 0 {
 		resizeCmd := exec.Command(tmuxBinaryPath, "resize-window", "-t", tmuxSession, "-x", itoa(cols), "-y", itoa(rows))
 		if err := resizeCmd.Run(); err != nil {
-			t.debugLog("[POLLING] resize-window error: %v", err)
+			t.debugLog("[PIPE-PANE] resize-window error: %v", err)
 		} else {
-			t.debugLog("[POLLING] Resized tmux window to %dx%d", cols, rows)
+			t.debugLog("[PIPE-PANE] Resized tmux window to %dx%d", cols, rows)
 		}
 		// Wait for tmux to reflow content after resize
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// 2. Fetch full history (including scrollback)
-	// -S - = start from beginning of scrollback
-	// -E - = end at current cursor position
-	// -p = print to stdout
-	// -e = include escape sequences (colors)
+	// 2. Enable pipe-pane FIRST (creates log file and starts capture)
+	logPath := GetPipePaneLogPath(t.sessionID)
+	pipePaneEnabled := false
+	var tailer *PipePaneTailer
+	var syncPosition int64 = 0
+
+	if err := EnablePipePane(tmuxSession, logPath); err != nil {
+		t.debugLog("[PIPE-PANE] Failed to enable: %v, will fall back to polling", err)
+	} else {
+		pipePaneEnabled = true
+		tailer = NewPipePaneTailer(t.sessionID, logPath)
+		tailer.SetContext(t.ctx)
+
+		// Wait briefly for pipe-pane to be active
+		time.Sleep(20 * time.Millisecond)
+
+		// 3. Get sync position BEFORE capture-pane (CRITICAL!)
+		// This is the "overlap strategy" - any data that arrives between now
+		// and capture-pane will appear in BOTH, preventing data loss.
+		var posErr error
+		syncPosition, posErr = tailer.GetPosition()
+		if posErr != nil {
+			t.debugLog("[PIPE-PANE] Failed to get sync position: %v", posErr)
+			syncPosition = 0
+		}
+		t.debugLog("[PIPE-PANE] Sync point at position %d", syncPosition)
+	}
+
+	// 4. Capture history (NOW after sync point established)
 	historyCmd := exec.Command(tmuxBinaryPath, "capture-pane", "-t", tmuxSession, "-p", "-e", "-S", "-", "-E", "-")
 	historyOutput, err := historyCmd.Output()
 	if err != nil {
-		t.debugLog("[POLLING] capture-pane error: %v", err)
+		t.debugLog("[PIPE-PANE] capture-pane error: %v", err)
 		// Continue anyway - history is optional
 	}
 
-	// 3. Sanitize and emit history via separate event
+	// 5. Emit xterm reset + history
+	// Send reset sequence first to ensure clean slate
+	if t.ctx != nil {
+		runtime.EventsEmit(t.ctx, "terminal:reset", TerminalEvent{SessionID: t.sessionID})
+	}
+
 	if len(historyOutput) > 0 {
 		history := sanitizeHistoryForXterm(string(historyOutput))
 		history = normalizeCRLF(history)
-		t.debugLog("[POLLING] Emitting %d bytes of sanitized history", len(history))
+		t.debugLog("[PIPE-PANE] Emitting %d bytes of sanitized history", len(history))
 		if t.ctx != nil {
 			runtime.EventsEmit(t.ctx, "terminal:history", TerminalEvent{SessionID: t.sessionID, Data: history})
 		}
 	}
 
-	// 4. Short delay for frontend to process history
+	// Short delay for frontend to process history
 	time.Sleep(50 * time.Millisecond)
 
-	// 5. Try to enable pipe-pane streaming (preferred for fast output)
-	logPath := GetPipePaneLogPath(t.sessionID)
-	pipePaneEnabled := false
-	if err := EnablePipePane(tmuxSession, logPath); err != nil {
-		t.debugLog("[PIPE-PANE] Failed to enable: %v, will fall back to polling", err)
-	} else {
-		tailer := NewPipePaneTailer(t.sessionID, logPath)
-		tailer.SetContext(t.ctx)
+	// 6. Start tailer from SYNC POINT (not position 0)
+	if pipePaneEnabled && tailer != nil {
+		tailer.SetStartPosition(syncPosition)
 		if err := tailer.Start(); err != nil {
-			t.debugLog("[PIPE-PANE] Tailer failed to start: %v, falling back to polling", err)
+			t.debugLog("[PIPE-PANE] Tailer failed to start: %v", err)
 			DisablePipePane(tmuxSession)
+			pipePaneEnabled = false
 		} else {
 			t.pipePaneLogPath = logPath
 			t.pipePaneTailer = tailer
-			pipePaneEnabled = true
-			t.debugLog("[PIPE-PANE] Streaming enabled successfully")
+			t.debugLog("[PIPE-PANE] Streaming started from position %d", syncPosition)
 		}
 	}
 
-	// 6. Attach PTY to tmux (for user input only - output is handled by streaming or polling)
+	// 7. Attach PTY to tmux (for user input only - output is handled by streaming or polling)
 	t.debugLog("[TERMINAL] Attaching PTY to tmux session for input")
 	pty, err := SpawnPTYWithCommand(tmuxBinaryPath, "attach-session", "-t", tmuxSession)
 	if err != nil {
@@ -335,10 +363,10 @@ func (t *Terminal) StartTmuxSession(tmuxSession string, cols, rows int) error {
 	t.pipePaneEnabled = pipePaneEnabled
 	t.closed = false
 
-	// 7. Start PTY read loop (discard output - display comes from streaming or polling)
+	// 8. Start PTY read loop (discard output - display comes from streaming or polling)
 	go t.readLoopDiscard()
 
-	// 8. Start appropriate display mode
+	// 9. Start appropriate display mode
 	if pipePaneEnabled {
 		// Pipe-pane mode: only detect alt-screen state, no capture-pane polling
 		t.startAltScreenDetection(tmuxSession)

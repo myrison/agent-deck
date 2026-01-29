@@ -655,6 +655,20 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         };
         const cancelCopy = EventsOn('menu:copy', handleMenuCopy);
 
+        // Handle terminal reset (emitted before history to ensure clean slate)
+        // This uses xterm's API for a clean reset instead of injecting escape sequences
+        // Filter by sessionId for multi-pane support
+        const handleTerminalReset = (payload) => {
+            // Filter: only process events for this terminal's session
+            if (payload?.sessionId !== sessionId) return;
+
+            logger.info('Received terminal reset signal');
+            if (xtermRef.current) {
+                xtermRef.current.reset();  // Use xterm API for clean reset
+            }
+        };
+        const cancelReset = EventsOn('terminal:reset', handleTerminalReset);
+
         // Handle pre-loaded history (initial scrollback from tmux)
         // In polling mode, this contains the full scrollback captured before polling starts
         // Filter by sessionId for multi-pane support
@@ -939,6 +953,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             cancelDebug();
             cancelPaste();
             cancelCopy();
+            cancelReset();
             cancelHistory();
             cancelData();
             cancelExit();
