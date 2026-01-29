@@ -59,7 +59,7 @@ func NewStorageWatcher(storagePath string) (*StorageWatcher, error) {
 	// Watch parent directory (handles atomic renames)
 	dir := filepath.Dir(resolvedPath)
 	if err := w.Add(dir); err != nil {
-		w.Close()
+		_ = w.Close()
 		return nil, fmt.Errorf("failed to watch directory %s: %w", dir, err)
 	}
 

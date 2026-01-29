@@ -462,7 +462,7 @@ func syncFile(path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return f.Sync()
 }
 
@@ -480,7 +480,7 @@ func (s *Storage) rotateBackups() {
 
 		// Remove the oldest backup to make room
 		if i == maxBackupGenerations-1 {
-			os.Remove(newPath)
+			_ = os.Remove(newPath)
 		}
 
 		// Rename to shift

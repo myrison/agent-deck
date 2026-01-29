@@ -8,7 +8,7 @@ import (
 
 func TestGetClaudeConfigDir_Default(t *testing.T) {
 	// Unset env var to test default/config behavior
-	os.Unsetenv("CLAUDE_CONFIG_DIR")
+	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
 
 	dir := GetClaudeConfigDir()
 	home, _ := os.UserHomeDir()
@@ -31,8 +31,8 @@ func TestGetClaudeConfigDir_Default(t *testing.T) {
 }
 
 func TestGetClaudeConfigDir_EnvOverride(t *testing.T) {
-	os.Setenv("CLAUDE_CONFIG_DIR", "/custom/path")
-	defer os.Unsetenv("CLAUDE_CONFIG_DIR")
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", "/custom/path")
+	defer func() { _ = os.Unsetenv("CLAUDE_CONFIG_DIR") }()
 
 	dir := GetClaudeConfigDir()
 	if dir != "/custom/path" {
@@ -53,12 +53,12 @@ func TestGetClaudeSessionID_NotFound(t *testing.T) {
 func TestGetMCPInfo_Empty(t *testing.T) {
 	// Use isolated config dir to avoid picking up real global MCPs
 	oldConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
-	os.Setenv("CLAUDE_CONFIG_DIR", "/nonexistent/config/dir")
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", "/nonexistent/config/dir")
 	defer func() {
 		if oldConfigDir != "" {
-			os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
 		} else {
-			os.Unsetenv("CLAUDE_CONFIG_DIR")
+			_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
 		}
 	}()
 
@@ -265,11 +265,12 @@ func TestToggleLocalMCP_DefaultToBlacklist(t *testing.T) {
 	// Check state
 	servers, _ := GetLocalMCPState(tmpDir)
 	for _, s := range servers {
-		if s.Name == "mcp-a" {
+		switch s.Name {
+		case "mcp-a":
 			if s.Enabled {
 				t.Error("mcp-a should be disabled after toggle")
 			}
-		} else if s.Name == "mcp-b" {
+		case "mcp-b":
 			if !s.Enabled {
 				t.Error("mcp-b should still be enabled")
 			}

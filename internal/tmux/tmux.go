@@ -894,7 +894,7 @@ func (s *Session) Kill() error {
 
 	// Remove log file
 	logFile := s.LogFile()
-	os.Remove(logFile) // Ignore errors
+	_ = os.Remove(logFile) // Ignore errors
 
 	// Kill the tmux session
 	exec := s.getExecutor()

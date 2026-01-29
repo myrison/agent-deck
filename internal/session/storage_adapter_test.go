@@ -249,11 +249,14 @@ func TestStorageAdapterConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			sessionID := "session-1"
-			if n%3 == 1 {
+			var sessionID string
+			switch n % 3 {
+			case 1:
 				sessionID = "session-2"
-			} else if n%3 == 2 {
+			case 2:
 				sessionID = "session-3"
+			default:
+				sessionID = "session-1"
 			}
 			status := "running"
 			if n%2 == 0 {

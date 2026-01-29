@@ -2438,7 +2438,7 @@ func sessionHasConversationData(sessionID string, projectPath string) bool {
 		log.Printf("[SESSION-DATA] Error opening file: %v → returning true (safe fallback)", err)
 		return true
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Use scanner to read line by line (memory efficient for large files)
 	scanner := bufio.NewScanner(file)

@@ -124,7 +124,7 @@ func (p *Pool) RestartProxy(name string) error {
 	delete(p.proxies, name)
 
 	// Remove stale socket
-	os.Remove(proxy.socketPath)
+	_ = os.Remove(proxy.socketPath)
 
 	// Create and start new proxy
 	newProxy, err := NewSocketProxy(p.ctx, name, proxy.command, proxy.args, proxy.env)
@@ -242,7 +242,7 @@ func (p *Pool) RestartProxyWithRateLimit(name string) error {
 	// Stop and remove old proxy
 	_ = proxy.Stop()
 	delete(p.proxies, name)
-	os.Remove(proxy.socketPath)
+	_ = os.Remove(proxy.socketPath)
 
 	// Create and start new proxy
 	newProxy, err := NewSocketProxy(p.ctx, name, command, args, env)
@@ -360,7 +360,7 @@ func isSocketAliveCheck(socketPath string) bool {
 	if err != nil {
 		return false
 	}
-	conn.Close()
+	_ = conn.Close()
 	return true
 }
 

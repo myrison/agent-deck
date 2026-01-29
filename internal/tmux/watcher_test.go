@@ -22,7 +22,7 @@ func TestLogWatcher(t *testing.T) {
 		events <- sessionName
 	})
 	assert.NoError(t, err)
-	defer watcher.Close()
+	defer func() { _ = watcher.Close() }()
 
 	// Start watching
 	go watcher.Start()
@@ -32,7 +32,7 @@ func TestLogWatcher(t *testing.T) {
 	f, err := os.Create(logFile)
 	assert.NoError(t, err)
 	_, _ = f.WriteString("test output\n")
-	f.Close()
+	_ = f.Close()
 
 	// Wait for event
 	select {

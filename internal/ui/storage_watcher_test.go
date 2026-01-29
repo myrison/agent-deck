@@ -21,7 +21,7 @@ func TestNewStorageWatcher(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, watcher)
 
-	defer watcher.Close()
+	defer func() { _ = watcher.Close() }()
 }
 
 func TestStorageWatcher_DetectsChanges(t *testing.T) {
@@ -34,7 +34,7 @@ func TestStorageWatcher_DetectsChanges(t *testing.T) {
 
 	watcher, err := NewStorageWatcher(testFile)
 	require.NoError(t, err)
-	defer watcher.Close()
+	defer func() { _ = watcher.Close() }()
 
 	// Start watching
 	watcher.Start()
@@ -62,7 +62,7 @@ func TestStorageWatcher_Debouncing(t *testing.T) {
 
 	watcher, err := NewStorageWatcher(testFile)
 	require.NoError(t, err)
-	defer watcher.Close()
+	defer func() { _ = watcher.Close() }()
 
 	watcher.Start()
 
@@ -96,7 +96,7 @@ func TestStorageWatcher_NotifySaveIgnoresOwnChanges(t *testing.T) {
 
 	watcher, err := NewStorageWatcher(testFile)
 	require.NoError(t, err)
-	defer watcher.Close()
+	defer func() { _ = watcher.Close() }()
 
 	watcher.Start()
 
@@ -126,7 +126,7 @@ func TestStorageWatcher_ExternalChangesStillDetected(t *testing.T) {
 
 	watcher, err := NewStorageWatcher(testFile)
 	require.NoError(t, err)
-	defer watcher.Close()
+	defer func() { _ = watcher.Close() }()
 
 	watcher.Start()
 
@@ -168,7 +168,7 @@ func TestStorageWatcher_CrossProfileIsolation(t *testing.T) {
 	// Create watcher for profile1 only
 	watcher1, err := NewStorageWatcher(profile1File)
 	require.NoError(t, err)
-	defer watcher1.Close()
+	defer func() { _ = watcher1.Close() }()
 	watcher1.Start()
 
 	// Wait for watcher to initialize

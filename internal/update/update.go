@@ -130,7 +130,7 @@ func fetchLatestRelease() (*Release, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch release: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
@@ -288,7 +288,7 @@ func PerformUpdate(downloadURL string) error {
 	if err != nil {
 		return fmt.Errorf("failed to download: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download failed with status %d", resp.StatusCode)
@@ -300,12 +300,12 @@ func PerformUpdate(downloadURL string) error {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	// Copy download to temp file
 	fmt.Println("Downloading...")
 	_, err = io.Copy(tmpFile, resp.Body)
-	tmpFile.Close()
+	_ = tmpFile.Close()
 	if err != nil {
 		return fmt.Errorf("failed to save download: %w", err)
 	}
@@ -326,7 +326,7 @@ func PerformUpdate(downloadURL string) error {
 	// Backup old binary
 	oldBinaryPath := execPath + ".old"
 	if err := os.Rename(execPath, oldBinaryPath); err != nil {
-		os.Remove(newBinaryPath)
+		_ = os.Remove(newBinaryPath)
 		return fmt.Errorf("failed to backup old binary: %w", err)
 	}
 
@@ -338,7 +338,7 @@ func PerformUpdate(downloadURL string) error {
 	}
 
 	// Remove old binary
-	os.Remove(oldBinaryPath)
+	_ = os.Remove(oldBinaryPath)
 
 	fmt.Println("✓ Update complete!")
 	return nil
@@ -350,13 +350,13 @@ func extractBinaryFromTarGz(tarPath string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	gzr, err := gzip.NewReader(file)
 	if err != nil {
 		return nil, err
 	}
-	defer gzr.Close()
+	defer func() { _ = gzr.Close() }()
 
 	tr := tar.NewReader(gzr)
 

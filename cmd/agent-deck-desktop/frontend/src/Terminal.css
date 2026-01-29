@@ -180,3 +180,82 @@
     border-color: rgba(0, 119, 204, 0.5);
     color: rgba(0, 119, 204, 0.8);
 }
+
+/* Pipeline debug overlay (Cmd+Shift+D) */
+.pipeline-debug-overlay {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: rgba(0, 0, 0, 0.85);
+    border: 1px solid rgba(76, 201, 240, 0.3);
+    border-radius: 6px;
+    padding: 12px;
+    min-width: 200px;
+    z-index: 200;
+    font-family: monospace;
+    font-size: 11px;
+    color: #e0e0e0;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="light"] .pipeline-debug-overlay {
+    background: rgba(255, 255, 255, 0.95);
+    border-color: rgba(0, 119, 204, 0.3);
+    color: #333;
+}
+
+.pipeline-debug-overlay .debug-header {
+    font-weight: 600;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    color: #76c7f0;
+}
+
+[data-theme="light"] .pipeline-debug-overlay .debug-header {
+    color: #0077cc;
+    border-bottom-color: rgba(0, 0, 0, 0.1);
+}
+
+.pipeline-debug-overlay .debug-row {
+    display: flex;
+    justify-content: space-between;
+    margin: 4px 0;
+}
+
+.pipeline-debug-overlay .debug-row span:last-child {
+    font-weight: 600;
+    color: #4cc9f0;
+}
+
+[data-theme="light"] .pipeline-debug-overlay .debug-row span:last-child {
+    color: #0077cc;
+}
+
+.pipeline-debug-overlay .debug-reset-btn {
+    margin-top: 8px;
+    padding: 4px 8px;
+    width: 100%;
+    background: rgba(76, 201, 240, 0.2);
+    border: 1px solid rgba(76, 201, 240, 0.4);
+    border-radius: 4px;
+    color: #76c7f0;
+    font-size: 10px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.pipeline-debug-overlay .debug-reset-btn:hover {
+    background: rgba(76, 201, 240, 0.3);
+}
+
+[data-theme="light"] .pipeline-debug-overlay .debug-reset-btn {
+    background: rgba(0, 119, 204, 0.1);
+    border-color: rgba(0, 119, 204, 0.3);
+    color: #0077cc;
+}
+
+[data-theme="light"] .pipeline-debug-overlay .debug-reset-btn:hover {
+    background: rgba(0, 119, 204, 0.2);
+}
