@@ -1369,3 +1369,128 @@ The council provided a critical technical directive:
 > "The plan is Approved for Implementation, subject to the inclusion of three mandatory stipulations: (1) Initial viewport snapshot to prevent blank terminal, (2) Client-side RAF throttling to prevent DOM freezing, (3) Resize epochs to prevent race conditions. The council's clarification that ANSI buffering is unnecessary significantly reduces implementation complexity."
 
 **Final Verdict:** APPROVED FOR IMPLEMENTATION with mandatory Phase 1 amendments.
+
+---
+
+## Appendix: Implementation Troubleshooting Log
+
+### Session Date
+2026-01-29
+
+### Problem: PTY Read Loop Blocking Forever
+
+**Symptoms:**
+- PTY streaming mode was implemented per the plan
+- Initial viewport was captured and emitted correctly
+- PTY was spawned successfully (tmux attach process started)
+- `readLoopStream()` started but blocked on the first `p.Read()` call
+- No data was ever received from the PTY
+- Typing in the terminal showed nothing on screen
+
+**Initial Hypotheses Investigated:**
+
+1. **PTY size not set before tmux starts** - tmux queries terminal size on attach
+   - Created `SpawnPTYWithCommandAndSize()` to set size before process starts
+   - Result: Did not fix the issue
+
+2. **tmux not sending data on attach** - Maybe tmux needed SIGWINCH to trigger redraw
+   - Manually sent `kill -SIGWINCH <pid>` to the tmux attach process
+   - Result: Did not fix the issue
+
+3. **PTY file descriptor issue** - Maybe reads weren't working
+   - Created standalone Go test (`pty_test_manual.go`) that attached to tmux via PTY
+   - Result: **Standalone test worked perfectly** - received 248 bytes immediately
+   - This proved the PTY/tmux mechanism was sound
+
+4. **Lock contention** - Maybe the read loop was waiting for something
+   - Added debug logging around mutex acquisition
+   - Result: **Found the bug** - logs showed "Acquiring lock..." but never "Lock acquired"
+
+### Root Cause: Mutex Deadlock
+
+**The Bug:**
+```go
+func (t *Terminal) startTmuxSessionStreaming(...) error {
+    t.mu.Lock()
+    defer t.mu.Unlock()
+
+    // ... lots of setup code ...
+
+    go t.readLoopStream()  // Starts goroutine that will try to acquire t.mu
+
+    t.startStatusPolling(tmuxSession)  // CALLS t.mu.Lock() WHILE ALREADY HOLDING IT!
+
+    return nil
+}
+
+func (t *Terminal) startStatusPolling(tmuxSession string) {
+    t.mu.Lock()      // ← DEADLOCK! Caller already holds this lock
+    // ...
+    t.mu.Unlock()
+}
+```
+
+**Why This Causes a Deadlock:**
+- Go's `sync.Mutex` is **NOT reentrant** (unlike some languages' locks)
+- If a goroutine already holds a mutex and tries to acquire it again, it blocks forever
+- `startTmuxSessionStreaming` held the lock via `defer t.mu.Unlock()`
+- It then called `startStatusPolling()` which tried to acquire the same lock
+- This blocked `startTmuxSessionStreaming` from returning
+- Which meant `t.mu.Unlock()` was never called
+- Which meant `readLoopStream()` could never acquire the lock to proceed
+
+### The Fix
+
+Removed lock acquisition from `startStatusPolling()` since its caller already holds the lock:
+
+```go
+// startStatusPolling begins lightweight polling for alt-screen status only.
+// NOTE: Caller must hold t.mu lock - this function does NOT acquire the lock
+// to avoid deadlock when called from startTmuxSessionStreaming.
+func (t *Terminal) startStatusPolling(tmuxSession string) {
+    // NOTE: No lock here - caller (startTmuxSessionStreaming) already holds it
+    t.tmuxPolling = true
+    t.tmuxStopChan = make(chan struct{})
+    t.tmuxSession = tmuxSession
+
+    go t.pollStatusLoop()
+}
+```
+
+### Verification
+
+After the fix, logs showed successful data flow:
+```
+[PTY-STREAM] p.Read() returned n=91 err=<nil>
+[PTY-STREAM] Emitting 91 bytes via terminal:data
+[PTY-STREAM] Emitting 1024 bytes via terminal:data
+```
+
+### Lessons Learned
+
+1. **Go mutexes are not reentrant** - A goroutine cannot acquire a lock it already holds. This is different from Java's `synchronized` or C#'s `lock`. Always trace the call graph when adding `Lock()` calls.
+
+2. **Standalone tests are invaluable** - When the full system isn't working, isolate the subsystem. Our standalone PTY test proved the PTY mechanism worked, which focused the investigation on the application-level code.
+
+3. **Debug logging around lock acquisition** - Adding "Acquiring lock..." and "Lock acquired" messages immediately revealed the deadlock.
+
+4. **Document lock requirements** - Functions that expect the caller to hold a lock should have clear comments stating this requirement.
+
+5. **Prefer lock-free designs where possible** - The status polling could be refactored to not need shared state during initialization.
+
+### Changes Made
+
+| File | Change |
+|------|--------|
+| `terminal.go` | Fixed deadlock by removing lock from `startStatusPolling()` |
+| `terminal.go` | Added debug logging for PTY streaming data flow |
+| `pty.go` | Added `SpawnPTYWithCommandAndSize()` helper (kept for potential optimization) |
+
+### Commits
+
+- `7ae0af8` - feat(desktop): implement PTY streaming mode (Phase 1)
+- `dd2e383` - fix(desktop): resolve deadlock in PTY streaming mode
+
+### PR
+
+https://github.com/myrison/agent-deck/pull/99
