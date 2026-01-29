@@ -84,6 +84,24 @@
     font-weight: 500;
 }
 
+/* Session ID - subtle, monospace, clickable */
+.status-bar-session-id {
+    font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+    font-size: 9px;
+    color: var(--text-muted, #666);
+    opacity: 0.6;
+    cursor: pointer;
+    padding: 1px 4px;
+    border-radius: 2px;
+    transition: opacity 0.15s, background 0.15s;
+}
+
+.status-bar-session-id:hover {
+    opacity: 1;
+    background: var(--bg-quaternary, #2a2a2a);
+    color: var(--text-secondary, #aaa);
+}
+
 /* Tool styling */
 .status-bar-tool {
     display: flex;

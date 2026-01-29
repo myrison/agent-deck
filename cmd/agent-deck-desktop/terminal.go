@@ -466,7 +466,7 @@ func (t *Terminal) startRemoteTmuxPolling(hostID, tmuxSession string, rows int) 
 
 // pollRemoteTmuxLoop continuously polls remote tmux for display updates.
 func (t *Terminal) pollRemoteTmuxLoop(hostID, tmuxSession string) {
-	ticker := time.NewTicker(80 * time.Millisecond) // Match local polling rate for responsive typing
+	ticker := time.NewTicker(80 * time.Millisecond) // Balanced for SSH latency and typing feel
 	defer ticker.Stop()
 
 	for {
@@ -771,12 +771,15 @@ func (t *Terminal) stopTmuxPolling() {
 
 // pollTmuxLoop continuously polls tmux for display updates.
 func (t *Terminal) pollTmuxLoop() {
-	ticker := time.NewTicker(80 * time.Millisecond) // ~12.5 fps
+	ticker := time.NewTicker(80 * time.Millisecond) // ~12.5 fps, balanced for performance
 	defer ticker.Stop()
+
+	t.debugLog("[POLL-LOOP] Started for session=%s", t.sessionID)
 
 	for {
 		select {
 		case <-t.tmuxStopChan:
+			t.debugLog("[POLL-LOOP] Stopped")
 			return
 		case <-ticker.C:
 			t.pollTmuxOnce()
@@ -833,19 +836,12 @@ func (t *Terminal) pollTmuxOnce() {
 		}
 	}
 
-	// Step 3: Fetch history gap (if any) - but don't emit yet
-	// We'll combine it with viewport diff into a single emission to prevent cursor state bugs
-	var historyGap string
-	if !inAltScreen && historySize > 0 {
-		gap, err := tracker.FetchHistoryGap(historySize)
-		if err != nil {
-			t.debugLog("[POLL] FetchHistoryGap error: %v", err)
-		} else if len(gap) > 0 {
-			historyGap = gap
-			historyGapLineCount = strings.Count(gap, "\n")
-			t.debugLog("[POLL] Fetched %d bytes of history gap (historySize=%d)", len(gap), historySize)
-		}
-	}
+	// Step 3: History gap fetch DISABLED
+	// History gap injection via escape sequences causes rendering corruption in xterm.js.
+	// The escape sequences (cursor save/restore, move to bottom, CRLF scroll) conflict
+	// with xterm.js internal cursor state. Skipping the FetchHistoryGap call entirely
+	// to avoid unnecessary tmux subprocess overhead.
+	// TODO: For lossless scrollback, implement pipe-pane architecture (Phase 4).
 
 	// Step 4: Capture current viewport
 	cmd := exec.Command(tmuxBinaryPath, "capture-pane", "-t", session, "-p", "-e")
@@ -865,7 +861,9 @@ func (t *Terminal) pollTmuxOnce() {
 	lastState := t.tmuxLastState
 	t.mu.Unlock()
 
-	if currentState != lastState {
+	viewportChanged := currentState != lastState
+
+	if viewportChanged {
 		t.mu.Lock()
 		t.tmuxLastState = currentState
 		t.mu.Unlock()
@@ -877,48 +875,18 @@ func (t *Terminal) pollTmuxOnce() {
 			viewportUpdate := tracker.DiffViewport(content)
 			viewportDiffBytes = len(viewportUpdate)
 
-			// Step 7: Combine history gap + viewport update into single emission
-			// This prevents cursor state bugs from separate emissions
-			var combined strings.Builder
-
-			// First: emit history gap at bottom of viewport (will scroll up into scrollback)
-			// We position cursor to the last viewport row, so CRLF scrolls content up
-			if len(historyGap) > 0 {
-				// Save cursor, move to bottom row, emit history, restore cursor
-				combined.WriteString("\x1b7")                                        // Save cursor (DEC)
-				combined.WriteString(fmt.Sprintf("\x1b[%d;1H", tracker.viewportRows)) // Go to bottom row
-				combined.WriteString(historyGap)                                      // History lines with CRLF scroll up
-				combined.WriteString("\x1b8")                                         // Restore cursor (DEC)
-			}
-
-			// Then: emit viewport diff (which starts with cursor home)
-			combined.WriteString(viewportUpdate)
-
-			if combined.Len() > 0 {
-				combinedStr := combined.String()
-				bytesSent = len(combinedStr)
-				linesSent = strings.Count(combinedStr, "\n")
+			// Step 7: Emit viewport update
+			if len(viewportUpdate) > 0 {
+				bytesSent = len(viewportUpdate)
+				linesSent = strings.Count(viewportUpdate, "\n")
 				lines := strings.Count(content, "\n")
-				t.debugLog("[POLL] Combined update: %d bytes (gap=%d, viewport=%d), %d content lines, historySize=%d, altScreen=%v",
-					bytesSent, len(historyGap), len(viewportUpdate), lines, historySize, inAltScreen)
-				runtime.EventsEmit(t.ctx, "terminal:data", TerminalEvent{SessionID: t.sessionID, Data: combinedStr})
+				t.debugLog("[POLL] Viewport update: %d bytes, %d content lines, historySize=%d, altScreen=%v",
+					bytesSent, lines, historySize, inAltScreen)
+				runtime.EventsEmit(t.ctx, "terminal:data", TerminalEvent{SessionID: t.sessionID, Data: viewportUpdate})
 			}
-		}
-	} else if len(historyGap) > 0 {
-		// Viewport unchanged but we have history gap - emit it with proper cursor management
-		if t.ctx != nil {
-			var combined strings.Builder
-			combined.WriteString("\x1b7")                                        // Save cursor
-			combined.WriteString(fmt.Sprintf("\x1b[%d;1H", tracker.viewportRows)) // Go to bottom row
-			combined.WriteString(historyGap)
-			combined.WriteString("\x1b8") // Restore cursor
-			combinedStr := combined.String()
-			bytesSent = len(combinedStr)
-			linesSent = strings.Count(combinedStr, "\n")
-			t.debugLog("[POLL] History gap only: %d bytes, historySize=%d", len(historyGap), historySize)
-			runtime.EventsEmit(t.ctx, "terminal:data", TerminalEvent{SessionID: t.sessionID, Data: combinedStr})
 		}
 	}
+	// NOTE: "history gap only" case removed - escape sequence approach causes rendering corruption
 
 	// Record instrumentation stats
 	t.recordPollStats(linesProduced, historyGapLineCount, viewportDiffBytes, bytesSent, linesSent, time.Since(pollStart).Milliseconds(), captureErr)
@@ -1380,3 +1348,4 @@ func (t *Terminal) recordPollStats(linesProduced, historyGapLines int, viewportD
 		t.pipelineStats.CaptureErrors++
 	}
 }
+

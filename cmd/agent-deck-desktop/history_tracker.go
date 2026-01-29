@@ -178,19 +178,14 @@ func (ht *HistoryTracker) DiffViewport(currentContent string) string {
 		lineMismatch = lineDiff > (len(ht.lastViewportLines) / 2)
 	}
 
-	// DEBUG: Always use full viewport redraw to diagnose rendering artifacts
-	// TODO: Remove this once artifacts are fixed
-	_ = diffPercent  // Suppress unused warning
-	_ = lineMismatch // Suppress unused warning
-	ht.lastViewportLines = newLines
-	return ht.buildFullViewportOutput(newLines)
+	// Circuit breaker: if >80% changed or major line count mismatch, do full resync
+	if diffPercent > 80 || lineMismatch {
+		ht.lastViewportLines = newLines
+		return ht.buildFullViewportOutput(newLines)
+	}
 
-	// Smart diff: only update changed lines (DISABLED FOR DEBUGGING)
+	// Smart diff: only update changed lines (minimizes flicker)
 	var output strings.Builder
-
-	// Always start with cursor home to establish known state
-	// This prevents cursor position bugs when history gap was emitted before us
-	output.WriteString("\x1b[H")
 
 	for i, newLine := range newLines {
 		if i < len(ht.lastViewportLines) {

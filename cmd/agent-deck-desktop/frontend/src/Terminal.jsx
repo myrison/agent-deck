@@ -991,7 +991,10 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             searchAddonRef.current = null;
             initRef.current = false;
         };
-    }, [searchRef, session, paneId, onFocus, fontSize, scrollSpeed]); // Note: theme/fontSize changes handled by separate useEffects
+    // Dependencies use stable session identifiers, NOT the whole session object.
+    // Session status polling creates new object refs every 5s - using the whole
+    // object would cause terminal to unmount/remount on every status update!
+    }, [searchRef, session?.id, session?.tmuxSession, session?.remoteHost, paneId, onFocus, fontSize, scrollSpeed]);
 
     // Scroll to bottom when indicator is clicked
     const handleScrollToBottom = () => {
@@ -1053,6 +1056,15 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
+
+    // Auto-refresh debug overlay when visible (every 200ms)
+    useEffect(() => {
+        if (!showDebugOverlay) return;
+        const interval = setInterval(() => {
+            setDebugRefreshKey(k => k + 1);
+        }, 200);
+        return () => clearInterval(interval);
+    }, [showDebugOverlay]);
 
     // Render the pipeline debug overlay
     const renderDebugOverlay = () => {

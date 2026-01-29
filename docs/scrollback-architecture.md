@@ -1,8 +1,8 @@
 # Scrollback Data Loss Fix - Architecture Document
 
-**Status:** Phase 1 & 2 Complete
+**Status:** Phase 2.5 - Verification & Root Cause Investigation
 **Created:** 2026-01-28
-**Branch:** `fix/scrollback-fast-streaming`
+**Branch:** `fix/scrollback-debug`
 **Last Updated:** 2026-01-28
 
 ---
@@ -290,6 +290,230 @@ This plan was reviewed by the LLM Council (GPT-5.2, Claude Opus 4.5, Gemini 3 Pr
 6. ✅ Added frontend write batching (RAF-based)
 7. ✅ Added comprehensive test scenarios (CR/progress, split ANSI, Unicode)
 8. ✅ Documented remote session limitations
+
+---
+
+## Phase 2.5 Verification Results (2026-01-28)
+
+### Test Results Summary
+
+| Scenario | Events During Output | Data in Scrollback | Rendering Quality |
+|----------|---------------------|-------------------|-------------------|
+| Claude Code + `seq 1 10000` | **0 events** | ✅ Present (searchable) | ❌ Corrupts on interaction |
+| Claude Code + any large output | **0 events** | ✅ Present (searchable) | ❌ Corrupts on interaction |
+| Shell session + test script | ✅ Events populate | ✅ Present | ✅ Clean |
+| Resize after corruption | Events appear | ✅ Present | ✅ Fixes rendering |
+
+### Key Findings
+
+**GOOD NEWS:** Data is NOT being lost. All lines are present and searchable in scrollback.
+
+**UNEXPECTED DISCOVERY:** Two distinct issues identified:
+
+#### Issue 1: Zero Events During Claude Code Output
+When output streams in a Claude Code session, the debug overlay shows **0 events received** and **0 bytes**. However, the data IS in the scrollback (searchable). This means:
+- The polling loop is either not running or not emitting during Claude Code command execution
+- The scrollback data comes from the **initial history capture on attach**, not from streaming `terminal:data` events
+- The 2 events / 1818 bytes observed was from viewport updates AFTER the command completed, not during
+
+**Hypothesis:** Something about Claude Code sessions is preventing or bypassing the polling loop during output streaming.
+
+#### Issue 2: Rendering Corruption on Interaction
+When any of these occur in a Claude Code session with large scrollback:
+- User opens search (Cmd+F)
+- User resizes window
+- Large output streams (e.g., AI assistant responses)
+
+The viewport becomes visually corrupted:
+- Text overlaps or gets misaligned
+- Markdown tables render broken
+- Lines appear in wrong positions
+
+**Workaround:** Resizing the window again forces a full redraw and fixes the rendering.
+
+**Hypothesis:** The viewport diff logic (`DiffViewport()` + history gap insertion) emits ANSI escape sequences that conflict with xterm.js internal cursor/scroll state, causing visual desync.
+
+#### Issue 3: Wide Character (Emoji) Rendering
+Green checkmark emojis (✅) consistently render with the right half clipped/cut off. This suggests:
+- Wide character width calculation is incorrect somewhere in the pipeline
+- tmux, xterm.js, or the sanitization code may be treating 2-cell-wide characters as 1-cell
+- May be related to the viewport diff logic not accounting for wide character widths
+
+### Reproduction Cases
+
+1. **Zero events reproduction:**
+   - Open RevDen desktop app
+   - Attach to Claude Code session
+   - Open debug overlay (Cmd+Shift+D)
+   - Reset stats
+   - Type `seq 1 10000` in the Claude Code prompt
+   - Observe: Events stay at 0 during output
+
+2. **Rendering corruption reproduction:**
+   - Attach to Claude Code session
+   - Have AI assistant output a large response (table, long text)
+   - Observe: Rendering may corrupt
+   - Resize window → Fixes rendering
+
+### Root Cause Investigation Plan
+
+**Option B selected:** Investigate WHY polling shows zero events during Claude Code command execution.
+
+**Next steps:**
+1. Add debug logging to `pollTmuxLoop()` to trace when/why polls happen ✅ DONE
+2. Check if there's pause/resume logic affecting Claude Code sessions
+3. Investigate if sessionID mismatch is causing event filtering
+4. Examine the history capture vs polling code paths
+
+### Automated Tests Status
+
+All Phase 2 unit tests PASS:
+- `pipeline_stats_test.go`: 3 tests ✅
+- `desktop_settings_test.go` (scrollback): 9 tests ✅
+- Frontend tests: 607 tests ✅
+
+---
+
+## Phase 2.6 Resolution (2026-01-28 Evening Session)
+
+### Summary
+
+The "zero events" issue was a **misdiagnosis** - events WERE being received, but the debug overlay wasn't auto-refreshing to show them. The real issues were:
+
+1. **Debug overlay not auto-refreshing** - Used refs instead of state, fixed with interval
+2. **Terminal remounting every 5 seconds** - Session status polling created new object refs, causing full terminal teardown/rebuild
+3. **History gap escape sequences causing rendering corruption** - ANSI cursor save/restore conflicting with xterm.js state
+
+### Root Causes Found
+
+| Issue | Root Cause | Fix Applied |
+|-------|-----------|-------------|
+| "Zero events" in overlay | Overlay used `ref` (no re-render) | Added 200ms auto-refresh interval |
+| 5-second flicker | `useEffect` depended on entire `session` object | Changed to stable IDs: `session?.id, session?.tmuxSession` |
+| Rendering corruption (seq numbers mixing with /context) | History gap escape sequences conflicting with xterm.js | Disabled history gap injection |
+| Full viewport redraw every poll | Debug code forcing `buildFullViewportOutput()` | Re-enabled smart diff |
+
+### Changes Made This Session
+
+#### 1. Debug Overlay Auto-Refresh (KEEP)
+**File:** `frontend/src/Terminal.jsx`
+**Change:** Added `useEffect` with 200ms interval to refresh overlay when visible
+**Why:** The overlay used a ref to store stats, which doesn't trigger re-renders. Now auto-updates.
+
+#### 2. Session ID in Status Bar (KEEP)
+**File:** `frontend/src/StatusBar.jsx`, `frontend/src/StatusBar.css`
+**Change:** Added session ID (first 8 chars) to status bar, clickable to copy full ID
+**Why:** Useful for debugging, helps identify which session is attached
+
+#### 3. Removed POLL-DEBUG Logging (KEEP)
+**File:** `cmd/agent-deck-desktop/terminal.go`
+**Change:** Removed `fmt.Printf("[POLL-DEBUG]...")` statements added during investigation
+**Why:** Cleanup after investigation complete
+
+#### 4. Disabled History Gap Injection (CONSIDER REVERTING)
+**File:** `cmd/agent-deck-desktop/terminal.go`
+**Change:** Commented out the escape sequence logic that injects history gaps:
+```go
+// Before: cursor save → move to bottom → emit gap with CRLF → restore cursor
+// After: just emit viewport update, ignore history gap
+_ = historyGap // Acknowledge but don't use
+combined.WriteString(viewportUpdate)
+```
+**Why:** The escape sequences caused rendering corruption (old scrollback mixing with new content)
+**Trade-off:** Streaming scrollback won't accumulate during fast output. Resize still fetches full history from tmux.
+**RECOMMENDATION FOR NEXT AGENT:** Now that the 5-second remount bug is fixed, consider **re-enabling history gap injection** to test if it works correctly without the constant terminal remounting. The rendering corruption may have been caused by the interaction of history gap injection WITH the terminal remounting, not history gap injection alone.
+
+#### 5. Re-enabled Smart Diff (KEEP)
+**File:** `cmd/agent-deck-desktop/history_tracker.go`
+**Change:** Removed debug code that forced full viewport redraw every poll:
+```go
+// Removed:
+// DEBUG: Always use full viewport redraw to diagnose rendering artifacts
+// return ht.buildFullViewportOutput(newLines)
+
+// Re-enabled circuit breaker logic:
+if diffPercent > 80 || lineMismatch {
+    return ht.buildFullViewportOutput(newLines)
+}
+// Then smart diff for changed lines only
+```
+**Why:** Full redraws every 80ms caused flicker. Smart diff only updates changed lines.
+
+#### 6. Fixed Terminal useEffect Dependencies (KEEP - THE REAL FIX)
+**File:** `frontend/src/Terminal.jsx`
+**Change:**
+```javascript
+// Before:
+}, [searchRef, session, paneId, onFocus, fontSize, scrollSpeed]);
+
+// After:
+}, [searchRef, session?.id, session?.tmuxSession, session?.remoteHost, paneId, onFocus, fontSize, scrollSpeed]);
+```
+**Why:** Session status polling (every 5 seconds) creates new object references. Using the whole `session` object as a dependency caused the entire terminal to unmount/remount every 5 seconds. Using stable identifiers (`session?.id`, etc.) means the terminal only re-initializes when the actual session changes.
+
+### Current Status
+
+- ✅ **Stable** - No more 5-second flicker
+- ✅ **Events display correctly** in debug overlay
+- ✅ **Rendering clean** for normal output and `/context`
+- ⚠️ **History gap injection disabled** - streaming scrollback won't accumulate (resize still works)
+- ✅ **History gap injection CONFIRMED BROKEN** - Tested 2026-01-28 evening, still causes rendering corruption independent of remount bug
+
+### Phase 2.7: History Gap Re-test (2026-01-28 Late Evening)
+
+**Test performed:** Re-enabled history gap escape sequence injection after terminal remount bug was fixed.
+
+**Result:** FAILED - Rendering corruption immediately visible. Multiple "Claude Code v2.1.23" headers overlapping, text from different scrollback regions mixing together.
+
+**Conclusion:** The escape sequence approach (`\x1b7` save cursor → `\x1b[row;1H` move → emit CRLF → `\x1b8` restore) is fundamentally incompatible with xterm.js. This is NOT caused by the terminal remount bug - the two issues are independent.
+
+**Code reverted:** History gap injection disabled again with updated comment noting the 2026-01-28 test.
+
+### Remaining Issue: Fast Output Corruption
+
+With history gap disabled, rendering is clean for normal use. However, **fast output still corrupts the display**:
+- When large amounts of text stream quickly (e.g., `/context`, `seq 1 10000`)
+- The viewport can become corrupted (partial output, missing lines)
+- Resize fixes it (triggers full tmux history refresh)
+
+### Phase 2.8: Fast Output Corruption Investigation (2026-01-28 Night)
+
+**Experiments performed:**
+
+| Experiment | Result | Conclusion |
+|------------|--------|------------|
+| 20ms polling (vs 80ms) | Still corrupts | Not a polling speed issue |
+| Burst detection + auto-recovery | Doesn't fix | Can't undo corruption after it happens |
+| Full viewport redraws (no diff) | **Works** but glitchy | **Diff algorithm is the culprit** |
+
+**Key finding:** When `DiffViewport()` is bypassed and every poll does a full viewport redraw, the fast output renders correctly. However, 50 full redraws per second causes unacceptable visual flickering.
+
+**Root cause confirmed:** The `DiffViewport()` smart diff algorithm in `history_tracker.go` generates incorrect ANSI escape sequences during fast output bursts. The algorithm compares previous and current viewport states and emits cursor positioning + line updates, but during rapid changes this produces invalid sequences that corrupt xterm.js rendering.
+
+**Code reverted:** All experimental changes removed:
+- Polling interval restored to 80ms
+- Burst detection code removed
+- Smart diff re-enabled (with known corruption issue)
+
+### Current Workaround
+
+Users can resize the window to trigger a full refresh and fix any corruption. This is suboptimal but functional.
+
+### Real Fix Options
+
+1. **Fix the diff algorithm** - Deep dive into `DiffViewport()` to understand why it generates bad ANSI sequences during fast output. May need fundamental redesign.
+
+2. **Hybrid approach** - Use smart diff normally, detect stabilization after burst, do ONE full redraw. Similar to burst detection but only refresh once after output stops.
+
+3. **pipe-pane architecture (Phase 4)** - Bypass polling entirely. Use tmux `pipe-pane` to stream output to a file, read file in Go, emit to xterm.js. This is the "proper" fix but significant work.
+
+4. **Frontend accumulation** - Let xterm.js manage scrollback directly instead of backend polling.
+
+### Next Steps
+
+1. **Prioritize pipe-pane architecture** - The diff algorithm is fundamentally flawed for fast output. Rather than patching it, implement the lossless streaming approach.
+
+2. **Wide character (emoji) rendering** - Still an open issue, not addressed this session.
 
 ---
 
