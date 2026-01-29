@@ -530,8 +530,151 @@ Users can resize the window to trigger a full refresh and fix any corruption. Th
 
 ---
 
+## Phase 4: Pipe-Pane Streaming Implementation (2026-01-28)
+
+### Branch: `feature/pipe-pane-streaming`
+
+### Commits Made
+1. `a2f3919` - Initial pipe-pane streaming implementation
+2. `fd05476` - UTF-8 boundary splitting and bootstrap alignment fixes
+
+### Problem Encountered: Cursor Position Desync
+
+After implementing pipe-pane streaming, a critical regression occurred: **typed characters appear at the wrong screen location**.
+
+#### Symptoms
+- Initial history loads correctly
+- First few characters appear at correct position
+- On tab switch or resize, cursor jumps to wrong location
+- Typed characters appear scattered down the left edge of the screen
+- Multiple cursor indicators visible (blinking cursor at bottom while text appears elsewhere)
+
+#### Root Cause Analysis
+
+**Discovery via test script:**
+```bash
+tmux display-message -p "#{cursor_x},#{cursor_y}"  # Returns: x=10 y=8
+tmux capture-pane -p -S - -E - | wc -l              # Returns: 24 lines
+```
+
+The issue: `capture-pane -S - -E -` returns **full viewport including trailing empty lines** (24 lines), but tmux cursor is at row 8. After writing 24 lines to xterm.js, cursor ends at row 24 (bottom) while tmux expects row 8.
+
+**Pipe-pane output analysis (hex dump):**
+```
+1b5b3f32303236680d1b5b32431b5b34411b5b376d541b5b32376d0d0d0a...
+```
+Decodes to: `\x1b[?2026h` (bracketed paste) + `\r` + `\x1b[2C\x1b[4A` (move right 2, up 4)...
+
+The pipe-pane stream includes **cursor positioning sequences** that assume cursor is at tmux's position, but xterm's cursor is at a different position after history load.
+
+#### Attempted Fixes
+
+| Attempt | Result | Why It Failed |
+|---------|--------|---------------|
+| Add cursor positioning after history | Partially worked | Breaks on resize/tab switch |
+| Sanitize cursor sequences from pipe-pane | Completely broken | Claude Code UI needs cursor moves for prompt rendering |
+| Strip only specific sequences | One char per line | Broke normal rendering flow |
+
+### LLM Council Deliberation (2026-01-28)
+
+Full council consulted with 4 models (GPT-5.2, Gemini 3 Pro, Claude Opus 4.5, Grok 4).
+
+#### Consensus Finding
+
+**`pipe-pane` is fundamentally the wrong primitive for driving a terminal renderer.**
+
+`pipe-pane` gives "what the program wrote to PTY" not "what tmux currently has on screen." These diverge when:
+- tmux does presentation work (redraws, reflow, status changes)
+- Resize events cause tmux to redraw without program output
+- Mode changes (copy-mode, alternate screen)
+
+#### Council Recommendations (Prioritized)
+
+**1. Immediate Fix: "Initialization Packet" Protocol**
+
+If keeping `pipe-pane`, implement atomic handshake:
+1. **Resize** tmux pane to match client dimensions
+2. **Capture** content (`capture-pane -e -p -S -`)
+3. **Query** cursor (`tmux display-message -p '#{cursor_x},#{cursor_y}'`)
+4. **Construct** sync packet: content + `\x1b[row+1;col+1H` (absolute CUP)
+5. **Only then** start `pipe-pane` streaming
+
+**2. Handle Events as Destructive Re-syncs**
+
+- **Tab switch**: Treat as fresh session - clear xterm, run full init
+- **Resize**: Pause stream, resize tmux, re-run init sequence, resume
+
+**3. Long-Term: PTY Streaming (Recommended)**
+
+Replace `pipe-pane` with real tmux client via PTY:
+```bash
+tmux attach-session -t <target>  # Run inside PTY
+```
+Stream PTY output to xterm.js directly. This ensures:
+- tmux sends initial full redraw including cursor
+- tmux handles resize redraws automatically
+- Single source of truth (no dual-state problem)
+
+### Current Code State (End of Session)
+
+**Files modified:**
+- `cmd/agent-deck-desktop/terminal.go` - Added cursor positioning after history
+- `cmd/agent-deck-desktop/pipe_pane.go` - Added (then reverted) sanitization
+- `cmd/agent-deck-desktop/frontend/src/Terminal.jsx` - Added debug logging
+
+**Status:** Broken. Sanitization reverted but cursor position issue remains.
+
+### Next Steps for Continuation
+
+1. **Implement "Initialization Packet" protocol** per council recommendation
+2. **Add pause/resume mechanism** for pipe-pane during resize
+3. **Consider PTY architecture** for long-term fix
+4. **Test with Claude Code** specifically (has aggressive prompt refresh cycles)
+
+---
+
+## Troubleshooting Log
+
+### Session: 2026-01-28 Late Night (Pipe-Pane Cursor Sync)
+
+| Time | Action | Result |
+|------|--------|--------|
+| 22:48 | Started dev server on feature branch | App runs |
+| 22:50 | Identified cursor at wrong position after history | Confirmed bug |
+| 22:55 | Created test_pipe_pane.sh to analyze | Showed 24-line capture vs row 8 cursor |
+| 23:00 | Added cursor positioning after history | Initial load fixed |
+| 23:02 | Tested resize | Cursor still wrong after resize |
+| 23:05 | Added RefreshAfterResize cursor positioning | Still broken |
+| 23:07 | Discovered pipe-pane contains cursor sequences | Key insight |
+| 23:08 | Added sanitizePipePaneOutput() | Completely broke - one char per line |
+| 23:10 | Reverted sanitization | Back to original issue |
+| 23:12 | Consulted LLM Council | Received architectural guidance |
+| 23:20 | Council consensus: pipe-pane is wrong primitive | Need different approach |
+
+### Debug Commands Used
+
+```bash
+# Check tmux cursor position
+tmux display-message -t SESSION -p "#{cursor_x},#{cursor_y},#{pane_height}"
+
+# Count capture-pane lines
+tmux capture-pane -t SESSION -p -S - -E - | wc -l
+
+# View pipe-pane hex output
+tail -c 100 /tmp/agentdeck-pipe-*.log | xxd
+
+# Watch frontend logs
+tail -f ~/.agent-deck/logs/frontend-console.log | grep -E "(cursor|history|DEBUG)"
+
+# Watch backend logs
+tail -f /path/to/dev-server-output | grep -E "(PIPE-PANE|cursor)"
+```
+
+---
+
 ## References
 
 - [xterm.js Documentation](https://xtermjs.org/)
 - [tmux pipe-pane Manual](https://man7.org/linux/man-pages/man1/tmux.1.html)
 - LLM Council deliberation transcript (2026-01-28)
+- LLM Council deliberation on cursor sync (2026-01-28 late night)
