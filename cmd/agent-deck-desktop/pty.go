@@ -61,6 +61,33 @@ func SpawnPTYWithCommand(name string, args ...string) (*PTY, error) {
 	}, nil
 }
 
+// SpawnPTYWithCommandAndSize creates a new PTY with initial size, running a specific command.
+// This is critical for tmux attach because tmux queries terminal size on startup.
+// If the PTY has size 0x0 when tmux starts, tmux won't render anything.
+func SpawnPTYWithCommandAndSize(cols, rows int, name string, args ...string) (*PTY, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Env = append(os.Environ(),
+		"TERM=xterm-256color",
+		"COLORTERM=truecolor",
+	)
+
+	// Set initial window size so tmux gets correct dimensions immediately
+	winSize := &pty.Winsize{
+		Cols: uint16(cols),
+		Rows: uint16(rows),
+	}
+
+	ptmx, err := pty.StartWithSize(cmd, winSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PTY{
+		cmd:  cmd,
+		file: ptmx,
+	}, nil
+}
+
 // Read reads from the PTY.
 func (p *PTY) Read(buf []byte) (int, error) {
 	return p.file.Read(buf)

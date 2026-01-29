@@ -1146,7 +1146,7 @@ func TestInstance_CanRestart_Gemini(t *testing.T) {
 
 	// Create and start a Gemini session so tmux session exists
 	inst := NewInstanceWithTool("gemini-restart-test", "/tmp", "gemini")
-	inst.Command = "sleep 60"
+	inst.Command = "bash -c 'sleep 60'"
 	err := inst.Start()
 	if err != nil {
 		t.Fatalf("Failed to start session: %v", err)
@@ -1522,7 +1522,7 @@ func TestClearErrorLockout_AllowsImmediateRecheck(t *testing.T) {
 
 	// Create and start a real tmux session
 	inst := NewInstance("lockout-recheck-test", "/tmp")
-	inst.Command = "sleep 60"
+	inst.Command = "bash -c 'sleep 60'"
 	if err := inst.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -1601,7 +1601,7 @@ func TestClearErrorLockout_RecoveryWithLiveSession(t *testing.T) {
 
 	// Create and start a session
 	inst := NewInstance("lockout-recovery-test", "/tmp")
-	inst.Command = "sleep 60"
+	inst.Command = "bash -c 'sleep 60'"
 	if err := inst.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
