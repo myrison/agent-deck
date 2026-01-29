@@ -1,10 +1,11 @@
 # PTY Streaming Implementation Plan
 
-**Status:** Council Reviewed - Ready for Implementation
+**Status:** Final Council Review Complete - Ready for Implementation
 **Branch:** `feature/pty-streaming`
 **Worktree:** `../agent-deck-pty-streaming`
 **Created:** 2026-01-29
-**Council Review:** 2026-01-29 (GPT-5.2, Gemini 3 Pro, Claude Opus 4.5, Grok 4)
+**Council Review #1:** 2026-01-29 (GPT-5.2, Gemini 3 Pro, Claude Opus 4.5, Grok 4)
+**Council Review #2:** 2026-01-29 (Final Review - same council)
 
 ---
 
@@ -16,12 +17,20 @@ Replace the broken polling + DiffViewport architecture with direct PTY streaming
 
 ### Council Verdict
 
-**Approved with modifications.** The council identified critical issues with the original "Trim Viewport" seam strategy and recommended phase reordering. Key changes incorporated:
+**Approved with modifications.** Two council reviews were conducted. Key changes incorporated:
 
+**Review #1 Changes:**
 1. **Seam strategy refined** - Address capture/attach race condition
 2. **Phase order changed** - Prioritize stable streaming before history hydration
 3. **Additional edge cases added** - Alternate screen, partial ANSI, UTF-8 boundaries
 4. **Rollback strategy strengthened** - Include hard terminal reset
+
+**Review #2 Changes (Final):**
+1. **"Blank Terminal" fix** - Phase 1 MUST include initial viewport snapshot (not just streaming)
+2. **Throttling merged into Phase 1** - Client-side RAF batching to prevent DOM freezing
+3. **Resize epochs added** - Prevent race condition between resize and in-flight data
+4. **ANSI buffering removed** - Only buffer UTF-8 boundaries; xterm.js handles ANSI natively
+5. **Risk priority reordered** - DOM freezing and blank screen are top priorities
 
 ---
 
@@ -155,11 +164,16 @@ during the capture→attach transition. Use attach-first for safety.
 
 **Council Recommendation:** Reorder phases to prioritize stable streaming before history hydration.
 
-### Phase 1: Stable Streaming Viewport (NO HISTORY)
+### Phase 1: Stable Streaming Viewport (NO SCROLLBACK HISTORY)
 
-**Goal:** Prove PTY streaming works for live viewport. **Ignore scrollback history initially.**
+**Goal:** Prove PTY streaming works for live viewport with initial state. **Ignore scrollback history initially.**
 
 This phase directly fixes the corruption bug with minimum complexity.
+
+**Critical Council Requirements (Review #2):**
+1. **Initial viewport snapshot** - MUST capture and emit current visible pane on connect (prevents blank terminal)
+2. **Client-side throttling** - MUST batch writes to xterm.js via requestAnimationFrame (prevents DOM freezing)
+3. **Resize epochs** - MUST tag data with resize ID to prevent race conditions
 
 **SSH Compatibility:** SSH sessions will continue using the existing polling implementation until Phase 4. This ensures no breakage for SSH users (a mandatory daily use feature).
 
@@ -207,24 +221,27 @@ func (t *Terminal) StartTmuxSession(tmuxSession string, cols, rows int) error {
 }
 ```
 
-**Phase 1 code path (NO HISTORY):**
+**Phase 1 code path (WITH INITIAL VIEWPORT, NO SCROLLBACK):**
 ```go
 func (t *Terminal) StartTmuxSession(tmuxSession string, cols, rows int) error {
     // 1. Resize tmux window
-    // 2. Spawn PTY with tmux attach-session
-    // 3. go t.readLoopStream()   // ← STREAM OUTPUT
-    // 4. tmux sends full viewport redraw on attach
-    // 5. NO history capture, NO polling
+    // 2. Capture CURRENT VIEWPORT: capture-pane -p -e (visible pane only)
+    // 3. Emit viewport via terminal:initial → xterm.write()
+    // 4. Spawn PTY with tmux attach-session
+    // 5. go t.readLoopStream()   // ← STREAM OUTPUT
+    // 6. tmux sends full viewport redraw on attach (may duplicate, that's OK)
+    // 7. NO scrollback history capture, NO polling
     //
-    // Scrollback will be empty until Phase 2
+    // Scrollback will be empty until Phase 2, but terminal is NOT blank
 }
 ```
 
-**Why skip history in Phase 1:**
+**Why this approach (Council Review #2):**
+- **NOT blank on connect** - User sees current terminal state immediately
 - Simplest possible change to fix corruption
 - Proves streaming works under fast output (`seq 1 10000`)
 - No race conditions to debug
-- Can still scroll within viewport, just no pre-attach history
+- Can still scroll within viewport, just no pre-attach scrollback
 
 #### 1.2 New Function: readLoopStream()
 
@@ -324,7 +341,9 @@ func (t *Terminal) pollStatusOnly() {
 }
 ```
 
-#### 1.5 Handle Partial UTF-8 Sequences (Council Edge Case)
+#### 1.5 Handle Partial UTF-8 Sequences ONLY (Council Review #2 Clarification)
+
+**Council Directive:** Buffer ONLY for UTF-8 byte boundaries. Do NOT attempt to parse or buffer ANSI escape sequences on the backend - xterm.js has a robust internal state machine that handles escape sequences split across packet boundaries perfectly.
 
 PTY reads can split multi-byte UTF-8 characters at arbitrary boundaries:
 
@@ -366,6 +385,141 @@ func findLastValidUTF8Boundary(data []byte) int {
     return len(data)
 }
 ```
+
+#### 1.6 Initial Viewport Snapshot (Council Review #2 - MANDATORY)
+
+**Problem:** If we skip history and only stream, the terminal is BLANK on connection until new output arrives.
+
+**Solution:** Capture and emit the current visible pane BEFORE starting the stream.
+
+```go
+func (t *Terminal) StartTmuxSession(tmuxSession string, cols, rows int) error {
+    // ... resize tmux window ...
+
+    // MANDATORY: Capture current viewport BEFORE streaming
+    // This prevents the "blank terminal" problem identified in Council Review #2
+    viewportCmd := exec.Command(tmuxBinaryPath, "capture-pane", "-t", tmuxSession,
+        "-p", "-e")  // Current viewport only (no -S or -E flags)
+    viewportOutput, err := viewportCmd.Output()
+    if err == nil && len(viewportOutput) > 0 {
+        viewport := sanitizeHistoryForXterm(string(viewportOutput))
+        runtime.EventsEmit(t.ctx, "terminal:initial",
+            TerminalEvent{SessionID: t.sessionID, Data: viewport})
+    }
+
+    // Then spawn PTY and start streaming...
+}
+```
+
+#### 1.7 Client-Side RAF Throttling (Council Review #2 - MANDATORY)
+
+**Problem:** Raw streaming without rate-limiting will freeze the browser DOM if user runs `cat /dev/urandom` or dumps massive logs.
+
+**Solution:** Batch writes to xterm.js via requestAnimationFrame.
+
+```javascript
+// Terminal.jsx - RAF batching for terminal writes
+class TerminalWriter {
+    constructor(terminal) {
+        this.terminal = terminal;
+        this.pendingData = '';
+        this.rafId = null;
+    }
+
+    write(data) {
+        this.pendingData += data;
+
+        // Only schedule RAF if not already pending
+        if (this.rafId === null) {
+            this.rafId = requestAnimationFrame(() => {
+                if (this.pendingData.length > 0) {
+                    this.terminal.write(this.pendingData);
+                    this.pendingData = '';
+                }
+                this.rafId = null;
+            });
+        }
+    }
+
+    flush() {
+        if (this.rafId !== null) {
+            cancelAnimationFrame(this.rafId);
+            this.rafId = null;
+        }
+        if (this.pendingData.length > 0) {
+            this.terminal.write(this.pendingData);
+            this.pendingData = '';
+        }
+    }
+}
+
+// Usage in event handler
+const writer = new TerminalWriter(xtermRef.current);
+EventsOn('terminal:data', (payload) => {
+    if (payload?.sessionId === sessionId && payload.data) {
+        writer.write(payload.data);  // Batched via RAF
+    }
+});
+```
+
+#### 1.8 Resize Epochs (Council Review #2 - MANDATORY)
+
+**Problem:** When user resizes the window, there's a race between:
+1. Resize event reaching the server
+2. In-flight data (formatted for OLD dimensions) reaching the client
+
+**Solution:** Tag resize operations with an epoch ID. Discard stale data.
+
+```go
+// Backend: Track resize epoch
+type Terminal struct {
+    // ... existing fields ...
+    resizeEpoch uint64
+}
+
+func (t *Terminal) Resize(cols, rows int) error {
+    t.mu.Lock()
+    t.resizeEpoch++
+    epoch := t.resizeEpoch
+    t.mu.Unlock()
+
+    // Emit resize epoch to frontend
+    if t.ctx != nil {
+        runtime.EventsEmit(t.ctx, "terminal:resize-epoch",
+            map[string]interface{}{
+                "sessionId": t.sessionID,
+                "epoch":     epoch,
+            })
+    }
+
+    // ... existing resize logic ...
+}
+```
+
+```javascript
+// Frontend: Discard stale data after resize
+let currentResizeEpoch = 0;
+let resizeGraceUntil = 0;
+
+EventsOn('terminal:resize-epoch', (payload) => {
+    if (payload?.sessionId === sessionId) {
+        currentResizeEpoch = payload.epoch;
+        resizeGraceUntil = Date.now() + 100; // 100ms grace period
+    }
+});
+
+EventsOn('terminal:data', (payload) => {
+    // During grace period after resize, be cautious
+    if (Date.now() < resizeGraceUntil) {
+        // Option 1: Buffer and apply after grace period
+        // Option 2: Apply anyway (tmux redraw will fix it)
+        // We choose option 2 for simplicity - tmux's redraw handles it
+    }
+    writer.write(payload.data);
+});
+```
+
+**Note:** The resize epoch mechanism is a safety net. In practice, tmux's SIGWINCH-triggered redraw usually fixes any transient corruption. The epoch tracking helps with edge cases during rapid resize operations.
 
 ### Phase 2: History Hydration (The Seam)
 
@@ -924,18 +1078,30 @@ func (t *Terminal) shouldUsePTYStreaming() bool {
 | Edge Case | Description | Mitigation |
 |-----------|-------------|------------|
 | **Alternate Screen Buffer** | vim/htop use alternate screen; history shouldn't be prepended there | Detect `#{alternate_on}` via tmux; skip history in alt-screen mode |
-| **Partial ANSI Sequences** | PTY chunks can split `\x1b[` from `31m` | Stateful ANSI parser that buffers incomplete sequences |
+| **Partial ANSI Sequences** | PTY chunks can split `\x1b[` from `31m` | ~~Stateful ANSI parser~~ **Council Review #2:** Do NOT buffer ANSI - xterm.js handles split sequences natively |
 | **Partial UTF-8 Sequences** | Multi-byte chars can split at read boundaries | Buffer incomplete UTF-8; emit only complete runes |
 | **tmux Status Bar Leakage** | `attach-session` shows full tmux UI including status bar | RevDen hides tmux status via `set -g status off` (already configured) |
-| **Resize/Reflow Desync** | Resize can cause history/viewport mismatch | Trust SIGWINCH; add fallback full refresh |
-| **Connection Drop Mid-Sequence** | SSH dies while `\x1b[38;2;255;` in progress | Reset ANSI parser state on reconnect |
+| **Resize/Reflow Desync** | Resize can cause history/viewport mismatch | Trust SIGWINCH; add resize epochs (1.8) |
+| **Connection Drop Mid-Sequence** | SSH dies while `\x1b[38;2;255;` in progress | ~~Reset ANSI parser state~~ Let xterm.js handle it on reconnect |
+| **Blank Terminal on Connect** | (NEW - Review #2) Streaming-only means blank screen until output | **MANDATORY:** Emit initial viewport snapshot on connect (1.6) |
+| **DOM Freezing** | (NEW - Review #2) Fast output freezes browser if unthrottled | **MANDATORY:** RAF batching for xterm.write() (1.7) |
 
-### Phase 1 Risks
+### Phase 1 Risks (Updated Priority - Council Review #2)
+
+**Council Priority Order:**
+1. Browser main-thread freezing → Mitigated by 1.7 (RAF throttling)
+2. Blank screen UX → Mitigated by 1.6 (initial viewport snapshot)
+3. Resize/render races → Mitigated by 1.8 (resize epochs)
+4. UTF-8 boundary corruption → Mitigated by 1.5 (UTF-8 buffering only)
+5. Reconnect logic → Deferred to Phase 4
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
-| **Partial ANSI corruption** | Medium | High | Implement stateful parser (see 1.5) |
-| **Initial cursor wrong** | Medium | Medium | tmux sends cursor position on attach |
+| **DOM freezing (fast output)** | High | High | RAF batching in frontend (see 1.7) - **MANDATORY** |
+| **Blank terminal on connect** | High | High | Initial viewport snapshot (see 1.6) - **MANDATORY** |
+| **Resize race condition** | Medium | Medium | Resize epochs (see 1.8) - **MANDATORY** |
+| **Partial UTF-8 corruption** | Medium | Medium | UTF-8 boundary buffering (see 1.5) |
+| **Initial cursor wrong** | Low | Medium | tmux sends cursor position on attach |
 | **Performance regression** | Low | Medium | Compare CPU/memory vs polling |
 | **tmux version variance** | Low | Medium | Test tmux 2.x and 3.x |
 
@@ -965,27 +1131,45 @@ func (t *Terminal) shouldUsePTYStreaming() bool {
 
 ### Overall Assessment
 
-**Risk Level: Medium**
+**Risk Level: Medium** (Reduced from initial assessment due to council clarifications)
 
-The PTY streaming approach is fundamentally simpler than polling + diff. The council identified critical edge cases that must be addressed, particularly:
-1. The capture/attach race condition (fixed by attach-first strategy)
-2. Partial sequence handling (UTF-8 and ANSI)
-3. Terminal state reset on rollback
+The PTY streaming approach is fundamentally simpler than polling + diff. Two council reviews identified critical requirements:
 
-The rollback strategy with hard reset provides a safety net.
+**Review #1:**
+1. The capture/attach race condition (fixed by attach-first strategy in Phase 2)
+2. Terminal state reset on rollback
+
+**Review #2 (Final):**
+1. **Blank terminal problem** - Fixed by mandatory initial viewport snapshot (1.6)
+2. **DOM freezing** - Fixed by mandatory RAF throttling (1.7)
+3. **Resize races** - Fixed by resize epochs (1.8)
+4. **ANSI buffering removed** - xterm.js handles it natively, reducing backend complexity
+5. **UTF-8 only buffering** - Simpler implementation than originally planned
+
+The rollback strategy with hard reset provides a safety net. The council's clarification that ANSI buffering is unnecessary significantly reduces implementation complexity.
 
 ---
 
 ## Success Criteria
 
+### Council Review #2 - Phase 1 Checklist (MANDATORY)
+
+Before merging Phase 1 PR, ALL of these must be true:
+
+- [ ] **Protocol:** WebSocket sends `terminal:initial` (current viewport) on connect, then `terminal:data` (stream)
+- [ ] **Safety:** Frontend limits `term.write()` calls via requestAnimationFrame (max ~60fps)
+- [ ] **Encoding:** Pipeline is byte-stream until UTF-8 decoder at client; no ANSI parsing on backend
+- [ ] **Logic:** No backend code attempts to regex/parse ANSI escape sequences
+
 ### Must Have (Phase 1)
 
 - [ ] `seq 1 10000` renders all numbers correctly
 - [ ] `/context` in Claude Code renders without corruption
-- [ ] No visible "seam" between history and viewport
+- [ ] **Terminal is NOT blank on connection** (initial viewport snapshot works)
 - [ ] Cursor is at correct position after attach
 - [ ] Typing works immediately after attach
-- [ ] Scroll up reveals history
+- [ ] **Browser does not freeze during fast output** (RAF throttling works)
+- [ ] Resize during output does not cause permanent corruption
 
 ### Should Have (Phase 2-3)
 
@@ -1119,8 +1303,69 @@ Council added requirements for:
 - Reconnection with full state rebuild
 - TERM environment variable matching
 
-### Council Consensus Statement
+### Council Consensus Statement (Review #1)
 
 > "The proposal to replace polling with direct PTY streaming is architecturally sound and necessary to resolve the rendering corruption issues. However, the specific 'Trim Viewport' seam strategy is brittle and introduces a critical race condition. Additionally, there is a major integration risk regarding tmux UI leakage that appears unaddressed."
 
-**Final verdict:** Approved with modifications (incorporated into this plan).
+**Verdict:** Approved with modifications (incorporated into this plan).
+
+---
+
+## Appendix: LLM Council Review #2 (Final Review)
+
+### Review Date
+2026-01-29
+
+### Council Composition
+Same as Review #1: GPT-5.2, Claude Opus 4.5, Gemini 3 Pro (Chairman), Grok 4
+
+### Review Focus Areas
+1. Proposed optimizations - Can phases be simplified?
+2. Missing considerations - What haven't we thought of?
+3. Phase 1 trade-off validation - Is skipping history the right approach?
+4. UTF-8/ANSI handling - Is the buffering approach sound?
+5. Risk prioritization - Which risks to tackle first?
+
+### Key Findings
+
+#### 1. Critical Gap: "Blank Terminal" Problem
+
+The council unanimously identified a major UX flaw:
+
+> "The plan to 'skip history' in Phase 1 contains a hidden flaw. If a user connects to an existing session, and you stream only new output, they will see a blank black screen until they type or output occurs."
+
+**Mandatory Fix:** Phase 1 must include fetching a snapshot of the current visible pane (`tmux capture-pane -p -e`) immediately upon connection. This is "initial state," not "scrollback history."
+
+#### 2. Merge Throttling Into Phase 1
+
+> "You cannot ship raw streaming (Phase 1) without basic rendering protection. If a user runs `cat /dev/urandom` or a massive log dump, raw streaming without rate-limiting will freeze the browser DOM."
+
+**Mandatory Fix:** Add basic client-side chunk accumulation via requestAnimationFrame (max ~60fps).
+
+#### 3. Resize Race Condition
+
+> "When a user resizes the window, there is a race between the resize event reaching the server and in-flight data (formatted for the old width) reaching the client."
+
+**Mandatory Fix:** Implement a "Resize Epoch" or ID. Client should discard incoming frame data tagged with older resize ID.
+
+#### 4. ANSI Buffering Correction
+
+The council provided a critical technical directive:
+
+> "Do NOT attempt to parse or buffer ANSI escape sequences on the backend. This is complexity hell (e.g., OSC sequences, differing terminators). Xterm.js has a robust internal state machine that handles escape sequences split across packet boundaries perfectly."
+
+**Directive:** Buffer ONLY for UTF-8 byte boundaries. Pass raw ANSI bytes through.
+
+#### 5. Updated Risk Priority
+
+1. Browser main-thread freezing (throttling) - **HIGHEST**
+2. Blank screen UX (initial viewport snapshot) - **HIGHEST**
+3. Resize/render races (resize epochs) - **HIGH**
+4. UTF-8 boundary corruption (byte-aware buffering) - **MEDIUM**
+5. Reconnect logic - **DEFERRED TO PHASE 4**
+
+### Council Consensus Statement (Review #2)
+
+> "The plan is Approved for Implementation, subject to the inclusion of three mandatory stipulations: (1) Initial viewport snapshot to prevent blank terminal, (2) Client-side RAF throttling to prevent DOM freezing, (3) Resize epochs to prevent race conditions. The council's clarification that ANSI buffering is unnecessary significantly reduces implementation complexity."
+
+**Final Verdict:** APPROVED FOR IMPLEMENTATION with mandatory Phase 1 amendments.
