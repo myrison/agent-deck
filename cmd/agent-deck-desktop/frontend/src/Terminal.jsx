@@ -32,7 +32,7 @@ const BASE_TERMINAL_OPTIONS = {
     lineHeight: 1.2,
     cursorBlink: true,
     cursorStyle: 'block',
-    scrollback: 10000,
+    scrollback: 50000,
     allowProposedApi: true,
     // xterm.js v6 uses DOM renderer by default, with VS Code-based scrollbar
     // Enable smooth scroll animation for visual smoothness (100ms duration)
@@ -71,6 +71,18 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
     const [connectionState, setConnectionState] = useState(CONN_STATE.CONNECTED);
     const [connectionInfo, setConnectionInfo] = useState(null);
     const { theme } = useTheme();
+
+    // RAF batching for terminal:data events (reduces DOM pressure during fast output)
+    const writeBufferRef = useRef('');
+    const rafWriteIdRef = useRef(null);
+    const frontendStatsRef = useRef({
+        eventsReceived: 0,
+        bytesReceived: 0,
+        rafFlushes: 0,
+        bytesWritten: 0,
+    });
+    const [showDebugOverlay, setShowDebugOverlay] = useState(false);
+    const [debugRefreshKey, setDebugRefreshKey] = useState(0); // Forces debug overlay re-render
 
     // Update terminal theme when app theme changes
     useEffect(() => {
@@ -668,12 +680,33 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // 1. History gap lines (content that scrolled off viewport)
         // 2. Viewport diff updates (efficient in-place updates)
         // Filter by sessionId for multi-pane support
+        //
+        // RAF BATCHING: Instead of writing immediately (which can overwhelm xterm.js
+        // during fast output like `seq 1 10000`), we buffer data and flush on the
+        // next animation frame. This reduces DOM pressure and helps prevent data loss.
         const handleTerminalData = (payload) => {
             // Filter: only process events for this terminal's session
             if (payload?.sessionId !== sessionId) return;
 
             if (xtermRef.current && payload.data) {
-                xtermRef.current.write(payload.data);
+                // Buffer the data
+                writeBufferRef.current += payload.data;
+                frontendStatsRef.current.eventsReceived++;
+                frontendStatsRef.current.bytesReceived += payload.data.length;
+
+                // Schedule RAF flush if not already scheduled
+                if (rafWriteIdRef.current === null) {
+                    rafWriteIdRef.current = requestAnimationFrame(() => {
+                        if (xtermRef.current && writeBufferRef.current.length > 0) {
+                            const data = writeBufferRef.current;
+                            writeBufferRef.current = '';
+                            xtermRef.current.write(data);
+                            frontendStatsRef.current.rafFlushes++;
+                            frontendStatsRef.current.bytesWritten += data.length;
+                        }
+                        rafWriteIdRef.current = null;
+                    });
+                }
             }
         };
         const cancelData = EventsOn('terminal:data', handleTerminalData);
@@ -910,6 +943,17 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             cancelConnRestored();
             cancelConnFailed();
 
+            // Flush any pending RAF buffer data before cleanup to prevent data loss
+            if (rafWriteIdRef.current !== null) {
+                cancelAnimationFrame(rafWriteIdRef.current);
+                rafWriteIdRef.current = null;
+            }
+            // Write any remaining buffered data synchronously before dispose
+            if (xtermRef.current && writeBufferRef.current.length > 0) {
+                xtermRef.current.write(writeBufferRef.current);
+                writeBufferRef.current = '';
+            }
+
             // Close the PTY backend for this session
             CloseTerminal(sessionId).catch((err) => {
                 logger.error('Failed to close terminal:', err);
@@ -994,6 +1038,69 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         );
     };
 
+    // Debug overlay keyboard toggle (Cmd+Shift+D)
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'd') {
+                e.preventDefault();
+                setShowDebugOverlay(prev => !prev);
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
+
+    // Render the pipeline debug overlay
+    const renderDebugOverlay = () => {
+        if (!showDebugOverlay) return null;
+
+        const stats = frontendStatsRef.current;
+        const batchRatio = stats.rafFlushes > 0
+            ? (stats.eventsReceived / stats.rafFlushes).toFixed(1)
+            : '0';
+
+        return (
+            <div className="pipeline-debug-overlay">
+                <div className="debug-header">Pipeline Stats (Cmd+Shift+D to close)</div>
+                <div className="debug-row">
+                    <span>Events Received:</span>
+                    <span>{stats.eventsReceived}</span>
+                </div>
+                <div className="debug-row">
+                    <span>Bytes Received:</span>
+                    <span>{stats.bytesReceived}</span>
+                </div>
+                <div className="debug-row">
+                    <span>RAF Flushes:</span>
+                    <span>{stats.rafFlushes}</span>
+                </div>
+                <div className="debug-row">
+                    <span>Batch Ratio:</span>
+                    <span>{batchRatio}x</span>
+                </div>
+                <div className="debug-row">
+                    <span>Bytes Written:</span>
+                    <span>{stats.bytesWritten}</span>
+                </div>
+                <button
+                    className="debug-reset-btn"
+                    onClick={() => {
+                        frontendStatsRef.current = {
+                            eventsReceived: 0,
+                            bytesReceived: 0,
+                            rafFlushes: 0,
+                            bytesWritten: 0,
+                        };
+                        // Force re-render by incrementing key
+                        setDebugRefreshKey(k => k + 1);
+                    }}
+                >
+                    Reset Stats
+                </button>
+            </div>
+        );
+    };
+
     return (
         <div style={{ position: 'relative', width: '100%', height: '100%', '--wails-drop-target': 'drop' }} className={isAltScreen ? 'terminal-alt-screen' : ''}>
             <div
@@ -1014,6 +1121,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 </button>
             )}
             {renderConnectionStatus()}
+            {renderDebugOverlay()}
         </div>
     );
 }
