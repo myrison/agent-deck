@@ -602,3 +602,343 @@ enabled = true
 		t.Errorf("GetNotificationsSettings MaxShown: should default to 6, got %d", settings.MaxShown)
 	}
 }
+
+// ============================================================================
+// SaveUserConfig Merge Behavior Tests
+// ============================================================================
+
+func TestSaveUserConfig_PreservesUnknownSections(t *testing.T) {
+	// This test verifies that SaveUserConfig preserves sections not defined in
+	// the UserConfig struct (like [desktop] from the desktop app).
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	ClearUserConfigCache()
+
+	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	if err := os.MkdirAll(agentDeckDir, 0700); err != nil {
+		t.Fatalf("Failed to create agent-deck dir: %v", err)
+	}
+
+	// Create initial config with a [desktop] section that UserConfig doesn't know about
+	configPath := filepath.Join(agentDeckDir, "config.toml")
+	initialContent := `# Agent Deck Configuration
+default_tool = "claude"
+
+[desktop]
+auto_copy_on_select = true
+font_size = 14
+custom_setting = "preserve_me"
+
+[logs]
+max_size_mb = 10
+`
+	if err := os.WriteFile(configPath, []byte(initialContent), 0600); err != nil {
+		t.Fatalf("Failed to write initial config: %v", err)
+	}
+	ClearUserConfigCache()
+
+	// Load the config (this ignores [desktop] since it's not in the struct)
+	config, err := LoadUserConfig()
+	if err != nil {
+		t.Fatalf("LoadUserConfig failed: %v", err)
+	}
+
+	// Modify a known field
+	config.DefaultTool = "gemini"
+	config.Logs.MaxSizeMB = 20
+
+	// Save the config - this should preserve [desktop]
+	if err := SaveUserConfig(config); err != nil {
+		t.Fatalf("SaveUserConfig failed: %v", err)
+	}
+
+	// Read the raw file content to verify [desktop] is preserved
+	savedContent, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("Failed to read saved config: %v", err)
+	}
+
+	// Parse as generic map to check desktop section
+	var savedMap map[string]interface{}
+	if err := toml.Unmarshal(savedContent, &savedMap); err != nil {
+		t.Fatalf("Failed to parse saved config: %v", err)
+	}
+
+	// Verify [desktop] section is preserved
+	desktop, ok := savedMap["desktop"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected [desktop] section to be preserved, but it's missing")
+	}
+
+	// Verify desktop values are intact
+	if autoCopy, ok := desktop["auto_copy_on_select"].(bool); !ok || !autoCopy {
+		t.Errorf("Expected desktop.auto_copy_on_select = true, got %v", desktop["auto_copy_on_select"])
+	}
+	if fontSize, ok := desktop["font_size"].(int64); !ok || fontSize != 14 {
+		t.Errorf("Expected desktop.font_size = 14, got %v", desktop["font_size"])
+	}
+	if customSetting, ok := desktop["custom_setting"].(string); !ok || customSetting != "preserve_me" {
+		t.Errorf("Expected desktop.custom_setting = 'preserve_me', got %v", desktop["custom_setting"])
+	}
+
+	// Verify UserConfig fields were updated
+	ClearUserConfigCache()
+	reloaded, err := LoadUserConfig()
+	if err != nil {
+		t.Fatalf("Failed to reload config: %v", err)
+	}
+	if reloaded.DefaultTool != "gemini" {
+		t.Errorf("Expected default_tool = 'gemini', got %q", reloaded.DefaultTool)
+	}
+	if reloaded.Logs.MaxSizeMB != 20 {
+		t.Errorf("Expected logs.max_size_mb = 20, got %d", reloaded.Logs.MaxSizeMB)
+	}
+}
+
+func TestSaveUserConfig_OverwritesKnownSections(t *testing.T) {
+	// Verify that known sections (defined in UserConfig struct) ARE overwritten
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	ClearUserConfigCache()
+
+	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	if err := os.MkdirAll(agentDeckDir, 0700); err != nil {
+		t.Fatalf("Failed to create agent-deck dir: %v", err)
+	}
+
+	// Create initial config with logs section
+	configPath := filepath.Join(agentDeckDir, "config.toml")
+	initialContent := `
+[logs]
+max_size_mb = 50
+max_lines = 20000
+remove_orphans = false
+`
+	if err := os.WriteFile(configPath, []byte(initialContent), 0600); err != nil {
+		t.Fatalf("Failed to write initial config: %v", err)
+	}
+	ClearUserConfigCache()
+
+	// Create a new config with different logs values
+	config := &UserConfig{
+		Logs: LogSettings{
+			MaxSizeMB:     10,
+			MaxLines:      5000,
+			RemoveOrphans: true,
+		},
+	}
+
+	// Save - should completely replace [logs] section
+	if err := SaveUserConfig(config); err != nil {
+		t.Fatalf("SaveUserConfig failed: %v", err)
+	}
+
+	// Reload and verify
+	ClearUserConfigCache()
+	reloaded, err := LoadUserConfig()
+	if err != nil {
+		t.Fatalf("Failed to reload config: %v", err)
+	}
+
+	if reloaded.Logs.MaxSizeMB != 10 {
+		t.Errorf("Expected logs.max_size_mb = 10, got %d", reloaded.Logs.MaxSizeMB)
+	}
+	if reloaded.Logs.MaxLines != 5000 {
+		t.Errorf("Expected logs.max_lines = 5000, got %d", reloaded.Logs.MaxLines)
+	}
+	if !reloaded.Logs.RemoveOrphans {
+		t.Error("Expected logs.remove_orphans = true")
+	}
+}
+
+func TestSaveUserConfig_CreatesNewFile(t *testing.T) {
+	// Verify SaveUserConfig works when no config file exists
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	ClearUserConfigCache()
+
+	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	if err := os.MkdirAll(agentDeckDir, 0700); err != nil {
+		t.Fatalf("Failed to create agent-deck dir: %v", err)
+	}
+
+	// Don't create config file - it shouldn't exist
+	configPath := filepath.Join(agentDeckDir, "config.toml")
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatal("Config file should not exist before test")
+	}
+
+	config := &UserConfig{
+		DefaultTool: "claude",
+		Theme:       "light",
+	}
+
+	if err := SaveUserConfig(config); err != nil {
+		t.Fatalf("SaveUserConfig failed: %v", err)
+	}
+
+	// Verify file was created
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Fatal("Config file should have been created")
+	}
+
+	// Verify content
+	ClearUserConfigCache()
+	reloaded, err := LoadUserConfig()
+	if err != nil {
+		t.Fatalf("Failed to reload config: %v", err)
+	}
+	if reloaded.DefaultTool != "claude" {
+		t.Errorf("Expected default_tool = 'claude', got %q", reloaded.DefaultTool)
+	}
+	if reloaded.Theme != "light" {
+		t.Errorf("Expected theme = 'light', got %q", reloaded.Theme)
+	}
+}
+
+func TestSaveUserConfig_HandlesCorruptedExistingFile(t *testing.T) {
+	// Verify SaveUserConfig handles a corrupted config.toml gracefully
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	ClearUserConfigCache()
+
+	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	if err := os.MkdirAll(agentDeckDir, 0700); err != nil {
+		t.Fatalf("Failed to create agent-deck dir: %v", err)
+	}
+
+	// Write corrupted TOML content
+	configPath := filepath.Join(agentDeckDir, "config.toml")
+	corruptedContent := `this is not valid toml [[[
+broken = syntax "unterminated
+`
+	if err := os.WriteFile(configPath, []byte(corruptedContent), 0600); err != nil {
+		t.Fatalf("Failed to write corrupted config: %v", err)
+	}
+
+	config := &UserConfig{
+		DefaultTool: "gemini",
+	}
+
+	// SaveUserConfig should succeed even with corrupted existing file
+	// (it falls back to empty map when parsing fails)
+	if err := SaveUserConfig(config); err != nil {
+		t.Fatalf("SaveUserConfig failed on corrupted file: %v", err)
+	}
+
+	// Verify new content is valid
+	ClearUserConfigCache()
+	reloaded, err := LoadUserConfig()
+	if err != nil {
+		t.Fatalf("Failed to reload config: %v", err)
+	}
+	if reloaded.DefaultTool != "gemini" {
+		t.Errorf("Expected default_tool = 'gemini', got %q", reloaded.DefaultTool)
+	}
+}
+
+func TestSaveUserConfig_PreservesComplexUnknownStructures(t *testing.T) {
+	// Verify complex unknown structures are preserved: nested tables, arrays,
+	// and top-level keys that might be added by future features or plugins.
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	ClearUserConfigCache()
+
+	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	if err := os.MkdirAll(agentDeckDir, 0700); err != nil {
+		t.Fatalf("Failed to create agent-deck dir: %v", err)
+	}
+
+	configPath := filepath.Join(agentDeckDir, "config.toml")
+	// Config with complex structures: nested tables, arrays, top-level unknown key
+	initialContent := `# Header comment
+custom_top_level_flag = true
+default_tool = "claude"
+
+[desktop]
+auto_copy_on_select = true
+font_size = 14
+recent_projects = ["~/code/project1", "~/code/project2", "~/code/project3"]
+
+[desktop.keybindings]
+copy = "Cmd+C"
+paste = "Cmd+V"
+search = "Cmd+F"
+
+[desktop.theme]
+name = "dark"
+accent_color = "#007ACC"
+`
+	if err := os.WriteFile(configPath, []byte(initialContent), 0600); err != nil {
+		t.Fatalf("Failed to write initial config: %v", err)
+	}
+	ClearUserConfigCache()
+
+	config := &UserConfig{
+		DefaultTool: "gemini",
+	}
+
+	if err := SaveUserConfig(config); err != nil {
+		t.Fatalf("SaveUserConfig failed: %v", err)
+	}
+
+	// Read raw and verify complex structures preserved
+	savedContent, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("Failed to read saved config: %v", err)
+	}
+
+	var savedMap map[string]interface{}
+	if err := toml.Unmarshal(savedContent, &savedMap); err != nil {
+		t.Fatalf("Failed to parse saved config: %v", err)
+	}
+
+	// Verify top-level unknown key preserved
+	if flag, ok := savedMap["custom_top_level_flag"].(bool); !ok || !flag {
+		t.Errorf("Expected custom_top_level_flag = true, got %v", savedMap["custom_top_level_flag"])
+	}
+
+	// Verify known field was updated
+	if defaultTool, ok := savedMap["default_tool"].(string); !ok || defaultTool != "gemini" {
+		t.Errorf("Expected default_tool = 'gemini', got %v", savedMap["default_tool"])
+	}
+
+	// Verify [desktop] with array values preserved
+	desktop, ok := savedMap["desktop"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected [desktop] section to be preserved")
+	}
+
+	// Check array value
+	recentProjects, ok := desktop["recent_projects"].([]interface{})
+	if !ok {
+		t.Fatal("Expected desktop.recent_projects array to be preserved")
+	}
+	if len(recentProjects) != 3 {
+		t.Errorf("Expected 3 recent_projects, got %d", len(recentProjects))
+	}
+
+	// Verify nested table [desktop.keybindings] preserved
+	keybindings, ok := desktop["keybindings"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected [desktop.keybindings] nested table to be preserved")
+	}
+	if copy, ok := keybindings["copy"].(string); !ok || copy != "Cmd+C" {
+		t.Errorf("Expected desktop.keybindings.copy = 'Cmd+C', got %v", keybindings["copy"])
+	}
+	if search, ok := keybindings["search"].(string); !ok || search != "Cmd+F" {
+		t.Errorf("Expected desktop.keybindings.search = 'Cmd+F', got %v", keybindings["search"])
+	}
+
+	// Verify nested table [desktop.theme] preserved
+	theme, ok := desktop["theme"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected [desktop.theme] nested table to be preserved")
+	}
+	if name, ok := theme["name"].(string); !ok || name != "dark" {
+		t.Errorf("Expected desktop.theme.name = 'dark', got %v", theme["name"])
+	}
+	if color, ok := theme["accent_color"].(string); !ok || color != "#007ACC" {
+		t.Errorf("Expected desktop.theme.accent_color = '#007ACC', got %v", theme["accent_color"])
+	}
+}
