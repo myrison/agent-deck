@@ -1,8 +1,8 @@
 # Scrollback Data Loss Fix - Architecture Document
 
-**Status:** Phase 2.5 - Verification & Root Cause Investigation
+**Status:** Phase 4 COMPLETE - Pipe-Pane Streaming Implemented
 **Created:** 2026-01-28
-**Branch:** `fix/scrollback-debug`
+**Branch:** `feature/pipe-pane-streaming`
 **Last Updated:** 2026-01-28
 
 ---
@@ -233,22 +233,18 @@ Create this document for long-term record.
 - [ ] All side effect tests pass (needs manual verification)
 - [ ] No regression in P99 latency (needs verification)
 
-### Phase 3 (Adaptive Polling)
-- [ ] Additional 10-30% loss reduction
-- [ ] Polling interval adapts to output rate
-- [ ] Burst mode activates during fast output
-- [ ] All side effect tests pass
-- [ ] Memory growth <10% over baseline
+### Phase 3 (Adaptive Polling) - SKIPPED
+Skipped in favor of implementing pipe-pane streaming directly. The DiffViewport algorithm was fundamentally flawed for fast output, making adaptive polling a "throw-away work" as the Council predicted.
 
-### Phase 4 (Hybrid Architecture)
-- [ ] Loss rate <0.1% in torture tests
-- [ ] pipe-pane logs contain complete output
-- [ ] Logs cleaned up on session close
-- [ ] Log rotation works at 50MB
-- [ ] Graceful degradation when pipe-pane fails
-- [ ] All side effect tests pass
-- [ ] CPU/memory overhead acceptable (<5% increase)
-- [ ] Zero crashes in 8-hour soak test
+### Phase 4 (Pipe-Pane Streaming) ✅ COMPLETE
+- [x] Loss rate <0.1% in torture tests (`seq 1 10000` all visible)
+- [x] pipe-pane logs contain complete output
+- [x] Logs cleaned up on session close
+- [ ] Log rotation works at 50MB (deferred - not needed for typical sessions)
+- [x] Graceful degradation when pipe-pane fails (falls back to polling)
+- [x] All side effect tests pass
+- [ ] CPU/memory overhead acceptable (not formally measured)
+- [ ] Zero crashes in 8-hour soak test (not performed)
 
 ---
 
@@ -514,6 +510,138 @@ Users can resize the window to trigger a full refresh and fix any corruption. Th
 1. **Prioritize pipe-pane architecture** - The diff algorithm is fundamentally flawed for fast output. Rather than patching it, implement the lossless streaming approach.
 
 2. **Wide character (emoji) rendering** - Still an open issue, not addressed this session.
+
+---
+
+## Phase 3: Pipe-Pane Streaming Implementation (2026-01-28)
+
+### Summary
+
+Implemented the pipe-pane architecture to bypass the flawed DiffViewport polling approach entirely. This is the "proper fix" mentioned in Phase 2.8.
+
+### Commits
+
+1. **a2f3919** - `feat(desktop): implement pipe-pane streaming for terminal output`
+   - Added `PipePaneTailer` struct in `pipe_pane.go`
+   - Implemented `EnablePipePane()` and `DisablePipePane()` functions
+   - Modified `StartTmuxSession()` to use pipe-pane streaming with polling fallback
+   - Added alt-screen detection loop (lightweight, no capture-pane)
+   - Integrated pause/resume/truncate for resize handling
+
+2. **fd05476** - `fix(desktop): resolve UTF-8 boundary splitting and bootstrap alignment issues`
+   - Fixed UTF-8 multi-byte character splitting across 10ms reads
+   - Reordered bootstrap sequence with "overlap strategy"
+   - Added `terminal:reset` event for clean frontend slate
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    IMPLEMENTED ARCHITECTURE                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   Agent Output ──► tmux pane ──┬──► pipe-pane ──► log file      │
+│                                │         │                       │
+│                                │         ▼                       │
+│                                │   PipePaneTailer (10ms poll)    │
+│                                │   - UTF-8 boundary handling     │
+│                                │   - pendingBytes buffer         │
+│                                │         │                       │
+│                                │         ▼                       │
+│                                │  EventsEmit("terminal:data")    │
+│                                │         │                       │
+│                                │         ▼                       │
+│                                │    xterm.js write()             │
+│                                │    (with RAF batching)          │
+│                                │                                 │
+│                                └──► alt-screen detection (100ms) │
+│                                          │                       │
+│                                          ▼                       │
+│                                    EventsEmit("terminal:altscreen")
+│                                                                  │
+│   RESULT: Lossless streaming, no DiffViewport corruption        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Bootstrap Sequence ("Overlap Strategy")
+
+The key insight from LLM Council review: get sync position BEFORE capture-pane to prevent data loss.
+
+```
+1. Resize tmux window
+2. EnablePipePane() - creates log file, starts capture
+3. Wait 20ms for pipe-pane to be active
+4. GetPosition() - get log file size as SYNC POINT
+5. capture-pane - snapshot includes anything pipe-pane logged
+6. Emit terminal:reset - clean xterm slate
+7. Emit terminal:history - sanitized capture-pane output
+8. Wait 50ms for frontend to process
+9. SetStartPosition(syncPosition) - skip already-captured bytes
+10. Start() tailer - streams NEW bytes only
+11. Attach PTY for user input
+12. Start alt-screen detection loop
+```
+
+**Why "Overlap Strategy" works:**
+- If data arrives between steps 4 and 5, it appears in BOTH the capture AND the log
+- Slight duplication is acceptable; data loss is not
+- Terminal renders duplicated characters identically (idempotent)
+
+### UTF-8 Boundary Handling
+
+Problem: Multi-byte UTF-8 characters (box-drawing "─", emojis) split across 10ms reads showed as "???".
+
+Solution in `readAndEmit()`:
+1. Combine `pendingBytes` with new bytes
+2. Look back up to 4 bytes (`utf8.UTFMax`) for rune start byte
+3. Use `utf8.FullRune()` to detect incomplete sequences
+4. Hold incomplete bytes in `pendingBytes` for next read
+5. Safety valve: if pending > 4 bytes, force emit (garbage protection)
+
+### Files Changed
+
+| File | Changes |
+|------|---------|
+| `pipe_pane.go` | New file: `PipePaneTailer`, `EnablePipePane`, `DisablePipePane`, UTF-8 buffering |
+| `terminal.go` | Reordered `StartTmuxSession()`, added `terminal:reset` emit, pipe-pane integration |
+| `Terminal.jsx` | Added `terminal:reset` handler calling `xterm.reset()` |
+
+### Fallback Behavior
+
+If pipe-pane fails to enable (permissions, tmux version), the system falls back to the original polling mode with DiffViewport. This maintains backward compatibility but with known corruption issues during fast output.
+
+### Testing Results
+
+| Test | Status | Notes |
+|------|--------|-------|
+| `seq 1 10000` | **PASS** | All numbers visible, no corruption |
+| Box-drawing chars | **PASS** | `tree`, `git log --graph` render correctly |
+| Emojis | **PASS** | `echo "🚀 test 🎉"` renders correctly |
+| Bootstrap alignment | **PASS** | No horizontal offset on session attach |
+| Resize handling | **PASS** | Pause → truncate → capture → resume works |
+| Alt-screen (vim) | **PASS** | Page Up/Down sent correctly |
+
+### Known Limitations
+
+1. **Remote sessions** - Pipe-pane streaming only works for local tmux sessions. Remote sessions fall back to polling mode.
+
+2. **Log file cleanup** - Log files in `/tmp/agentdeck-pipe-*.log` are cleaned up on session close, but may persist if the app crashes.
+
+3. **Wide character width** - Some wide characters may still have rendering issues (separate from UTF-8 boundary splitting).
+
+---
+
+## Phase 4 Success Criteria - VERIFIED
+
+- [x] Loss rate <0.1% in torture tests (`seq 1 10000` shows all numbers)
+- [x] pipe-pane logs contain complete output
+- [x] Logs cleaned up on session close (`Cleanup()` method)
+- [ ] Log rotation works at 50MB (not implemented - deferred)
+- [x] Graceful degradation when pipe-pane fails (falls back to polling)
+- [x] All side effect tests pass (scrolling, copy, paste, search, resize)
+- [ ] CPU/memory overhead acceptable (not formally measured)
+- [ ] Zero crashes in 8-hour soak test (not performed)
 
 ---
 
