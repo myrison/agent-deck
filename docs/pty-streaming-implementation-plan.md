@@ -1494,3 +1494,84 @@ After the fix, logs showed successful data flow:
 ### PR
 
 https://github.com/myrison/agent-deck/pull/99
+
+---
+
+## Appendix: Phase 1 Testing Results
+
+### Session Date
+2026-01-29
+
+### Test Environment Setup
+
+**Challenge:** The `REVDEN_PTY_STREAMING=enabled` environment variable wasn't being passed to the Wails-spawned app process. Wails spawns the app as a separate child process that doesn't inherit shell environment variables on macOS.
+
+**Solutions Attempted:**
+1. `export REVDEN_PTY_STREAMING=enabled` before `wails dev` - Did not work
+2. `launchctl setenv REVDEN_PTY_STREAMING enabled` - Did not work for hot-reload
+3. **Working solution:** Temporarily modified `shouldUsePTYStreaming()` to return `true` unconditionally
+
+**Also modified:** `startHidden := false` in main.go (was `startHidden := isDev`) because the focus-stealing prevention hid the window, making testing difficult.
+
+### Test Results
+
+**Session tested:** `055a12d5-1769711216` (agentdeck_1769711216069150000)
+
+**PTY Streaming Activation - CONFIRMED:**
+```
+[11:29:50.279] [PTY-STREAM] Starting streaming session for tmux=agentdeck_1769702167293577000 cols=178 rows=41
+[11:29:50.318] [PTY-STREAM] Resized tmux window to 178x41
+[11:29:50.386] [PTY-STREAM] Emitting 3964 bytes of initial viewport
+[11:29:50.391] [PTY-STREAM] Received initial viewport: 3195 bytes
+[11:29:50.468] [PTY-STREAM] Starting readLoopStream for session=fb8b9991-1769702167
+```
+
+**Data Streaming - CONFIRMED:**
+```
+[11:29:42.000] [PTY-STREAM] Emitting 1026 bytes via terminal:data
+[11:29:42.008] [PTY-STREAM] Emitting 1024 bytes via terminal:data
+[11:29:42.019] [PTY-STREAM] Emitting 1024 bytes via terminal:data
+... (continuous 1024-byte chunks)
+```
+
+### Key Test: Fast Output (`/context` Command)
+
+**Test procedure:**
+1. Opened same session in both production app (polling mode) and dev app (PTY streaming mode)
+2. Typed `/context` in Claude Code (generates rapid multi-screen output)
+
+**Results:**
+| App | Mode | Behavior |
+|-----|------|----------|
+| Production (RevvySwarm) | Polling + DiffViewport | Incomplete/corrupted output |
+| Dev (RevDen) | PTY Streaming | **All history shown correctly** ✅ |
+
+**Conclusion:** PTY streaming mode successfully fixes the DiffViewport corruption bug during fast output.
+
+### Phase 1 Council Checklist Status
+
+| Requirement | Status | Notes |
+|-------------|--------|-------|
+| WebSocket sends `terminal:initial` on connect | ✅ Verified | 3964 bytes of initial viewport emitted |
+| Then sends `terminal:data` for stream | ✅ Verified | Continuous 1024-byte chunks observed |
+| Frontend RAF throttling | ✅ Already exists | `scheduleWrite()` in Terminal.jsx uses RAF |
+| No backend ANSI parsing | ✅ Verified | Raw bytes passed through, only UTF-8 boundary handling |
+
+### Known Limitations (Expected for Phase 1)
+
+1. **No scrollback history on connect** - User can only scroll within the current viewport; pre-attach scrollback is not loaded. This is addressed in Phase 2 (History Hydration).
+
+2. **Environment variable workaround** - PTY streaming is currently force-enabled in code for testing. Before merging, this should be reverted to use the environment variable check with a better mechanism for GUI apps (possibly a config file or command-line flag).
+
+### Commits for Testing Session
+
+- `db1d4f6` - docs: add implementation troubleshooting log for PTY streaming
+- (This commit) - test: enable PTY streaming for manual testing
+
+### Next Steps
+
+1. **Phase 2: History Hydration** - Implement the "Attach-First" strategy to capture scrollback history before streaming, allowing users to scroll through pre-connect content.
+
+2. **Phase 3: Resize Handling** - Verify SIGWINCH propagation and add resize epoch handling if needed.
+
+3. **Revert testing changes** - Before final merge, restore `shouldUsePTYStreaming()` to use environment variable and `startHidden := isDev`.

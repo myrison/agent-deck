@@ -213,8 +213,10 @@ func NewTerminal(sessionID string) *Terminal {
 // Default: disabled (false) for safe rollout.
 // Set REVDEN_PTY_STREAMING=enabled to activate PTY streaming.
 func shouldUsePTYStreaming() bool {
-	env := os.Getenv("REVDEN_PTY_STREAMING")
-	return env == "enabled"
+	// TESTING: Force PTY streaming for testing
+	return true
+	// env := os.Getenv("REVDEN_PTY_STREAMING")
+	// return env == "enabled"
 }
 
 // verifyTmuxConfig ensures tmux status bar is hidden for the session.

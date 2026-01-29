@@ -120,10 +120,10 @@ func main() {
 		logLevel = logger.DEBUG
 	}
 
-	// In dev mode, always start hidden to prevent focus-stealing.
-	// The dock icon is visible; click it to reveal the window.
-	// This applies to both fresh launches and hot-reloads.
-	startHidden := isDev
+	// In dev mode, start hidden to prevent focus-stealing on hot-reload.
+	// Click dock icon to reveal window.
+	// TESTING: Disabled for PTY streaming testing
+	startHidden := false
 
 	// Set app title based on mode and window number
 	appTitle := "RevvySwarm"
@@ -156,9 +156,7 @@ func main() {
 		},
 		LogLevel:           logLevel,
 		LogLevelProduction: logger.ERROR,
-		// In dev mode, start hidden to prevent focus-stealing.
-		// The dock icon is visible; click it to reveal the window.
-		StartHidden: startHidden,
+		StartHidden:        startHidden,
 		DragAndDrop: &options.DragAndDrop{
 			EnableFileDrop:     true,
 			DisableWebViewDrop: true,
