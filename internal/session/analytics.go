@@ -137,7 +137,7 @@ func ParseSessionJSONL(path string) (*SessionAnalytics, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	analytics := &SessionAnalytics{
 		ToolCalls: []ToolCall{},

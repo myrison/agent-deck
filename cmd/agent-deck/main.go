@@ -304,7 +304,7 @@ func main() {
 					instanceType = "secondary"
 				}
 				log.Printf("=== Agent Deck Instance %d Started (%s) ===", os.Getpid(), instanceType)
-				defer logFile.Close()
+				defer func() { _ = logFile.Close() }()
 			}
 		}
 	} else {
@@ -1640,9 +1640,9 @@ func acquireLock(profile string) error {
 		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 		if err == nil {
 			// Successfully created lock file atomically
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 			if _, writeErr := f.WriteString(strconv.Itoa(os.Getpid())); writeErr != nil {
-				os.Remove(lockPath)
+				_ = os.Remove(lockPath)
 				return fmt.Errorf("failed to write PID to lock file: %w", writeErr)
 			}
 			return nil
@@ -1656,7 +1656,7 @@ func acquireLock(profile string) error {
 		data, readErr := os.ReadFile(lockPath)
 		if readErr != nil {
 			// Cannot read lock file, try removing it
-			os.Remove(lockPath)
+			_ = os.Remove(lockPath)
 			continue
 		}
 
@@ -1671,7 +1671,7 @@ func acquireLock(profile string) error {
 		}
 
 		// Stale lock - remove and retry
-		os.Remove(lockPath)
+		_ = os.Remove(lockPath)
 	}
 
 	return fmt.Errorf("failed to acquire lock after multiple attempts")
@@ -1684,7 +1684,7 @@ func releaseLock(profile string) {
 	if data, err := os.ReadFile(lockPath); err == nil {
 		pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
 		if pid == os.Getpid() {
-			os.Remove(lockPath)
+			_ = os.Remove(lockPath)
 		}
 	}
 }
@@ -1924,8 +1924,8 @@ func handleUninstall(args []string) {
 				fmt.Printf("✓ Binary removed: %s\n", item.path)
 			}
 		} else {
-			f.Close()
-			os.Remove(testFile)
+			_ = f.Close()
+			_ = os.Remove(testFile)
 
 			// Skip if this is our own binary (delete last)
 			if realPath == currentBinary {

@@ -19,7 +19,7 @@ func TestGetMCPInfo_ParentDirectoryLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpRoot)
+	defer func() { _ = os.RemoveAll(tmpRoot) }()
 
 	// Create nested directories
 	projectDir := filepath.Join(tmpRoot, "project")
@@ -46,13 +46,13 @@ func TestGetMCPInfo_ParentDirectoryLookup(t *testing.T) {
 	// Set CLAUDE_CONFIG_DIR to prevent reading real config
 	oldConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	tmpClaudeConfig, _ := os.MkdirTemp("", "claude-config-*")
-	defer os.RemoveAll(tmpClaudeConfig)
-	os.Setenv("CLAUDE_CONFIG_DIR", tmpClaudeConfig)
+	defer func() { _ = os.RemoveAll(tmpClaudeConfig) }()
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", tmpClaudeConfig)
 	defer func() {
 		if oldConfigDir != "" {
-			os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
 		} else {
-			os.Unsetenv("CLAUDE_CONFIG_DIR")
+			_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
 		}
 	}()
 
@@ -120,7 +120,7 @@ func TestGetMCPInfo_StopsAtFirstMCPJson(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpRoot)
+	defer func() { _ = os.RemoveAll(tmpRoot) }()
 
 	projectDir := filepath.Join(tmpRoot, "project")
 	subdirPath := filepath.Join(projectDir, "subdir")
@@ -160,13 +160,13 @@ func TestGetMCPInfo_StopsAtFirstMCPJson(t *testing.T) {
 	// Setup Claude config
 	oldConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	tmpClaudeConfig, _ := os.MkdirTemp("", "claude-config-*")
-	defer os.RemoveAll(tmpClaudeConfig)
-	os.Setenv("CLAUDE_CONFIG_DIR", tmpClaudeConfig)
+	defer func() { _ = os.RemoveAll(tmpClaudeConfig) }()
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", tmpClaudeConfig)
 	defer func() {
 		if oldConfigDir != "" {
-			os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
 		} else {
-			os.Unsetenv("CLAUDE_CONFIG_DIR")
+			_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
 		}
 	}()
 	claudeConfig := map[string]interface{}{"mcpServers": map[string]interface{}{}}
@@ -216,18 +216,18 @@ func TestGetMCPInfo_NoMCPJson(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Setup Claude config
 	oldConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	tmpClaudeConfig, _ := os.MkdirTemp("", "claude-config-*")
-	defer os.RemoveAll(tmpClaudeConfig)
-	os.Setenv("CLAUDE_CONFIG_DIR", tmpClaudeConfig)
+	defer func() { _ = os.RemoveAll(tmpClaudeConfig) }()
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", tmpClaudeConfig)
 	defer func() {
 		if oldConfigDir != "" {
-			os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
 		} else {
-			os.Unsetenv("CLAUDE_CONFIG_DIR")
+			_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
 		}
 	}()
 	claudeConfig := map[string]interface{}{"mcpServers": map[string]interface{}{}}
@@ -253,7 +253,7 @@ func TestGetMCPInfo_RootBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	deepDir := filepath.Join(tmpDir, "a", "b", "c", "d")
 	if err := os.MkdirAll(deepDir, 0755); err != nil {
@@ -263,13 +263,13 @@ func TestGetMCPInfo_RootBoundary(t *testing.T) {
 	// Setup Claude config
 	oldConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	tmpClaudeConfig, _ := os.MkdirTemp("", "claude-config-*")
-	defer os.RemoveAll(tmpClaudeConfig)
-	os.Setenv("CLAUDE_CONFIG_DIR", tmpClaudeConfig)
+	defer func() { _ = os.RemoveAll(tmpClaudeConfig) }()
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", tmpClaudeConfig)
 	defer func() {
 		if oldConfigDir != "" {
-			os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", oldConfigDir)
 		} else {
-			os.Unsetenv("CLAUDE_CONFIG_DIR")
+			_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
 		}
 	}()
 	claudeConfig := map[string]interface{}{"mcpServers": map[string]interface{}{}}
