@@ -118,11 +118,13 @@ type GroupData struct {
 }
 
 // Storage handles persistence of session data
-// Thread-safe with mutex protection for concurrent access
+// Thread-safe with mutex protection for concurrent access within a process,
+// and file locking for cross-process safety (multiple agent-deck instances).
 type Storage struct {
-	path    string
-	profile string     // The profile this storage is for
-	mu      sync.Mutex // Protects all file operations
+	path     string
+	profile  string     // The profile this storage is for
+	mu       sync.Mutex // Protects all file operations within this process
+	fileLock *fileLock  // Cross-process file lock (flock on Unix, LockFileEx on Windows)
 }
 
 // NewStorage creates a new storage instance using the default profile.
@@ -166,8 +168,9 @@ func NewStorageWithProfile(profile string) (*Storage, error) {
 	}
 
 	s := &Storage{
-		path:    path,
-		profile: effectiveProfile,
+		path:     path,
+		profile:  effectiveProfile,
+		fileLock: newFileLock(path),
 	}
 
 	// Clean up any leftover temp files from previous crashes
@@ -206,11 +209,22 @@ func (s *Storage) Save(instances []*Instance) error {
 
 // SaveWithGroups persists instances and groups to JSON file
 // Uses atomic write pattern with:
-// - Mutex for thread safety
+// - Cross-process file locking (flock/LockFileEx) for multi-process safety
+// - Mutex for thread safety within process
 // - Rolling backups (3 generations)
 // - fsync for durability
 // - Data validation
 func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) error {
+	// Acquire cross-process lock first (prevents race conditions between processes)
+	// Skip if fileLock is nil (e.g., in tests that create Storage directly)
+	if s.fileLock != nil {
+		handle, err := s.fileLock.Lock()
+		if err != nil {
+			return fmt.Errorf("failed to acquire cross-process lock: %w", err)
+		}
+		defer handle.Unlock()
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -348,7 +362,18 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 // LoadStorageData reads raw StorageData from the JSON file without converting to Instance objects.
 // This is useful for callers that work directly with InstanceData (e.g., desktop app).
 // Returns empty StorageData if file doesn't exist.
+// Uses cross-process file locking to prevent races with concurrent writers.
 func (s *Storage) LoadStorageData() (*StorageData, error) {
+	// Acquire cross-process lock first
+	// Skip if fileLock is nil (e.g., in tests that create Storage directly)
+	if s.fileLock != nil {
+		handle, err := s.fileLock.Lock()
+		if err != nil {
+			return nil, fmt.Errorf("failed to acquire cross-process lock: %w", err)
+		}
+		defer handle.Unlock()
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -379,7 +404,18 @@ func (s *Storage) LoadStorageData() (*StorageData, error) {
 // SaveStorageData persists raw StorageData to the JSON file.
 // Uses atomic write pattern with fsync, backup rotation, and validation.
 // This is useful for callers that work directly with InstanceData (e.g., desktop app).
+// Uses cross-process file locking to prevent races with concurrent writers.
 func (s *Storage) SaveStorageData(data *StorageData) error {
+	// Acquire cross-process lock first
+	// Skip if fileLock is nil (e.g., in tests that create Storage directly)
+	if s.fileLock != nil {
+		handle, err := s.fileLock.Lock()
+		if err != nil {
+			return fmt.Errorf("failed to acquire cross-process lock: %w", err)
+		}
+		defer handle.Unlock()
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -514,7 +550,18 @@ func (s *Storage) Load() ([]*Instance, error) {
 
 // LoadWithGroups reads instances and groups from JSON file
 // Automatically recovers from backup if main file is corrupted
+// Uses cross-process file locking to prevent races with concurrent writers.
 func (s *Storage) LoadWithGroups() ([]*Instance, []*GroupData, error) {
+	// Acquire cross-process lock first
+	// Skip if fileLock is nil (e.g., in tests that create Storage directly)
+	if s.fileLock != nil {
+		handle, err := s.fileLock.Lock()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to acquire cross-process lock: %w", err)
+		}
+		defer handle.Unlock()
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -817,7 +864,18 @@ func GetStoragePathForProfile(profile string) (string, error) {
 // GetUpdatedAt returns the last modification timestamp of the storage file
 // This is read from the UpdatedAt field in the JSON file.
 // Returns an error if the file doesn't exist or can't be read.
+// Uses cross-process file locking for consistency.
 func (s *Storage) GetUpdatedAt() (time.Time, error) {
+	// Acquire cross-process lock first
+	// Skip if fileLock is nil (e.g., in tests that create Storage directly)
+	if s.fileLock != nil {
+		handle, err := s.fileLock.Lock()
+		if err != nil {
+			return time.Time{}, fmt.Errorf("failed to acquire cross-process lock: %w", err)
+		}
+		defer handle.Unlock()
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
