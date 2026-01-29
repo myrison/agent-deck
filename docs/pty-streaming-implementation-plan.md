@@ -1,11 +1,13 @@
 # PTY Streaming Implementation Plan
 
-**Status:** Final Council Review Complete - Ready for Implementation
+**Status:** Phase 1 COMPLETE - Config toggle implemented, ready for merge
 **Branch:** `feature/pty-streaming`
 **Worktree:** `../agent-deck-pty-streaming`
+**PR:** https://github.com/myrison/agent-deck/pull/99
 **Created:** 2026-01-29
 **Council Review #1:** 2026-01-29 (GPT-5.2, Gemini 3 Pro, Claude Opus 4.5, Grok 4)
 **Council Review #2:** 2026-01-29 (Final Review - same council)
+**Phase 1 Completed:** 2026-01-29
 
 ---
 
@@ -1156,20 +1158,20 @@ The rollback strategy with hard reset provides a safety net. The council's clari
 
 Before merging Phase 1 PR, ALL of these must be true:
 
-- [ ] **Protocol:** WebSocket sends `terminal:initial` (current viewport) on connect, then `terminal:data` (stream)
-- [ ] **Safety:** Frontend limits `term.write()` calls via requestAnimationFrame (max ~60fps)
-- [ ] **Encoding:** Pipeline is byte-stream until UTF-8 decoder at client; no ANSI parsing on backend
-- [ ] **Logic:** No backend code attempts to regex/parse ANSI escape sequences
+- [x] **Protocol:** WebSocket sends `terminal:initial` (current viewport) on connect, then `terminal:data` (stream)
+- [x] **Safety:** Frontend limits `term.write()` calls via requestAnimationFrame (max ~60fps)
+- [x] **Encoding:** Pipeline is byte-stream until UTF-8 decoder at client; no ANSI parsing on backend
+- [x] **Logic:** No backend code attempts to regex/parse ANSI escape sequences
 
 ### Must Have (Phase 1)
 
-- [ ] `seq 1 10000` renders all numbers correctly
-- [ ] `/context` in Claude Code renders without corruption
-- [ ] **Terminal is NOT blank on connection** (initial viewport snapshot works)
-- [ ] Cursor is at correct position after attach
-- [ ] Typing works immediately after attach
-- [ ] **Browser does not freeze during fast output** (RAF throttling works)
-- [ ] Resize during output does not cause permanent corruption
+- [x] `seq 1 10000` renders all numbers correctly
+- [x] `/context` in Claude Code renders without corruption
+- [x] **Terminal is NOT blank on connection** (initial viewport snapshot works)
+- [x] Cursor is at correct position after attach
+- [x] Typing works immediately after attach
+- [x] **Browser does not freeze during fast output** (RAF throttling works)
+- [x] Resize during output does not cause permanent corruption
 
 ### Should Have (Phase 2-3)
 
@@ -1594,12 +1596,20 @@ func shouldUsePTYStreaming() bool {
 
 This allows incremental delivery without affecting production users.
 
-### Next Steps (Immediate)
+### Completed Steps (Config Toggle - 2026-01-29)
 
-1. **Add config file toggle** - Add `PtyStreaming bool` to `DesktopSettings` struct
-2. **Update `shouldUsePTYStreaming()`** - Check config file in addition to env var
-3. **Revert testing changes** - Restore `startHidden := isDev` in main.go
-4. **Code review PR #99** - Ready for merge after above changes
+1. ✅ **Added config file toggle** - `PtyStreaming bool` field added to `TerminalConfig` struct in `desktop_settings.go`
+2. ✅ **Updated `shouldUsePTYStreaming()`** - Checks env var first, then config file (`terminal.go:211-224`)
+3. ✅ **Reverted testing changes** - Restored `startHidden := isDev` in main.go
+4. ✅ **Added getter/setter methods** - `GetPtyStreaming()` / `SetPtyStreaming()` in `desktop_settings.go`
+5. ✅ **Added comprehensive tests** - 4 test cases in `desktop_settings_test.go`
+6. ✅ **Committed and pushed** - `743d0c9 feat(desktop): add config file toggle for PTY streaming mode`
+
+**How to enable PTY streaming:**
+- **Developers:** `REVDEN_PTY_STREAMING=enabled` environment variable (run from terminal)
+- **Testers:** Add `pty_streaming = true` under `[desktop.terminal]` in `~/.agent-deck/config.toml`
+
+**PR #99 Status:** Ready for review/merge. PTY streaming is OFF by default for safe rollout.
 
 ### Next Steps (Future PRs)
 
