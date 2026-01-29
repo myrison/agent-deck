@@ -5,10 +5,42 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 )
+
+// cleanGitEnv returns the current environment with Git-specific variables removed.
+// This is critical when running git commands from within git hooks, as hooks set
+// GIT_DIR, GIT_WORK_TREE, etc. which override -C flags and cmd.Dir, causing
+// commands to operate on the wrong repository.
+func cleanGitEnv() []string {
+	var clean []string
+	for _, env := range os.Environ() {
+		// Skip Git environment variables that force git to use a specific repo
+		if strings.HasPrefix(env, "GIT_DIR=") ||
+			strings.HasPrefix(env, "GIT_WORK_TREE=") ||
+			strings.HasPrefix(env, "GIT_INDEX_FILE=") ||
+			strings.HasPrefix(env, "GIT_OBJECT_DIRECTORY=") ||
+			strings.HasPrefix(env, "GIT_ALTERNATE_OBJECT_DIRECTORIES=") ||
+			strings.HasPrefix(env, "GIT_COMMON_DIR=") ||
+			strings.HasPrefix(env, "GIT_QUARANTINE_PATH=") {
+			continue
+		}
+		clean = append(clean, env)
+	}
+	return clean
+}
+
+// gitCommand creates an exec.Cmd for git with a clean environment.
+// This ensures git commands operate on the intended directory, not a repo
+// forced by inherited GIT_* environment variables from hooks.
+func gitCommand(args ...string) *exec.Cmd {
+	cmd := exec.Command("git", args...)
+	cmd.Env = cleanGitEnv()
+	return cmd
+}
 
 // Worktree represents a git worktree
 type Worktree struct {
@@ -20,14 +52,14 @@ type Worktree struct {
 
 // IsGitRepo checks if the given directory is inside a git repository
 func IsGitRepo(dir string) bool {
-	cmd := exec.Command("git", "-C", dir, "rev-parse", "--git-dir")
+	cmd := gitCommand("-C", dir, "rev-parse", "--git-dir")
 	err := cmd.Run()
 	return err == nil
 }
 
 // GetRepoRoot returns the root directory of the git repository containing dir
 func GetRepoRoot(dir string) (string, error) {
-	cmd := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel")
+	cmd := gitCommand("-C", dir, "rev-parse", "--show-toplevel")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("not a git repository: %w", err)
@@ -37,7 +69,7 @@ func GetRepoRoot(dir string) (string, error) {
 
 // GetCurrentBranch returns the current branch name for the repository at dir
 func GetCurrentBranch(dir string) (string, error) {
-	cmd := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD")
+	cmd := gitCommand("-C", dir, "rev-parse", "--abbrev-ref", "HEAD")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get current branch: %w", err)
@@ -47,7 +79,7 @@ func GetCurrentBranch(dir string) (string, error) {
 
 // BranchExists checks if a branch exists in the repository
 func BranchExists(repoDir, branchName string) bool {
-	cmd := exec.Command("git", "-C", repoDir, "show-ref", "--verify", "--quiet", "refs/heads/"+branchName)
+	cmd := gitCommand("-C", repoDir, "show-ref", "--verify", "--quiet", "refs/heads/"+branchName)
 	err := cmd.Run()
 	return err == nil
 }
@@ -127,10 +159,10 @@ func CreateWorktree(repoDir, worktreePath, branchName string) error {
 
 	if BranchExists(repoDir, branchName) {
 		// Use existing branch
-		cmd = exec.Command("git", "-C", repoDir, "worktree", "add", worktreePath, branchName)
+		cmd = gitCommand("-C", repoDir, "worktree", "add", worktreePath, branchName)
 	} else {
 		// Create new branch with -b flag
-		cmd = exec.Command("git", "-C", repoDir, "worktree", "add", "-b", branchName, worktreePath)
+		cmd = gitCommand("-C", repoDir, "worktree", "add", "-b", branchName, worktreePath)
 	}
 
 	output, err := cmd.CombinedOutput()
@@ -147,7 +179,7 @@ func ListWorktrees(repoDir string) ([]Worktree, error) {
 		return nil, errors.New("not a git repository")
 	}
 
-	cmd := exec.Command("git", "-C", repoDir, "worktree", "list", "--porcelain")
+	cmd := gitCommand("-C", repoDir, "worktree", "list", "--porcelain")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list worktrees: %w", err)
@@ -212,7 +244,7 @@ func RemoveWorktree(repoDir, worktreePath string, force bool) error {
 	}
 	args = append(args, worktreePath)
 
-	cmd := exec.Command("git", args...)
+	cmd := gitCommand(args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to remove worktree: %s: %w", strings.TrimSpace(string(output)), err)
@@ -239,7 +271,7 @@ func GetWorktreeForBranch(repoDir, branchName string) (string, error) {
 
 // IsWorktree checks if the given directory is a git worktree (not the main repo)
 func IsWorktree(dir string) bool {
-	cmd := exec.Command("git", "-C", dir, "rev-parse", "--git-common-dir")
+	cmd := gitCommand("-C", dir, "rev-parse", "--git-common-dir")
 	output, err := cmd.Output()
 	if err != nil {
 		return false
@@ -247,7 +279,7 @@ func IsWorktree(dir string) bool {
 
 	commonDir := strings.TrimSpace(string(output))
 
-	cmd = exec.Command("git", "-C", dir, "rev-parse", "--git-dir")
+	cmd = gitCommand("-C", dir, "rev-parse", "--git-dir")
 	output, err = cmd.Output()
 	if err != nil {
 		return false
@@ -261,7 +293,7 @@ func IsWorktree(dir string) bool {
 
 // GetMainWorktreePath returns the path to the main worktree (original clone)
 func GetMainWorktreePath(dir string) (string, error) {
-	cmd := exec.Command("git", "-C", dir, "rev-parse", "--git-common-dir")
+	cmd := gitCommand("-C", dir, "rev-parse", "--git-common-dir")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get common git dir: %w", err)

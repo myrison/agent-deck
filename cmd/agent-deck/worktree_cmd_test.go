@@ -4,10 +4,37 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 // TestMain is in testmain_test.go - sets AGENTDECK_PROFILE=_test
+
+// cleanGitEnv returns the current environment with Git-specific variables removed.
+// This prevents test git commands from being affected by GIT_DIR etc. set by hooks.
+func cleanGitEnv() []string {
+	var clean []string
+	for _, env := range os.Environ() {
+		if strings.HasPrefix(env, "GIT_DIR=") ||
+			strings.HasPrefix(env, "GIT_WORK_TREE=") ||
+			strings.HasPrefix(env, "GIT_INDEX_FILE=") ||
+			strings.HasPrefix(env, "GIT_OBJECT_DIRECTORY=") ||
+			strings.HasPrefix(env, "GIT_ALTERNATE_OBJECT_DIRECTORIES=") ||
+			strings.HasPrefix(env, "GIT_COMMON_DIR=") ||
+			strings.HasPrefix(env, "GIT_QUARANTINE_PATH=") {
+			continue
+		}
+		clean = append(clean, env)
+	}
+	return clean
+}
+
+// testGitCommand creates an exec.Cmd for git with clean environment for tests.
+func testGitCommand(args ...string) *exec.Cmd {
+	cmd := exec.Command("git", args...)
+	cmd.Env = cleanGitEnv()
+	return cmd
+}
 
 // =============================================================================
 // Tests for Worktree Commands
@@ -37,17 +64,15 @@ func TestWorktreeListInNonGitRepo(t *testing.T) {
 func TestWorktreeListInGitRepo(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Initialize git repo
-	cmd := exec.Command("git", "init")
-	cmd.Dir = tmpDir
+	// Initialize git repo - use clean env to prevent hook interference
+	cmd := testGitCommand("-C", tmpDir, "init")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to init git repo: %v", err)
 	}
 
 	// Create initial commit (required for worktree operations)
-	cmd = exec.Command("git", "commit", "--allow-empty", "-m", "init")
-	cmd.Dir = tmpDir
-	cmd.Env = append(os.Environ(),
+	cmd = testGitCommand("-C", tmpDir, "commit", "--allow-empty", "-m", "init")
+	cmd.Env = append(cleanGitEnv(),
 		"GIT_AUTHOR_NAME=Test",
 		"GIT_AUTHOR_EMAIL=test@test.com",
 		"GIT_COMMITTER_NAME=Test",
@@ -70,17 +95,15 @@ func TestWorktreeListInGitRepo(t *testing.T) {
 func TestWorktreeListWithWorktrees(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Initialize git repo
-	cmd := exec.Command("git", "init")
-	cmd.Dir = tmpDir
+	// Initialize git repo - use clean env to prevent hook interference
+	cmd := testGitCommand("-C", tmpDir, "init")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to init git repo: %v", err)
 	}
 
 	// Create initial commit
-	cmd = exec.Command("git", "commit", "--allow-empty", "-m", "init")
-	cmd.Dir = tmpDir
-	cmd.Env = append(os.Environ(),
+	cmd = testGitCommand("-C", tmpDir, "commit", "--allow-empty", "-m", "init")
+	cmd.Env = append(cleanGitEnv(),
 		"GIT_AUTHOR_NAME=Test",
 		"GIT_AUTHOR_EMAIL=test@test.com",
 		"GIT_COMMITTER_NAME=Test",
@@ -92,8 +115,7 @@ func TestWorktreeListWithWorktrees(t *testing.T) {
 
 	// Create a worktree
 	worktreePath := filepath.Join(tmpDir, "worktree-feature")
-	cmd = exec.Command("git", "worktree", "add", "-b", "feature-branch", worktreePath)
-	cmd.Dir = tmpDir
+	cmd = testGitCommand("-C", tmpDir, "worktree", "add", "-b", "feature-branch", worktreePath)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to create worktree: %v", err)
 	}
@@ -104,8 +126,7 @@ func TestWorktreeListWithWorktrees(t *testing.T) {
 	}
 
 	// Verify worktree list command works
-	cmd = exec.Command("git", "worktree", "list")
-	cmd.Dir = tmpDir
+	cmd = testGitCommand("-C", tmpDir, "worktree", "list")
 	output, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("Failed to list worktrees: %v", err)

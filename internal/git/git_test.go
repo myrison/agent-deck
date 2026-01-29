@@ -2,30 +2,29 @@ package git
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
 // Helper function to create a git repo for testing
-// IMPORTANT: Uses git -C to avoid polluting parent repo when running from worktrees
+// IMPORTANT: Uses gitCommand to clean GIT_* env vars and avoid polluting parent repo
 func createTestRepo(t *testing.T, dir string) {
 	t.Helper()
 
-	// Initialize git repo - use -C to ensure git operates in the correct directory
-	cmd := exec.Command("git", "-C", dir, "init")
+	// Initialize git repo - gitCommand cleans env to prevent hook interference
+	cmd := gitCommand("-C", dir, "init")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("failed to init git repo: %v", err)
 	}
 
-	// Configure git user for commits - use -C to isolate config to test repo
-	cmd = exec.Command("git", "-C", dir, "config", "user.email", "test@test.com")
+	// Configure git user for commits
+	cmd = gitCommand("-C", dir, "config", "user.email", "test@test.com")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("failed to configure git email: %v", err)
 	}
 
-	cmd = exec.Command("git", "-C", dir, "config", "user.name", "Test User")
+	cmd = gitCommand("-C", dir, "config", "user.name", "Test User")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("failed to configure git name: %v", err)
 	}
@@ -36,22 +35,22 @@ func createTestRepo(t *testing.T, dir string) {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	cmd = exec.Command("git", "-C", dir, "add", ".")
+	cmd = gitCommand("-C", dir, "add", ".")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("failed to git add: %v", err)
 	}
 
-	cmd = exec.Command("git", "-C", dir, "commit", "-m", "Initial commit")
+	cmd = gitCommand("-C", dir, "commit", "-m", "Initial commit")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("failed to git commit: %v", err)
 	}
 }
 
 // Helper to create a branch in a repo
-// IMPORTANT: Uses git -C to avoid polluting parent repo when running from worktrees
+// IMPORTANT: Uses gitCommand to clean GIT_* env vars and avoid polluting parent repo
 func createBranch(t *testing.T, dir, branchName string) {
 	t.Helper()
-	cmd := exec.Command("git", "-C", dir, "branch", branchName)
+	cmd := gitCommand("-C", dir, "branch", branchName)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("failed to create branch %s: %v", branchName, err)
 	}
@@ -168,7 +167,7 @@ func TestGetCurrentBranch(t *testing.T) {
 		createTestRepo(t, dir)
 		createBranch(t, dir, "feature-branch")
 
-		cmd := exec.Command("git", "-C", dir, "checkout", "feature-branch")
+		cmd := gitCommand("-C", dir, "checkout", "feature-branch")
 		if err := cmd.Run(); err != nil {
 			t.Fatalf("failed to checkout branch: %v", err)
 		}
