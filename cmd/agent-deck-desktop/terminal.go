@@ -355,14 +355,22 @@ func (t *Terminal) startTmuxSessionStreaming(tmuxSession string, cols, rows int)
 	time.Sleep(50 * time.Millisecond)
 
 	// 6. Attach PTY to tmux (output will be streamed to frontend)
+	// Use same approach as polling mode for consistency (SpawnPTYWithCommand + Resize)
 	t.debugLog("[PTY-STREAM] Attaching PTY to tmux session for streaming")
+	t.debugLog("[PTY-STREAM] Calling SpawnPTYWithCommand(%s, attach-session, -t, %s)",
+		tmuxBinaryPath, tmuxSession)
 	pty, err := SpawnPTYWithCommand(tmuxBinaryPath, "attach-session", "-t", tmuxSession)
 	if err != nil {
 		return fmt.Errorf("failed to attach to tmux: %w", err)
 	}
+	t.debugLog("[PTY-STREAM] SpawnPTYWithCommand succeeded, pty=%p", pty)
 
+	// Resize PTY to match terminal dimensions (same as polling mode)
 	if cols > 0 && rows > 0 {
-		pty.Resize(uint16(cols), uint16(rows))
+		t.debugLog("[PTY-STREAM] Calling pty.Resize(%d, %d)", cols, rows)
+		if err := pty.Resize(uint16(cols), uint16(rows)); err != nil {
+			t.debugLog("[PTY-STREAM] pty.Resize error: %v", err)
+		}
 	}
 
 	t.pty = pty
@@ -892,15 +900,17 @@ func (t *Terminal) readLoopStream() {
 	var incompleteUTF8 []byte // Buffer for incomplete UTF-8 sequences
 
 	t.debugLog("[PTY-STREAM] Starting readLoopStream for session=%s", t.sessionID)
+	readCount := 0
 
 	for {
+		readCount++
 		t.mu.Lock()
 		p := t.pty
 		closed := t.closed
 		t.mu.Unlock()
 
 		if p == nil || closed {
-			t.debugLog("[PTY-STREAM] Exiting - pty=%v closed=%v", p != nil, closed)
+			t.debugLog("[PTY-STREAM] Exiting read loop - pty=%v closed=%v", p != nil, closed)
 			return
 		}
 
@@ -940,6 +950,7 @@ func (t *Terminal) readLoopStream() {
 			if len(data) > 0 {
 				output := stripTTSMarkers(string(data))
 				if len(output) > 0 {
+					t.debugLog("[PTY-STREAM] Emitting %d bytes via terminal:data", len(output))
 					runtime.EventsEmit(t.ctx, "terminal:data",
 						TerminalEvent{SessionID: t.sessionID, Data: output})
 				}
@@ -992,12 +1003,13 @@ func (t *Terminal) startTmuxPolling(tmuxSession string, rows int) {
 // startStatusPolling begins lightweight polling for alt-screen status only.
 // This is used in PTY streaming mode where we don't poll for display,
 // but still need to track when apps enter/exit alt-screen mode.
+// NOTE: Caller must hold t.mu lock - this function does NOT acquire the lock
+// to avoid deadlock when called from startTmuxSessionStreaming.
 func (t *Terminal) startStatusPolling(tmuxSession string) {
-	t.mu.Lock()
+	// NOTE: No lock here - caller (startTmuxSessionStreaming) already holds it
 	t.tmuxPolling = true
 	t.tmuxStopChan = make(chan struct{})
 	t.tmuxSession = tmuxSession
-	t.mu.Unlock()
 
 	go t.pollStatusLoop()
 }
