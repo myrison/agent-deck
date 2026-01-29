@@ -333,6 +333,12 @@ The viewport becomes visually corrupted:
 
 **Hypothesis:** The viewport diff logic (`DiffViewport()` + history gap insertion) emits ANSI escape sequences that conflict with xterm.js internal cursor/scroll state, causing visual desync.
 
+#### Issue 3: Wide Character (Emoji) Rendering
+Green checkmark emojis (✅) consistently render with the right half clipped/cut off. This suggests:
+- Wide character width calculation is incorrect somewhere in the pipeline
+- tmux, xterm.js, or the sanitization code may be treating 2-cell-wide characters as 1-cell
+- May be related to the viewport diff logic not accounting for wide character widths
+
 ### Reproduction Cases
 
 1. **Zero events reproduction:**
