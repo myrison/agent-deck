@@ -774,11 +774,21 @@ func (t *Terminal) pollTmuxLoop() {
 	ticker := time.NewTicker(80 * time.Millisecond) // ~12.5 fps
 	defer ticker.Stop()
 
+	pollCount := 0
+	t.debugLog("[POLL-LOOP] Started for session=%s", t.sessionID)
+	fmt.Printf("[POLL-DEBUG] pollTmuxLoop STARTED session=%s\n", t.sessionID)
+
 	for {
 		select {
 		case <-t.tmuxStopChan:
+			t.debugLog("[POLL-LOOP] Stopped after %d polls", pollCount)
+			fmt.Printf("[POLL-DEBUG] pollTmuxLoop STOPPED session=%s polls=%d\n", t.sessionID, pollCount)
 			return
 		case <-ticker.C:
+			pollCount++
+			if pollCount%25 == 0 {
+				fmt.Printf("[POLL-DEBUG] Poll #%d session=%s\n", pollCount, t.sessionID)
+			}
 			t.pollTmuxOnce()
 		}
 	}
@@ -798,6 +808,7 @@ func (t *Terminal) pollTmuxOnce() {
 	t.mu.Unlock()
 
 	if !polling || session == "" || tracker == nil {
+		fmt.Printf("[POLL-DEBUG] BAILED: polling=%v session='%s' tracker=%v\n", polling, session, tracker != nil)
 		return
 	}
 
@@ -865,7 +876,14 @@ func (t *Terminal) pollTmuxOnce() {
 	lastState := t.tmuxLastState
 	t.mu.Unlock()
 
-	if currentState != lastState {
+	viewportChanged := currentState != lastState
+	hasGap := len(historyGap) > 0
+	if viewportChanged || hasGap {
+		fmt.Printf("[POLL-DEBUG] session=%s viewportChanged=%v gapBytes=%d ctx=%v\n",
+			t.sessionID, viewportChanged, len(historyGap), t.ctx != nil)
+	}
+
+	if viewportChanged {
 		t.mu.Lock()
 		t.tmuxLastState = currentState
 		t.mu.Unlock()
@@ -899,6 +917,7 @@ func (t *Terminal) pollTmuxOnce() {
 				bytesSent = len(combinedStr)
 				linesSent = strings.Count(combinedStr, "\n")
 				lines := strings.Count(content, "\n")
+				fmt.Printf("[POLL-DEBUG] EMIT terminal:data session=%s bytes=%d lines=%d\n", t.sessionID, bytesSent, linesSent)
 				t.debugLog("[POLL] Combined update: %d bytes (gap=%d, viewport=%d), %d content lines, historySize=%d, altScreen=%v",
 					bytesSent, len(historyGap), len(viewportUpdate), lines, historySize, inAltScreen)
 				runtime.EventsEmit(t.ctx, "terminal:data", TerminalEvent{SessionID: t.sessionID, Data: combinedStr})

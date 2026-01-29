@@ -1,8 +1,8 @@
 # Scrollback Data Loss Fix - Architecture Document
 
-**Status:** Phase 1 & 2 Complete
+**Status:** Phase 2.5 - Verification & Root Cause Investigation
 **Created:** 2026-01-28
-**Branch:** `fix/scrollback-fast-streaming`
+**Branch:** `fix/scrollback-debug`
 **Last Updated:** 2026-01-28
 
 ---
@@ -290,6 +290,81 @@ This plan was reviewed by the LLM Council (GPT-5.2, Claude Opus 4.5, Gemini 3 Pr
 6. ✅ Added frontend write batching (RAF-based)
 7. ✅ Added comprehensive test scenarios (CR/progress, split ANSI, Unicode)
 8. ✅ Documented remote session limitations
+
+---
+
+## Phase 2.5 Verification Results (2026-01-28)
+
+### Test Results Summary
+
+| Scenario | Events During Output | Data in Scrollback | Rendering Quality |
+|----------|---------------------|-------------------|-------------------|
+| Claude Code + `seq 1 10000` | **0 events** | ✅ Present (searchable) | ❌ Corrupts on interaction |
+| Claude Code + any large output | **0 events** | ✅ Present (searchable) | ❌ Corrupts on interaction |
+| Shell session + test script | ✅ Events populate | ✅ Present | ✅ Clean |
+| Resize after corruption | Events appear | ✅ Present | ✅ Fixes rendering |
+
+### Key Findings
+
+**GOOD NEWS:** Data is NOT being lost. All lines are present and searchable in scrollback.
+
+**UNEXPECTED DISCOVERY:** Two distinct issues identified:
+
+#### Issue 1: Zero Events During Claude Code Output
+When output streams in a Claude Code session, the debug overlay shows **0 events received** and **0 bytes**. However, the data IS in the scrollback (searchable). This means:
+- The polling loop is either not running or not emitting during Claude Code command execution
+- The scrollback data comes from the **initial history capture on attach**, not from streaming `terminal:data` events
+- The 2 events / 1818 bytes observed was from viewport updates AFTER the command completed, not during
+
+**Hypothesis:** Something about Claude Code sessions is preventing or bypassing the polling loop during output streaming.
+
+#### Issue 2: Rendering Corruption on Interaction
+When any of these occur in a Claude Code session with large scrollback:
+- User opens search (Cmd+F)
+- User resizes window
+- Large output streams (e.g., AI assistant responses)
+
+The viewport becomes visually corrupted:
+- Text overlaps or gets misaligned
+- Markdown tables render broken
+- Lines appear in wrong positions
+
+**Workaround:** Resizing the window again forces a full redraw and fixes the rendering.
+
+**Hypothesis:** The viewport diff logic (`DiffViewport()` + history gap insertion) emits ANSI escape sequences that conflict with xterm.js internal cursor/scroll state, causing visual desync.
+
+### Reproduction Cases
+
+1. **Zero events reproduction:**
+   - Open RevDen desktop app
+   - Attach to Claude Code session
+   - Open debug overlay (Cmd+Shift+D)
+   - Reset stats
+   - Type `seq 1 10000` in the Claude Code prompt
+   - Observe: Events stay at 0 during output
+
+2. **Rendering corruption reproduction:**
+   - Attach to Claude Code session
+   - Have AI assistant output a large response (table, long text)
+   - Observe: Rendering may corrupt
+   - Resize window → Fixes rendering
+
+### Root Cause Investigation Plan
+
+**Option B selected:** Investigate WHY polling shows zero events during Claude Code command execution.
+
+**Next steps:**
+1. Add debug logging to `pollTmuxLoop()` to trace when/why polls happen ✅ DONE
+2. Check if there's pause/resume logic affecting Claude Code sessions
+3. Investigate if sessionID mismatch is causing event filtering
+4. Examine the history capture vs polling code paths
+
+### Automated Tests Status
+
+All Phase 2 unit tests PASS:
+- `pipeline_stats_test.go`: 3 tests ✅
+- `desktop_settings_test.go` (scrollback): 9 tests ✅
+- Frontend tests: 607 tests ✅
 
 ---
 
