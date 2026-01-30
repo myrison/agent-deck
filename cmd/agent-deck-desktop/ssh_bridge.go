@@ -101,7 +101,7 @@ func (b *SSHBridge) GetAllHosts() map[string]session.SSHHostDef {
 func (b *SSHBridge) AddHost(hostID, host, user string, port int, identityFile, description, groupName string, autoDiscover bool, tmuxPath, jumpHost string) error {
 	// Validate the hostID
 	if errMsg := session.ValidateSSHHostID(hostID); errMsg != "" {
-		return fmt.Errorf(errMsg)
+		return fmt.Errorf("%s", errMsg)
 	}
 
 	// Check if host already exists
@@ -128,7 +128,7 @@ func (b *SSHBridge) AddHost(hostID, host, user string, port int, identityFile, d
 func (b *SSHBridge) UpdateHost(hostID, host, user string, port int, identityFile, description, groupName string, autoDiscover bool, tmuxPath, jumpHost string) error {
 	// Validate the hostID
 	if errMsg := session.ValidateSSHHostID(hostID); errMsg != "" {
-		return fmt.Errorf(errMsg)
+		return fmt.Errorf("%s", errMsg)
 	}
 
 	def := session.SSHHostDef{
