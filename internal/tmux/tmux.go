@@ -1593,6 +1593,17 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════
+	// CHECK 1b: Claude Code 2.1.25+ active spinner pattern
+	// Detects: "✳ Gusting… (35s · ↑ 673 tokens)" (unicode ellipsis = active)
+	// Does NOT match done: "✻ Worked for 54s" (no ellipsis)
+	// Word-list independent for future-proofing
+	// ═══════════════════════════════════════════════════════════════════════
+	if claudeSpinnerActivePattern.MatchString(recentContent) {
+		debugLog("%s: BUSY_REASON=claude 2.1.25+ spinner active (ellipsis pattern)", shortName)
+		return true
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════
 	// CHECK 2: "esc to interrupt" - FALLBACK for older Claude Code versions
 	// Older versions showed "esc to interrupt" instead of "ctrl+c to interrupt"
 	// ═══════════════════════════════════════════════════════════════════════
@@ -1629,13 +1640,25 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	// Braille spinner dots from cli-spinners "dots" pattern
 	// Check last 5 lines (spinners appear at status line)
 	// ═══════════════════════════════════════════════════════════════════════
-	spinnerChars := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	spinnerChars := []string{
+		"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
+		"✳", "✽", "✶", "✢", // Claude Code 2.1.25+ asterisk spinner (excl ✻ and · which appear in done/other states)
+	}
 	last5 := lastLines
 	if len(last5) > 5 {
 		last5 = last5[len(last5)-5:]
 	}
 
 	for _, line := range last5 {
+		// Skip lines starting with box-drawing characters (e.g., │├└─┌┐┘┤┬┴┼)
+		// These are UI borders that can contain braille-like chars as rendering artifacts
+		trimmedLine := strings.TrimSpace(line)
+		if len(trimmedLine) > 0 {
+			r := []rune(trimmedLine)[0]
+			if r == '│' || r == '├' || r == '└' || r == '─' || r == '┌' || r == '┐' || r == '┘' || r == '┤' || r == '┬' || r == '┴' || r == '┼' || r == '╭' || r == '╰' || r == '╮' || r == '╯' {
+				continue
+			}
+		}
 		for _, spinner := range spinnerChars {
 			if strings.Contains(line, spinner) {
 				debugLog("%s: BUSY_REASON=spinner char=%q", shortName, spinner)
@@ -1688,12 +1711,21 @@ func (s *Session) isSustainedActivity() bool {
 // Precompiled regex patterns for dynamic content stripping
 // These are compiled once at package init for performance
 var (
-	// Matches Claude Code status line: "(45s · 1234 tokens · ctrl+c to interrupt)"
-	dynamicStatusPattern = regexp.MustCompile(`\([^)]*\d+s\s*·[^)]*tokens[^)]*\)`)
+	// Matches Claude Code status line: "(45s · 1234 tokens · ctrl+c to interrupt)" and "(35s · ↑ 673 tokens)"
+	dynamicStatusPattern = regexp.MustCompile(`\([^)]*\d+s\s*·[^)]*(?:tokens|↑|↓)[^)]*\)`)
+
+	// Claude Code 2.1.25+ active spinner: symbol + word + unicode ellipsis (U+2026)
+	// Matches: "✳ gusting…" or "· sublimating…" or "✻ cooking…"
+	// Does NOT match done state: "✻ worked for 54s" (no ellipsis)
+	claudeSpinnerActivePattern = regexp.MustCompile(`[·✳✽✶✻✢]\s*\w+…`)
 
 	// Matches whimsical thinking words with timing info (e.g., "Flibbertigibbeting... (25s · 340 tokens)")
 	// Updated to include all 90 Claude Code whimsical words
-	thinkingPattern = regexp.MustCompile(`(?i)(` + whimsicalWordsPattern + `)[^(]*\([^)]*\)`)
+	thinkingPattern = regexp.MustCompile(`[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏·✳✽✶✻✢]\s*(?i)(` + whimsicalWordsPattern + `)[^(]*\([^)]*\)`)
+
+	// Claude 2.1.25+ uses unicode ellipsis: "✳ Gusting… (35s · ↑ 673 tokens)"
+	// Word-list independent - any spinner + word + ellipsis + parenthesized status
+	thinkingPatternEllipsis = regexp.MustCompile(`[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏·✳✽✶✻✢]\s*\w+…\s*\([^)]*\)`)
 
 	// Progress bar patterns for normalization (Fix 2.1)
 	// These cause hash changes when progress updates
@@ -1724,6 +1756,8 @@ var claudeWhimsicalWords = []string{
 	"stewing", "sussing", "synthesizing", "thinking", "tinkering",
 	"transmuting", "unfurling", "unravelling", "vibing", "wandering",
 	"whirring", "wibbling", "wizarding", "working", "wrangling",
+	// Claude Code 2.1.25+ additions
+	"billowing", "gusting", "metamorphosing", "sublimating", "recombobulating", "sautéing",
 }
 
 // whimsicalWordsPattern is the regex alternation of all whimsical words
@@ -1747,7 +1781,10 @@ func (s *Session) normalizeContent(content string) string {
 
 	// Strip braille spinner characters (used by Claude Code and others)
 	// These animate while processing and cause hash changes
-	spinners := []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}
+	spinners := []rune{
+		'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏',
+		'·', '✳', '✽', '✶', '✻', '✢', // Claude Code 2.1.25+ asterisk spinners
+	}
 	for _, r := range spinners {
 		result = strings.ReplaceAll(result, string(r), "")
 	}
@@ -1757,6 +1794,7 @@ func (s *Session) normalizeContent(content string) string {
 	// which updates to "(46s · 1234 tokens · ctrl+c to interrupt)" one second later
 	result = dynamicStatusPattern.ReplaceAllString(result, "(STATUS)")
 	result = thinkingPattern.ReplaceAllString(result, "$1...")
+	result = thinkingPatternEllipsis.ReplaceAllString(result, "THINKING…")
 
 	// Strip progress indicators that change frequently (Fix 2.1)
 	// These cause hash changes during downloads, builds, etc.
