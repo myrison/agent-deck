@@ -416,15 +416,18 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
             e.preventDefault();
             e.stopPropagation();
             if (editingConfig || creatingForTool) {
-                // Close editor, go back to list
+                // Close LaunchConfig editor, go back to list
                 setEditingConfig(null);
                 setCreatingForTool(null);
+            } else if (editingSSHHost) {
+                // Cancel SSH host editing, go back to list
+                handleCancelSSHHostForm();
             } else {
                 // Close modal
                 onClose();
             }
         }
-    }, [editingConfig, creatingForTool, onClose]);
+    }, [editingConfig, creatingForTool, editingSSHHost, handleCancelSSHHostForm, onClose]);
 
     useEffect(() => {
         // Use capture phase to intercept before xterm can swallow the event

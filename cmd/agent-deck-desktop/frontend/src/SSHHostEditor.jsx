@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import './SSHHostEditor.css';
-import { TestSSHConnection, BrowseLocalDirectory } from '../wailsjs/go/main/App';
+import { TestSSHConnectionWithParams, BrowseLocalFile } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 
 const logger = createLogger('SSHHostEditor');
@@ -97,9 +97,14 @@ export default function SSHHostEditor({ host, onSave, onCancel, existingHostIds 
         setTestResult(null);
 
         try {
-            // Test connection using the existing pool mechanism
-            // We need to temporarily save the host config to test it
-            await TestSSHConnection(hostId || 'temp-test');
+            // Test connection using provided parameters (no need to save first)
+            await TestSSHConnectionWithParams(
+                hostAddress.trim(),
+                user.trim(),
+                port || 22,
+                identityFile.trim(),
+                jumpHost.trim()
+            );
             setTestResult({ success: true, message: 'Connected successfully!' });
             logger.info('SSH connection test succeeded', { hostId, host: hostAddress });
         } catch (err) {
@@ -122,16 +127,10 @@ export default function SSHHostEditor({ host, onSave, onCancel, existingHostIds 
 
     const handleBrowseIdentityFile = async () => {
         try {
-            const homePath = '~/.ssh';
-            const dir = await BrowseLocalDirectory(homePath);
-            if (dir) {
-                // Convert to ~ notation if in home directory
-                const home = await BrowseLocalDirectory('~');
-                if (home && dir.startsWith(home)) {
-                    setIdentityFile('~' + dir.substring(home.length));
-                } else {
-                    setIdentityFile(dir);
-                }
+            // Open file picker starting in ~/.ssh (Go handles ~ expansion)
+            const file = await BrowseLocalFile('~/.ssh');
+            if (file) {
+                setIdentityFile(file);
             }
         } catch (err) {
             logger.error('Failed to browse for identity file:', err);

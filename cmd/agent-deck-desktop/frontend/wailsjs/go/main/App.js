@@ -22,6 +22,10 @@ export function BrowseLocalDirectory(arg1) {
   return window['go']['main']['App']['BrowseLocalDirectory'](arg1);
 }
 
+export function BrowseLocalFile(arg1) {
+  return window['go']['main']['App']['BrowseLocalFile'](arg1);
+}
+
 export function CloseTerminal(arg1) {
   return window['go']['main']['App']['CloseTerminal'](arg1);
 }
@@ -356,6 +360,10 @@ export function StartTmuxSession(arg1, arg2, arg3, arg4) {
 
 export function TestSSHConnection(arg1) {
   return window['go']['main']['App']['TestSSHConnection'](arg1);
+}
+
+export function TestSSHConnectionWithParams(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['TestSSHConnectionWithParams'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function ToggleGroupExpanded(arg1, arg2) {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import './ScanPathSetupModal.css';
-import { SetScanPaths, SetSetupDismissed, BrowseLocalDirectory, GetSSHHosts, AddSSHHost, RemoveSSHHost, TestSSHConnection } from '../wailsjs/go/main/App';
+import { SetScanPaths, SetSetupDismissed, BrowseLocalDirectory, GetSSHHosts, AddSSHHost, UpdateSSHHost, RemoveSSHHost, TestSSHConnection } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 
 const logger = createLogger('ScanPathSetupModal');
@@ -138,20 +138,38 @@ export default function ScanPathSetupModal({ onComplete, onSkip }) {
         try {
             const tmuxPath = hostForm.isMacRemote ? '/opt/homebrew/bin/tmux' : '';
 
-            await AddSSHHost(
-                hostForm.hostId.trim(),
-                hostForm.host.trim(),
-                hostForm.user.trim(),
-                hostForm.port || 22,
-                hostForm.identityFile.trim(),
-                '', // description
-                hostForm.groupName.trim() || hostForm.hostId.trim(),
-                hostForm.autoDiscover,
-                tmuxPath,
-                '' // jumpHost
-            );
+            if (editingHost) {
+                // Update existing host
+                await UpdateSSHHost(
+                    hostForm.hostId.trim(),
+                    hostForm.host.trim(),
+                    hostForm.user.trim(),
+                    hostForm.port || 22,
+                    hostForm.identityFile.trim(),
+                    '', // description
+                    hostForm.groupName.trim() || hostForm.hostId.trim(),
+                    hostForm.autoDiscover,
+                    tmuxPath,
+                    '' // jumpHost
+                );
+                logger.info('Updated SSH host', { hostId: hostForm.hostId });
+            } else {
+                // Add new host
+                await AddSSHHost(
+                    hostForm.hostId.trim(),
+                    hostForm.host.trim(),
+                    hostForm.user.trim(),
+                    hostForm.port || 22,
+                    hostForm.identityFile.trim(),
+                    '', // description
+                    hostForm.groupName.trim() || hostForm.hostId.trim(),
+                    hostForm.autoDiscover,
+                    tmuxPath,
+                    '' // jumpHost
+                );
+                logger.info('Added SSH host', { hostId: hostForm.hostId });
+            }
 
-            logger.info('Added SSH host', { hostId: hostForm.hostId });
             await loadSSHHosts();
             setShowHostForm(false);
             resetHostForm();
