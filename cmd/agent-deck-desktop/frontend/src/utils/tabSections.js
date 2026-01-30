@@ -3,6 +3,7 @@ import { getTabSession } from './tabContextMenu';
 /**
  * Groups tabs into local and remote sections.
  * Maintains original order within each section.
+ * Filters out empty tabs (tabs with no session).
  *
  * @param {Array} tabs - Array of tab objects
  * @returns {{ localTabs: Array, remoteTabs: Array }} - Tabs grouped by section
@@ -13,7 +14,10 @@ export function groupTabsBySection(tabs) {
 
     tabs.forEach(tab => {
         const session = getTabSession(tab);
-        if (session?.isRemote) {
+        // Skip tabs with no session (empty tabs)
+        if (!session) return;
+
+        if (session.isRemote) {
             remoteTabs.push(tab);
         } else {
             localTabs.push(tab);

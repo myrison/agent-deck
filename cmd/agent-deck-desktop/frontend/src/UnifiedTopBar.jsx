@@ -434,7 +434,11 @@ export default function UnifiedTopBar({
                     <div className={`tab-section local-section${hasRemoteTabs ? ' with-underline' : ''}`}>
                         {localTabs.map((tab, index) => renderTab(tab, index))}
                         {hasRemoteTabs && (
-                            <div className="section-underline local" title="Local Sessions" />
+                            <div
+                                className="section-underline local"
+                                onMouseEnter={(e) => showTooltip(e, 'Local Sessions')}
+                                onMouseLeave={hideTooltip}
+                            />
                         )}
                     </div>
                 )}
@@ -448,7 +452,11 @@ export default function UnifiedTopBar({
                 {hasRemoteTabs && (
                     <div className="tab-section remote-section with-underline">
                         {remoteTabs.map((tab, index) => renderTab(tab, localTabs.length + index))}
-                        <div className="section-underline remote" title="Remote Sessions" />
+                        <div
+                            className="section-underline remote"
+                            onMouseEnter={(e) => showTooltip(e, 'Remote Sessions')}
+                            onMouseLeave={hideTooltip}
+                        />
                     </div>
                 )}
             </div>
