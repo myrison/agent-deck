@@ -144,3 +144,26 @@ A Wails-based native app (`cmd/agent-deck-desktop/`) complements the TUI with be
 ```bash
 make desktop-dev    # From repo root - uses "RevDen (Dev)" branding
 ```
+
+## Debugging Desktop App
+
+### Frontend Logs
+
+**NEVER ask the user to tail logs** - do it yourself! Use these commands:
+
+```bash
+# Recent frontend console logs
+tail -50 ~/.agent-deck/logs/frontend-console.log
+
+# Live tail with grep
+tail -f ~/.agent-deck/logs/frontend-console.log | grep -E "ERROR|WARN|pattern"
+```
+
+**Or use the skill:** `/read-desktop-logs` - reads and analyzes frontend console logs automatically.
+
+### Backend Logs
+
+```bash
+# Most recent log file
+ls -t ~/.agent-deck/logs/agentdeck_*.log | head -1 | xargs tail -100
+```

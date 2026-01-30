@@ -119,8 +119,9 @@ func main() {
 		logLevel = logger.DEBUG
 	}
 
-	// In dev mode from worktree, start visible so window appears.
-	// (Main repo has startHidden = isDev to prevent focus-stealing on hot-reload)
+	// In dev mode, start hidden to prevent focus-stealing on hot-reload.
+	// Click dock icon to reveal window.
+	// NOTE: Temporarily disabled for testing - set to false to make window visible
 	startHidden := false
 
 	// Set app title based on mode and window number

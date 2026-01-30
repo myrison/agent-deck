@@ -237,3 +237,62 @@
     background: var(--border-primary);
     margin: 4px 0;
 }
+
+/* Tab Section Grouping (Local vs Remote) */
+.tab-section {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    position: relative;
+    padding-bottom: 6px; /* Space for underline */
+}
+
+/* Section underline - large hit area with visible line at bottom */
+.section-underline {
+    position: absolute;
+    bottom: -8px;  /* Extend below the section */
+    left: 0;
+    right: 0;
+    height: 20px;  /* Large hit area */
+    pointer-events: auto;
+    cursor: default;
+    background: transparent;
+}
+
+/* Visible colored line via pseudo-element */
+.section-underline::after {
+    content: '';
+    position: absolute;
+    bottom: 8px;  /* Position line at visual bottom of section */
+    left: 0;
+    right: 0;
+    height: 3px;
+    border-radius: 2px;
+    transition: height 0.15s ease, opacity 0.15s ease;
+}
+
+.section-underline:hover::after {
+    height: 4px;
+    opacity: 0.9;
+}
+
+/* Local section underline - teal */
+.section-underline.local::after {
+    background: var(--accent-teal, #4ecdc4);
+}
+
+/* Remote section underline - purple */
+.section-underline.remote::after {
+    background: var(--accent-purple, #a67edc);
+}
+
+/* Gap between local and remote sections */
+.section-gap {
+    width: 16px;
+    flex-shrink: 0;
+}
+
+/* Visual feedback during invalid cross-section drag */
+.tab-section.drag-invalid {
+    opacity: 0.5;
+}
