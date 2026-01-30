@@ -81,6 +81,12 @@ func (ht *HistoryTracker) FetchHistoryGap(currentHistorySize int) (string, error
 		return "", nil
 	}
 
+	// If gap is within viewport, DiffViewport will handle it - no need to fetch
+	// Only fetch gap if it exceeds viewport size (scrolled off screen)
+	if gapSize <= ht.viewportRows {
+		return "", nil
+	}
+
 	// Fetch gap lines from tmux history
 	// -S = start offset (furthest back in history)
 	// -E = end offset (closest to viewport)

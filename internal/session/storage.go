@@ -51,6 +51,7 @@ func expandTilde(path string) string {
 
 // StorageData represents the JSON structure for persistence
 type StorageData struct {
+	Version   string          `json:"version,omitempty"` // Schema version (optional, for future migrations)
 	Instances []*InstanceData `json:"instances"`
 	Groups    []*GroupData    `json:"groups,omitempty"` // Persist empty groups
 	UpdatedAt time.Time       `json:"updated_at"`

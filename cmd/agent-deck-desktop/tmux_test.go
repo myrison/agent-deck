@@ -1001,6 +1001,14 @@ func TestConvertInstancesPreservesRunningStatusForActiveTmux(t *testing.T) {
 	}
 	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
 
+	// Send content that will be detected as "running" (busy indicator)
+	sendCmd := exec.Command(tmuxBinaryPath, "send-keys", "-t", sessionName, "echo 'Ctrl+C to interrupt'", "C-m")
+	if err := sendCmd.Run(); err != nil {
+		t.Fatalf("Failed to send keys to tmux session: %v", err)
+	}
+	// Give tmux a moment to update pane content
+	time.Sleep(100 * time.Millisecond)
+
 	instances := []*session.InstanceData{
 		{
 			ID:          "running-test-001",
