@@ -161,9 +161,9 @@ type Home struct {
 	analyticsCacheTime     map[string]time.Time                       // TTL cache: sessionID -> cache timestamp
 
 	// State
-	cursor         int            // Selected item index in flatItems
-	viewOffset     int            // First visible item index (for scrolling)
-	isAttaching    atomic.Bool    // Prevents View() output during attach (fixes Bubble Tea Issue #431) - atomic for thread safety
+	cursor         int                // Selected item index in flatItems
+	viewOffset     int                // First visible item index (for scrolling)
+	isAttaching    atomic.Bool        // Prevents View() output during attach (fixes Bubble Tea Issue #431) - atomic for thread safety
 	statusFilter   session.Status     // Filter sessions by status ("" = all, or specific status)
 	toolFilter     session.ToolFilter // Filter by tool type ("" = all, "agents" = AI only, "shells" = shell only)
 	previewMode    PreviewMode        // What to show in preview pane (both, output-only, analytics-only)
@@ -267,11 +267,11 @@ type Home struct {
 	lastBarTextMu        sync.Mutex        // Protects lastBarText for background worker access
 
 	// Remote session discovery
-	remoteDiscoveryTrigger      chan struct{}    // Triggers manual discovery (e.g., on 'r' refresh)
-	lastRemoteDiscovery         time.Time        // When discovery last ran
-	remoteDiscoveryRunning      atomic.Bool      // Prevents concurrent discoveries
-	remoteDiscoveryStarted      atomic.Bool      // True once worker goroutine has been started
-	remoteDiscoveryNeedsRebuild atomic.Bool      // Signal main loop to rebuild flatItems after discovery
+	remoteDiscoveryTrigger      chan struct{} // Triggers manual discovery (e.g., on 'r' refresh)
+	lastRemoteDiscovery         time.Time     // When discovery last ran
+	remoteDiscoveryRunning      atomic.Bool   // Prevents concurrent discoveries
+	remoteDiscoveryStarted      atomic.Bool   // True once worker goroutine has been started
+	remoteDiscoveryNeedsRebuild atomic.Bool   // Signal main loop to rebuild flatItems after discovery
 
 	// Multi-instance support
 	// When AllowMultiple is enabled, only the primary instance (first to start) manages
@@ -406,32 +406,32 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 	}
 
 	h := &Home{
-		profile:              actualProfile,
-		storage:              storage,
-		storageWarning:       storageWarning,
-		search:               NewSearch(),
-		newDialog:            NewNewDialog(),
-		groupDialog:          NewGroupDialog(),
-		forkDialog:           NewForkDialog(),
-		confirmDialog:        NewConfirmDialog(),
-		helpOverlay:          NewHelpOverlay(),
-		mcpDialog:            NewMCPDialog(),
-		setupWizard:          NewSetupWizard(),
-		settingsPanel:        NewSettingsPanel(),
-		analyticsPanel:       NewAnalyticsPanel(),
-		cursor:               0,
-		initialLoading:       true, // Show splash until sessions load
-		ctx:                  ctx,
-		cancel:               cancel,
-		instances:            []*session.Instance{},
-		instanceByID:         make(map[string]*session.Instance),
-		groupTree:            session.NewGroupTree([]*session.Instance{}),
-		flatItems:            []session.Item{},
-		previewCache:         make(map[string]string),
-		previewCacheTime:     make(map[string]time.Time),
-		analyticsCache:       make(map[string]*session.SessionAnalytics),
-		geminiAnalyticsCache: make(map[string]*session.GeminiSessionAnalytics),
-		analyticsCacheTime:   make(map[string]time.Time),
+		profile:                actualProfile,
+		storage:                storage,
+		storageWarning:         storageWarning,
+		search:                 NewSearch(),
+		newDialog:              NewNewDialog(),
+		groupDialog:            NewGroupDialog(),
+		forkDialog:             NewForkDialog(),
+		confirmDialog:          NewConfirmDialog(),
+		helpOverlay:            NewHelpOverlay(),
+		mcpDialog:              NewMCPDialog(),
+		setupWizard:            NewSetupWizard(),
+		settingsPanel:          NewSettingsPanel(),
+		analyticsPanel:         NewAnalyticsPanel(),
+		cursor:                 0,
+		initialLoading:         true, // Show splash until sessions load
+		ctx:                    ctx,
+		cancel:                 cancel,
+		instances:              []*session.Instance{},
+		instanceByID:           make(map[string]*session.Instance),
+		groupTree:              session.NewGroupTree([]*session.Instance{}),
+		flatItems:              []session.Item{},
+		previewCache:           make(map[string]string),
+		previewCacheTime:       make(map[string]time.Time),
+		analyticsCache:         make(map[string]*session.SessionAnalytics),
+		geminiAnalyticsCache:   make(map[string]*session.GeminiSessionAnalytics),
+		analyticsCacheTime:     make(map[string]time.Time),
 		launchingSessions:      make(map[string]time.Time),
 		resumingSessions:       make(map[string]time.Time),
 		mcpLoadingSessions:     make(map[string]time.Time),

@@ -12,9 +12,9 @@ import (
 
 // Exit codes for register-session command
 const (
-	exitSuccess        = 0
-	exitGeneralError   = 1
-	exitAlreadyExists  = 2
+	exitSuccess       = 0
+	exitGeneralError  = 1
+	exitAlreadyExists = 2
 )
 
 // handleRegisterSession registers an existing tmux session in sessions.json.

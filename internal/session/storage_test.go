@@ -249,7 +249,7 @@ auto_discover = true
 				Tool:           "claude",
 				Status:         StatusIdle,
 				CreatedAt:      time.Now(),
-				RemoteHost:     "jeeves",         // Matches SSH host config
+				RemoteHost:     "jeeves", // Matches SSH host config
 				RemoteTmuxName: "agentdeck_test1",
 			},
 		},
@@ -772,7 +772,7 @@ func TestStorageLoadFallsBackToRemoteTmuxName(t *testing.T) {
 				Tool:           "claude",
 				Status:         StatusError,
 				CreatedAt:      time.Now(),
-				TmuxSession:    "",                                // Lost due to SSH failure at save time
+				TmuxSession:    "", // Lost due to SSH failure at save time
 				RemoteHost:     "host197",
 				RemoteTmuxName: "agentdeck_coordinator_aabb1122",
 			},

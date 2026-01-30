@@ -566,8 +566,8 @@ func TestTransformRemoteGroupPath_RemoteOfRemote(t *testing.T) {
 func TestTransformRemoteGroups_FiltersRemoteOfRemote(t *testing.T) {
 	remoteGroups := []*GroupData{
 		{Name: "Production", Path: "production", Expanded: true, Order: 1},
-		{Name: "Docker", Path: "remote/Docker", Expanded: true, Order: 2},       // remote-of-remote
-		{Name: "Remote Root", Path: "remote", Expanded: true, Order: 3},          // exact prefix
+		{Name: "Docker", Path: "remote/Docker", Expanded: true, Order: 2}, // remote-of-remote
+		{Name: "Remote Root", Path: "remote", Expanded: true, Order: 3},   // exact prefix
 		{Name: "Workers", Path: "workers", Expanded: false, Order: 4},
 	}
 

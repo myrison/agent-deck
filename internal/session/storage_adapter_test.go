@@ -419,4 +419,3 @@ func TestStorageAdapterLastAccessedAtUpdate(t *testing.T) {
 			loaded.Instances[0].LastAccessedAt, accessTime)
 	}
 }
-

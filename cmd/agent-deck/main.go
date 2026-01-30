@@ -444,7 +444,7 @@ func reorderArgsForFlagParsing(args []string) []string {
 		"-c": true, "--cmd": true,
 		"-p": true, "--parent": true,
 		"--mcp": true,
-		"-w": true, "--worktree": true,
+		"-w":    true, "--worktree": true,
 		"-H": true, "--host": true,
 	}
 

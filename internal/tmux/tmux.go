@@ -346,11 +346,11 @@ type StateTracker struct {
 // NOTE: All mutable fields are protected by mu. The Bubble Tea event loop is single-threaded,
 // but we use mutex protection for defensive programming and future-proofing.
 type Session struct {
-	Name        string
-	DisplayName string
-	WorkDir     string
-	Command     string
-	Created     time.Time
+	Name         string
+	DisplayName  string
+	WorkDir      string
+	Command      string
+	Created      time.Time
 	InstanceID   string // Agent-deck instance ID for hook callbacks
 	RemoteHostID string // For lazy SSH executor initialization (empty for local sessions)
 
@@ -1166,6 +1166,7 @@ func (s *Session) AcknowledgeWithSnapshot() {
 // 3. If timestamp changed → check if sustained or spike
 //   - Sustained (1+ more changes in 1s) → GREEN
 //   - Spike (no more changes) → filtered (no state change)
+//
 // 4. Check cooldown → GREEN if within
 // 5. Cooldown expired → YELLOW or GRAY based on acknowledged
 func (s *Session) GetStatus() (string, error) {

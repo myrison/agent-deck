@@ -57,8 +57,8 @@ func GetGeminiSessionsDir(projectPath string) string {
 
 // GeminiSessionInfo holds parsed session metadata
 type GeminiSessionInfo struct {
-	SessionID    string    // Full UUID
-	Filename     string    // session-2025-12-26T15-09-4d8fcb4d.json
+	SessionID    string // Full UUID
+	Filename     string // session-2025-12-26T15-09-4d8fcb4d.json
 	StartTime    time.Time
 	LastUpdated  time.Time
 	MessageCount int
@@ -203,4 +203,3 @@ func UpdateGeminiAnalyticsFromDisk(projectPath, sessionID string, analytics *Gem
 
 	return nil
 }
-
