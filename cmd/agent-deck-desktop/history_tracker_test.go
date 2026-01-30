@@ -645,3 +645,167 @@ func TestDiffViewportNewLinesAppended(t *testing.T) {
 		t.Errorf("new content should be at indices 2-3, got %v", ht.lastViewportLines[2:4])
 	}
 }
+
+// ============================================================================
+// FIXED-VIEWPORT NORMALIZATION TESTS - Testing the cursor offset fix
+// ============================================================================
+
+// TestDiffViewportNormalizationInvariant verifies the core fix invariant:
+// lastViewportLines always has exactly viewportRows entries after DiffViewport.
+// This was the root cause of the cursor offset bug - variable line counts
+// caused array indices to drift from actual screen row positions.
+func TestDiffViewportNormalizationInvariant(t *testing.T) {
+	testCases := []struct {
+		name         string
+		viewportRows int
+		content      string
+	}{
+		{"empty content", 24, ""},
+		{"single line", 24, "hello"},
+		{"exact match", 24, "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\n24"},
+		{"more than viewport", 10, "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15"},
+		{"with trailing newlines", 24, "line1\nline2\n\n\n\n"},
+		{"all blank lines", 24, "\n\n\n\n\n"},
+		{"small viewport", 5, "a\nb\nc"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ht := NewHistoryTracker("test", tc.viewportRows)
+			ht.DiffViewport(tc.content)
+
+			if len(ht.lastViewportLines) != tc.viewportRows {
+				t.Errorf("invariant violated: expected lastViewportLines to have %d rows, got %d",
+					tc.viewportRows, len(ht.lastViewportLines))
+			}
+		})
+	}
+}
+
+// TestDiffViewportContentTruncation verifies that when content has MORE lines
+// than viewportRows, only the first viewportRows lines are kept. This ensures
+// the viewport accurately represents what the user sees on screen.
+func TestDiffViewportContentTruncation(t *testing.T) {
+	ht := NewHistoryTracker("test", 5)
+
+	// Content has 10 lines, viewport is 5 rows
+	content := "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10"
+	ht.DiffViewport(content)
+
+	// Should have exactly 5 lines (truncated)
+	if len(ht.lastViewportLines) != 5 {
+		t.Fatalf("expected 5 lines (truncated), got %d", len(ht.lastViewportLines))
+	}
+
+	// First 5 lines should be preserved
+	expected := []string{"line1", "line2", "line3", "line4", "line5"}
+	for i, exp := range expected {
+		if ht.lastViewportLines[i] != exp {
+			t.Errorf("row %d: expected %q, got %q", i, exp, ht.lastViewportLines[i])
+		}
+	}
+}
+
+// TestDiffViewportCursorOffsetScenario reproduces the original bug scenario:
+// Claude Code's input area resizing between captures caused line count to
+// vary, leading to cursor offset issues. With fixed normalization, the
+// cursor should always be positioned correctly.
+func TestDiffViewportCursorOffsetScenario(t *testing.T) {
+	ht := NewHistoryTracker("test", 10)
+
+	// Simulate Claude Code output with 8 visible lines + 2 blank at bottom
+	capture1 := "╭─ Thinking\n│ Processing...\n│ Analyzing code\n╰─────────────\n\n$ █\n\n\n\n"
+	ht.DiffViewport(capture1)
+
+	// Verify row count is fixed
+	if len(ht.lastViewportLines) != 10 {
+		t.Fatalf("capture 1: expected 10 rows, got %d", len(ht.lastViewportLines))
+	}
+
+	// Row 6 (index 5) should be "$ █" - the prompt with cursor
+	if ht.lastViewportLines[5] != "$ █" {
+		t.Errorf("capture 1: expected cursor prompt at row 6, got %q", ht.lastViewportLines[5])
+	}
+
+	// Simulate resize: input area expands, pushing content up
+	// Before the fix, this would cause line count to change, breaking cursor positioning
+	capture2 := "│ Processing...\n│ Analyzing code\n╰─────────────\n\n$ █\n\n\n\n\n"
+	result := ht.DiffViewport(capture2)
+
+	// Verify row count remains fixed
+	if len(ht.lastViewportLines) != 10 {
+		t.Fatalf("capture 2: expected 10 rows, got %d", len(ht.lastViewportLines))
+	}
+
+	// The diff should position cursor to update changed rows correctly
+	// Row 1 changed from "╭─ Thinking" to "│ Processing..."
+	if !strings.Contains(result, "\x1b[1;1H") {
+		t.Error("capture 2: should position cursor to row 1 to update changed content")
+	}
+}
+
+// TestDiffViewportRepeatedCaptureStability verifies that repeated captures
+// with identical content don't cause drift in the line count or indices.
+// This catches bugs where state accumulates incorrectly over time.
+func TestDiffViewportRepeatedCaptureStability(t *testing.T) {
+	ht := NewHistoryTracker("test", 24)
+
+	content := "stable\nviewport\ncontent"
+
+	// Capture same content 100 times
+	for i := range 100 {
+		ht.DiffViewport(content)
+
+		if len(ht.lastViewportLines) != 24 {
+			t.Fatalf("iteration %d: line count drifted to %d", i, len(ht.lastViewportLines))
+		}
+		if ht.lastViewportLines[0] != "stable" {
+			t.Fatalf("iteration %d: content drifted, row 0 = %q", i, ht.lastViewportLines[0])
+		}
+	}
+}
+
+// TestDiffViewportZeroViewportRows tests edge case of viewportRows = 0.
+// This should not panic or behave unexpectedly.
+func TestDiffViewportZeroViewportRows(t *testing.T) {
+	ht := NewHistoryTracker("test", 0)
+
+	// Should not panic
+	result := ht.DiffViewport("any content")
+
+	// With 0 rows, should have empty viewport and full output (treated as first capture)
+	if len(ht.lastViewportLines) != 0 {
+		t.Errorf("with viewportRows=0, expected 0 lines, got %d", len(ht.lastViewportLines))
+	}
+
+	// Should still produce some output (full refresh since no previous state)
+	if !strings.Contains(result, "\x1b[H") {
+		t.Error("even with 0 rows, should produce home sequence for full refresh")
+	}
+}
+
+// TestDiffViewportOneRow tests edge case of viewportRows = 1.
+// Single-row terminal should still work correctly.
+func TestDiffViewportOneRow(t *testing.T) {
+	ht := NewHistoryTracker("test", 1)
+
+	// Multi-line content, only first line should be kept
+	ht.DiffViewport("first\nsecond\nthird")
+
+	if len(ht.lastViewportLines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(ht.lastViewportLines))
+	}
+	if ht.lastViewportLines[0] != "first" {
+		t.Errorf("expected 'first', got %q", ht.lastViewportLines[0])
+	}
+
+	// Change the single line
+	result := ht.DiffViewport("changed")
+
+	if len(ht.lastViewportLines) != 1 {
+		t.Fatalf("expected 1 line after update, got %d", len(ht.lastViewportLines))
+	}
+	if !strings.Contains(result, "changed") {
+		t.Error("single-line change should be emitted")
+	}
+}
