@@ -52,6 +52,25 @@
     font-size: var(--font-base);
     transition: background 0.1s, border-color 0.1s;
     flex-shrink: 0;
+    position: relative;
+}
+
+/* Star badge on favorite items */
+.quick-launch-star {
+    position: absolute;
+    top: -5px;
+    left: -5px;
+    width: 14px;
+    height: 14px;
+    background: var(--accent-favorite);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8px;
+    color: #000;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    pointer-events: none;
 }
 
 .quick-launch-item:hover {

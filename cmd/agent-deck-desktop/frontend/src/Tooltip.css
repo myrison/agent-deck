@@ -25,12 +25,21 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
+    max-width: 100%;
+    overflow: hidden;
 }
 
 .tooltip-row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
+    min-width: 0; /* Allow flex children to shrink below content size */
+}
+
+/* Allow text content in rows to wrap */
+.tooltip-row > span:not(.tooltip-icon) {
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 .tooltip-icon {
@@ -48,6 +57,9 @@
     color: var(--text-muted);
     font-family: monospace;
     font-size: var(--font-md);
+    word-break: break-all; /* Break long paths at any character */
+    overflow-wrap: anywhere;
+    max-width: 100%;
 }
 
 .tooltip-worktree {
@@ -81,4 +93,25 @@
 
 .tooltip-sync-icon .git-behind {
     color: #ff6b6b;
+}
+
+/* Favorite indicator in tooltip */
+.tooltip-favorite-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--accent-favorite);
+    font-weight: 600;
+    font-size: var(--font-md);
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border-secondary);
+    margin-bottom: 4px;
+}
+
+.tooltip-favorite-star {
+    font-size: var(--font-lg);
+}
+
+.tooltip-name {
+    font-weight: 500;
 }

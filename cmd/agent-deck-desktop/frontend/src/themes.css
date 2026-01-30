@@ -43,6 +43,7 @@
     --accent-error-hover: #ff8787;
     --accent-purple: #a9a1e1;
     --accent-green: #9ece6a;
+    --accent-favorite: #fbbf24;
 
     /* UI elements */
     --btn-bg: #333;
@@ -110,6 +111,7 @@
     --accent-error-hover: #dd4444;
     --accent-purple: #6b5bb8;
     --accent-green: #5a9a30;
+    --accent-favorite: #f59e0b;
 
     /* UI elements */
     --btn-bg: #e8e8ec;
