@@ -202,7 +202,7 @@ func TestFindLastValidUTF8BoundaryInvalidSequences(t *testing.T) {
 	}
 }
 
-// TestVerifyTmuxConfig removed - was a permanently skipped non-test.
+// TestEnsureStatusBarHidden removed - was a permanently skipped non-test.
 // See adversarial review: skipped tests provide zero verification.
 
 // TestStripTTSMarkers tests TTS marker removal from terminal output.
@@ -310,16 +310,16 @@ func TestNormalizeCRLF(t *testing.T) {
 // Recommendation: Use strconv.Itoa() in production code and remove custom implementation.
 
 // ============================================================
-// verifyTmuxConfig() Tests
+// ensureStatusBarHidden() Tests
 // ============================================================
 
-// TestVerifyTmuxConfig_StatusAlreadyOff removed per adversarial review.
+// TestEnsureStatusBarHidden_StatusAlreadyOff removed per adversarial review.
 // Verdict: REMOVE - Tests implementation detail (no-op optimization) rather than
 // behavioral outcome. Users only care that status ends up off, not whether the
 // function skipped the set-option call when it was already off.
 
-// TestVerifyTmuxConfig_StatusOn verifies status set to off when currently on
-func TestVerifyTmuxConfig_StatusOn(t *testing.T) {
+// TestEnsureStatusBarHidden_StatusOn verifies status set to off when currently on
+func TestEnsureStatusBarHidden_StatusOn(t *testing.T) {
 	// Skip if tmux not available
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available, skipping integration test")
@@ -336,7 +336,7 @@ func TestVerifyTmuxConfig_StatusOn(t *testing.T) {
 	require.NoError(t, setOnCmd.Run())
 
 	// Verify config - should set to off
-	err := verifyTmuxConfig(sessionName)
+	err := ensureStatusBarHidden(sessionName)
 	assert.NoError(t, err, "should succeed and set status to off")
 
 	// Confirm status now off
@@ -346,21 +346,21 @@ func TestVerifyTmuxConfig_StatusOn(t *testing.T) {
 	assert.Equal(t, "off\n", string(output), "status should be set to off")
 }
 
-// TestVerifyTmuxConfig_ShowOptionFails verifies non-fatal error when show-option fails
-func TestVerifyTmuxConfig_ShowOptionFails(t *testing.T) {
+// TestEnsureStatusBarHidden_ShowOptionFails verifies non-fatal error when show-option fails
+func TestEnsureStatusBarHidden_ShowOptionFails(t *testing.T) {
 	// Use non-existent session - show-option will fail but is non-fatal
 	sessionName := "non-existent-session-show-fail"
 
 	// Function ignores show-option errors and tries set-option anyway
-	err := verifyTmuxConfig(sessionName)
+	err := ensureStatusBarHidden(sessionName)
 
 	// Expect error from set-option (session doesn't exist)
 	assert.Error(t, err, "should return error when session doesn't exist")
 	assert.Contains(t, err.Error(), "failed to set tmux status off", "error should mention set-option failure")
 }
 
-// TestVerifyTmuxConfig_SetOptionFails removed per adversarial review.
-// Verdict: REWRITE->REMOVE - Duplicates TestVerifyTmuxConfig_ShowOptionFails.
+// TestEnsureStatusBarHidden_SetOptionFails removed per adversarial review.
+// Verdict: REWRITE->REMOVE - Duplicates TestEnsureStatusBarHidden_ShowOptionFails.
 // Both use non-existent sessions and test the same error path. Creating a distinct
 // failure mode where show-option succeeds but set-option fails is not possible with
 // real tmux, so this test is redundant and has been removed.

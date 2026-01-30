@@ -186,7 +186,7 @@ Before implementing, verify these tmux configurations:
 
 ```go
 // Verify tmux status bar is hidden (council edge case: UI leakage)
-func verifyTmuxConfig(tmuxSession string) error {
+func ensureStatusBarHidden(tmuxSession string) error {
     // Check if status is off
     cmd := exec.Command(tmuxBinaryPath, "show-option", "-t", tmuxSession, "-v", "status")
     output, _ := cmd.Output()
