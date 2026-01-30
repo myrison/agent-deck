@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"regexp"
 	"strings"
@@ -51,11 +52,15 @@ type RemoteStorageSnapshot struct {
 // agentDeckSessionPattern matches agentdeck_<title>_<8-hex-chars> tmux session names
 var agentDeckSessionPattern = regexp.MustCompile(`^agentdeck_(.+)_([0-9a-f]{8})$`)
 
+// remoteSessionsJSONPath is the path to sessions.json on remote hosts.
+// Note: Uses 'default' profile. Multi-profile support would require profile detection.
+const remoteSessionsJSONPath = "~/.agent-deck/profiles/default/sessions.json"
+
 // FetchRemoteStorageSnapshot reads the remote's sessions.json to get group structure
 // Returns nil on errors (gracefully degrades to flat structure)
 func FetchRemoteStorageSnapshot(sshExec *tmux.SSHExecutor) *RemoteStorageSnapshot {
 	// Read remote sessions.json
-	output, err := sshExec.RunCommand("cat ~/.agent-deck/profiles/default/sessions.json 2>/dev/null || echo '{}'")
+	output, err := sshExec.RunCommand("cat " + remoteSessionsJSONPath + " 2>/dev/null || echo '{}'")
 	if err != nil {
 		log.Printf("[REMOTE-DISCOVERY] Failed to read remote sessions.json: %v", err)
 		return nil
@@ -610,6 +615,77 @@ func SyncSessionCustomLabel(inst *Instance, tmuxName string, snapshot *RemoteSto
 		return true
 	}
 	return false
+}
+
+// UpdateRemoteSessionCustomLabel updates the custom label for a session on a remote host.
+// This modifies the remote's sessions.json file to keep the label in sync across systems.
+// Pass an empty string to remove the custom label.
+func UpdateRemoteSessionCustomLabel(hostID, remoteTmuxName, customLabel string) error {
+	// Get SSH executor for the remote host
+	sshExec, err := tmux.NewSSHExecutorFromPool(hostID)
+	if err != nil {
+		return fmt.Errorf("failed to create SSH executor for %s: %w", hostID, err)
+	}
+
+	// Read current remote sessions.json
+	output, err := sshExec.RunCommand("cat " + remoteSessionsJSONPath + " 2>/dev/null || echo '{}'")
+	if err != nil {
+		return fmt.Errorf("failed to read remote sessions.json: %w", err)
+	}
+
+	output = strings.TrimSpace(output)
+	if output == "" {
+		output = "{}"
+	}
+
+	// Parse JSON
+	var data StorageData
+	if err := json.Unmarshal([]byte(output), &data); err != nil {
+		return fmt.Errorf("failed to parse remote sessions.json: %w", err)
+	}
+
+	// Find the session by tmux name and update its custom label
+	found := false
+	for i := range data.Instances {
+		if data.Instances[i].TmuxSession == remoteTmuxName {
+			data.Instances[i].CustomLabel = customLabel
+			found = true
+			log.Printf("[REMOTE-STORAGE] Updated custom label for %s on %s: %q", remoteTmuxName, hostID, customLabel)
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("session %s not found in remote sessions.json on %s", remoteTmuxName, hostID)
+	}
+
+	// Update timestamp
+	data.UpdatedAt = time.Now()
+
+	// Marshal back to JSON
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal updated sessions.json: %w", err)
+	}
+
+	// Write back to remote using atomic write pattern (temp file + rename)
+	// This matches the local storage safety pattern
+	tempFile := remoteSessionsJSONPath + ".tmp"
+	targetFile := remoteSessionsJSONPath
+
+	// Escape JSON for shell (use heredoc to avoid quoting issues)
+	writeCmd := fmt.Sprintf("cat > %s << 'AGENTDECK_EOF'\n%s\nAGENTDECK_EOF\n", tempFile, string(jsonData))
+	if _, err := sshExec.RunCommand(writeCmd); err != nil {
+		return fmt.Errorf("failed to write temp file on remote: %w", err)
+	}
+
+	// Atomic rename
+	if _, err := sshExec.RunCommand(fmt.Sprintf("mv %s %s", tempFile, targetFile)); err != nil {
+		return fmt.Errorf("failed to rename temp file on remote: %w", err)
+	}
+
+	log.Printf("[REMOTE-STORAGE] Successfully synced custom label to %s", hostID)
+	return nil
 }
 
 // effectiveRemoteTmuxName returns the tmux session name to use for remote ID matching.
