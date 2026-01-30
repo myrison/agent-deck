@@ -1650,6 +1650,15 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	}
 
 	for _, line := range last5 {
+		// Skip lines starting with box-drawing characters (e.g., │├└─┌┐┘┤┬┴┼)
+		// These are UI borders that can contain braille-like chars as rendering artifacts
+		trimmedLine := strings.TrimSpace(line)
+		if len(trimmedLine) > 0 {
+			r := []rune(trimmedLine)[0]
+			if r == '│' || r == '├' || r == '└' || r == '─' || r == '┌' || r == '┐' || r == '┘' || r == '┤' || r == '┬' || r == '┴' || r == '┼' || r == '╭' || r == '╰' || r == '╮' || r == '╯' {
+				continue
+			}
+		}
 		for _, spinner := range spinnerChars {
 			if strings.Contains(line, spinner) {
 				debugLog("%s: BUSY_REASON=spinner char=%q", shortName, spinner)
