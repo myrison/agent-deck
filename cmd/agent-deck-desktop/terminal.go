@@ -259,10 +259,10 @@ func shouldUsePTYStreaming() bool {
 	return enabled
 }
 
-// verifyTmuxConfig ensures tmux status bar is hidden for the session.
+// ensureStatusBarHidden ensures tmux status bar is hidden for the session.
 // The status bar would leak into the PTY stream and corrupt rendering.
 // This is called before starting PTY streaming mode.
-func verifyTmuxConfig(tmuxSession string) error {
+func ensureStatusBarHidden(tmuxSession string) error {
 	// Check if status is off for this session
 	cmd := exec.Command(tmuxBinaryPath, "show-option", "-t", tmuxSession, "-v", "status")
 	output, _ := cmd.Output()
@@ -360,8 +360,8 @@ func (t *Terminal) startTmuxSessionStreaming(tmuxSession string, cols, rows int)
 	t.debugLog("[PTY-STREAM] Starting streaming session with history hydration for tmux=%s cols=%d rows=%d", tmuxSession, cols, rows)
 
 	// 1. Verify tmux config (status bar must be off)
-	if err := verifyTmuxConfig(tmuxSession); err != nil {
-		t.debugLog("[PTY-STREAM] verifyTmuxConfig error: %v", err)
+	if err := ensureStatusBarHidden(tmuxSession); err != nil {
+		t.debugLog("[PTY-STREAM] ensureStatusBarHidden error: %v", err)
 		// Non-fatal - continue anyway
 	}
 
@@ -549,8 +549,8 @@ func (t *Terminal) startTmuxSessionPolling(tmuxSession string, cols, rows int) e
 	t.debugLog("[POLLING] Starting polling session for tmux=%s cols=%d rows=%d", tmuxSession, cols, rows)
 
 	// 0. Verify tmux config (status bar must be off to prevent leakage into session view)
-	if err := verifyTmuxConfig(tmuxSession); err != nil {
-		t.debugLog("[POLLING] verifyTmuxConfig error: %v", err)
+	if err := ensureStatusBarHidden(tmuxSession); err != nil {
+		t.debugLog("[POLLING] ensureStatusBarHidden error: %v", err)
 		// Non-fatal - continue anyway
 	}
 
