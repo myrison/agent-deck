@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './SettingsModal.css';
 import LaunchConfigEditor from './LaunchConfigEditor';
-import { GetLaunchConfigs, DeleteLaunchConfig, GetSoftNewlineMode, SetSoftNewlineMode, SetFontSize, GetScrollSpeed, SetScrollSpeed, ResetGroupSettings, GetAutoCopyOnSelectEnabled, SetAutoCopyOnSelectEnabled, GetShowActivityRibbon, SetShowActivityRibbon, GetFileBasedActivityDetection, SetFileBasedActivityDetection, GetScanPaths, AddScanPath, RemoveScanPath, GetScanMaxDepth, SetScanMaxDepth, BrowseLocalDirectory } from '../wailsjs/go/main/App';
+import { GetLaunchConfigs, DeleteLaunchConfig, GetSoftNewlineMode, SetSoftNewlineMode, SetFontSize, GetScrollSpeed, SetScrollSpeed, ResetGroupSettings, GetAutoCopyOnSelectEnabled, SetAutoCopyOnSelectEnabled, GetShowActivityRibbon, SetShowActivityRibbon, GetFileBasedActivityDetection, SetFileBasedActivityDetection, GetScanPaths, AddScanPath, RemoveScanPath, GetScanMaxDepth, SetScanMaxDepth, BrowseLocalDirectory, GetSSHHosts, AddSSHHost, UpdateSSHHost, RemoveSSHHost, TestSSHConnection } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { TOOLS } from './utils/tools';
 import ToolIcon from './ToolIcon';
@@ -26,6 +26,21 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
     const [fileBasedActivityDetection, setFileBasedActivityDetection] = useState(true);
     const [scanPaths, setScanPaths] = useState([]);
     const [scanMaxDepth, setScanMaxDepth] = useState(2);
+    const [sshHosts, setSSHHosts] = useState([]);
+    const [editingSSHHost, setEditingSSHHost] = useState(null);
+    const [sshHostForm, setSSHHostForm] = useState({
+        hostId: '',
+        host: '',
+        user: '',
+        port: 22,
+        identityFile: '',
+        groupName: '',
+        autoDiscover: true,
+        isMacRemote: false,
+    });
+    const [sshHostErrors, setSSHHostErrors] = useState({});
+    const [testingSSHHost, setTestingSSHHost] = useState(null);
+    const [sshTestResults, setSSHTestResults] = useState({});
     const { themePreference, setTheme } = useTheme();
     const containerRef = useRef(null);
 
@@ -44,6 +59,7 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
         loadConfigs();
         loadTerminalSettings();
         loadScanSettings();
+        loadSSHHosts();
     }, []);
 
     const loadTerminalSettings = async () => {
@@ -236,6 +252,148 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
             logger.info('Set scan max depth', { depth: newDepth });
         } catch (err) {
             logger.error('Failed to set scan max depth:', err);
+        }
+    };
+
+    // SSH Host handlers
+    const loadSSHHosts = async () => {
+        try {
+            const hosts = await GetSSHHosts();
+            setSSHHosts(hosts || []);
+            logger.info('Loaded SSH hosts', { count: hosts?.length || 0 });
+        } catch (err) {
+            logger.error('Failed to load SSH hosts:', err);
+        }
+    };
+
+    const resetSSHHostForm = () => {
+        setSSHHostForm({
+            hostId: '',
+            host: '',
+            user: '',
+            port: 22,
+            identityFile: '',
+            groupName: '',
+            autoDiscover: true,
+            isMacRemote: false,
+        });
+        setSSHHostErrors({});
+        setEditingSSHHost(null);
+    };
+
+    const handleAddSSHHostClick = () => {
+        resetSSHHostForm();
+        setEditingSSHHost('new');
+    };
+
+    const handleEditSSHHost = (host) => {
+        setSSHHostForm({
+            hostId: host.hostId,
+            host: host.host,
+            user: host.user || '',
+            port: host.port || 22,
+            identityFile: host.identityFile || '',
+            groupName: host.groupName || '',
+            autoDiscover: host.autoDiscover ?? true,
+            isMacRemote: host.tmuxPath === '/opt/homebrew/bin/tmux',
+        });
+        setEditingSSHHost(host.hostId);
+    };
+
+    const handleCancelSSHHostForm = () => {
+        setEditingSSHHost(null);
+        resetSSHHostForm();
+    };
+
+    const validateSSHHostForm = () => {
+        const errors = {};
+        if (!sshHostForm.hostId.trim()) {
+            errors.hostId = 'Required';
+        } else if (!/^[a-zA-Z0-9_-]+$/.test(sshHostForm.hostId)) {
+            errors.hostId = 'Letters, numbers, dashes, underscores only';
+        } else if (editingSSHHost === 'new' && sshHosts.some(h => h.hostId === sshHostForm.hostId)) {
+            errors.hostId = 'Already exists';
+        }
+        if (!sshHostForm.host.trim()) {
+            errors.host = 'Required';
+        }
+        setSSHHostErrors(errors);
+        return Object.keys(errors).length === 0;
+    };
+
+    const handleSaveSSHHost = async () => {
+        if (!validateSSHHostForm()) return;
+
+        try {
+            const tmuxPath = sshHostForm.isMacRemote ? '/opt/homebrew/bin/tmux' : '';
+
+            if (editingSSHHost === 'new') {
+                await AddSSHHost(
+                    sshHostForm.hostId.trim(),
+                    sshHostForm.host.trim(),
+                    sshHostForm.user.trim(),
+                    sshHostForm.port || 22,
+                    sshHostForm.identityFile.trim(),
+                    '', // description
+                    sshHostForm.groupName.trim() || sshHostForm.hostId.trim(),
+                    sshHostForm.autoDiscover,
+                    tmuxPath,
+                    '' // jumpHost
+                );
+                logger.info('Added SSH host', { hostId: sshHostForm.hostId });
+            } else {
+                await UpdateSSHHost(
+                    sshHostForm.hostId.trim(),
+                    sshHostForm.host.trim(),
+                    sshHostForm.user.trim(),
+                    sshHostForm.port || 22,
+                    sshHostForm.identityFile.trim(),
+                    '', // description
+                    sshHostForm.groupName.trim() || sshHostForm.hostId.trim(),
+                    sshHostForm.autoDiscover,
+                    tmuxPath,
+                    '' // jumpHost
+                );
+                logger.info('Updated SSH host', { hostId: sshHostForm.hostId });
+            }
+
+            await loadSSHHosts();
+            setEditingSSHHost(null);
+            resetSSHHostForm();
+        } catch (err) {
+            logger.error('Failed to save SSH host:', err);
+            setSSHHostErrors({ submit: err.message || 'Failed to save host' });
+        }
+    };
+
+    const handleRemoveSSHHost = async (hostId) => {
+        if (!confirm(`Remove SSH host "${hostId}"?`)) return;
+        try {
+            await RemoveSSHHost(hostId);
+            logger.info('Removed SSH host', { hostId });
+            await loadSSHHosts();
+        } catch (err) {
+            logger.error('Failed to remove SSH host:', err);
+            alert('Failed to remove host: ' + err.message);
+        }
+    };
+
+    const handleTestSSHHost = async (hostId) => {
+        setTestingSSHHost(hostId);
+        setSSHTestResults(prev => ({ ...prev, [hostId]: null }));
+
+        try {
+            await TestSSHConnection(hostId);
+            setSSHTestResults(prev => ({ ...prev, [hostId]: { success: true } }));
+            logger.info('SSH test succeeded', { hostId });
+        } catch (err) {
+            setSSHTestResults(prev => ({
+                ...prev,
+                [hostId]: { success: false, message: err.message || 'Connection failed' }
+            }));
+            logger.error('SSH test failed', { hostId, error: err.message });
+        } finally {
+            setTestingSSHHost(null);
         }
     };
 
@@ -563,6 +721,171 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
                                 </button>
                             </div>
                         </div>
+                    </div>
+
+                    {/* Remote Machines Settings */}
+                    <div className="settings-theme-section">
+                        <div className="settings-theme-header">
+                            <span className="settings-theme-icon">🌐</span>
+                            <h3>Remote Machines</h3>
+                        </div>
+                        <div className="settings-input-description">
+                            SSH hosts for remote session discovery. RevDen must be installed on each machine.
+                        </div>
+
+                        {editingSSHHost ? (
+                            <div className="settings-ssh-host-form">
+                                <div className="settings-ssh-form-row">
+                                    <div className="settings-ssh-form-field">
+                                        <label>Display Name *</label>
+                                        <input
+                                            type="text"
+                                            value={sshHostForm.groupName || sshHostForm.hostId}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                setSSHHostForm(prev => ({
+                                                    ...prev,
+                                                    groupName: val,
+                                                    hostId: prev.hostId || val.toLowerCase().replace(/[^a-z0-9]/g, '-'),
+                                                }));
+                                            }}
+                                            placeholder="My MacBook"
+                                            disabled={editingSSHHost !== 'new'}
+                                        />
+                                        {sshHostErrors.hostId && (
+                                            <span className="settings-ssh-error">{sshHostErrors.hostId}</span>
+                                        )}
+                                    </div>
+                                    <div className="settings-ssh-form-field settings-ssh-form-field-wide">
+                                        <label>Host / IP *</label>
+                                        <input
+                                            type="text"
+                                            value={sshHostForm.host}
+                                            onChange={(e) => setSSHHostForm(prev => ({ ...prev, host: e.target.value }))}
+                                            placeholder="192.168.1.100"
+                                        />
+                                        {sshHostErrors.host && (
+                                            <span className="settings-ssh-error">{sshHostErrors.host}</span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="settings-ssh-form-row">
+                                    <div className="settings-ssh-form-field">
+                                        <label>Username</label>
+                                        <input
+                                            type="text"
+                                            value={sshHostForm.user}
+                                            onChange={(e) => setSSHHostForm(prev => ({ ...prev, user: e.target.value }))}
+                                            placeholder="(current user)"
+                                        />
+                                    </div>
+                                    <div className="settings-ssh-form-field settings-ssh-form-field-narrow">
+                                        <label>Port</label>
+                                        <input
+                                            type="number"
+                                            value={sshHostForm.port}
+                                            onChange={(e) => setSSHHostForm(prev => ({ ...prev, port: parseInt(e.target.value) || 22 }))}
+                                        />
+                                    </div>
+                                    <div className="settings-ssh-form-field settings-ssh-form-field-wide">
+                                        <label>SSH Key Path</label>
+                                        <input
+                                            type="text"
+                                            value={sshHostForm.identityFile}
+                                            onChange={(e) => setSSHHostForm(prev => ({ ...prev, identityFile: e.target.value }))}
+                                            placeholder="~/.ssh/id_rsa"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="settings-ssh-form-checkboxes">
+                                    <label className="settings-ssh-checkbox">
+                                        <input
+                                            type="checkbox"
+                                            checked={sshHostForm.autoDiscover}
+                                            onChange={(e) => setSSHHostForm(prev => ({ ...prev, autoDiscover: e.target.checked }))}
+                                        />
+                                        Auto-discover sessions
+                                    </label>
+                                    <label className="settings-ssh-checkbox">
+                                        <input
+                                            type="checkbox"
+                                            checked={sshHostForm.isMacRemote}
+                                            onChange={(e) => setSSHHostForm(prev => ({ ...prev, isMacRemote: e.target.checked }))}
+                                        />
+                                        macOS with Homebrew
+                                    </label>
+                                </div>
+
+                                {sshHostErrors.submit && (
+                                    <div className="settings-ssh-error-banner">{sshHostErrors.submit}</div>
+                                )}
+
+                                <div className="settings-ssh-form-actions">
+                                    <button className="settings-ssh-form-cancel" onClick={handleCancelSSHHostForm}>
+                                        Cancel
+                                    </button>
+                                    <button className="settings-ssh-form-save" onClick={handleSaveSSHHost}>
+                                        {editingSSHHost === 'new' ? 'Add Host' : 'Save Changes'}
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="settings-ssh-hosts-list">
+                                    {sshHosts.length === 0 ? (
+                                        <div className="settings-empty">No remote hosts configured</div>
+                                    ) : (
+                                        sshHosts.map(host => (
+                                            <div key={host.hostId} className="settings-ssh-host-item">
+                                                <div className="settings-ssh-host-info">
+                                                    <span className="settings-ssh-host-name">
+                                                        {host.groupName || host.hostId}
+                                                    </span>
+                                                    <span className="settings-ssh-host-address">
+                                                        {host.user ? `${host.user}@` : ''}{host.host}
+                                                        {host.port && host.port !== 22 ? `:${host.port}` : ''}
+                                                    </span>
+                                                </div>
+                                                <div className="settings-ssh-host-actions">
+                                                    {sshTestResults[host.hostId] && (
+                                                        <span className={`settings-ssh-test-result ${sshTestResults[host.hostId].success ? 'success' : 'error'}`}>
+                                                            {sshTestResults[host.hostId].success ? '✓' : '✗'}
+                                                        </span>
+                                                    )}
+                                                    <button
+                                                        className="settings-ssh-host-test"
+                                                        onClick={() => handleTestSSHHost(host.hostId)}
+                                                        disabled={testingSSHHost === host.hostId}
+                                                        title="Test connection"
+                                                    >
+                                                        {testingSSHHost === host.hostId ? '...' : 'Test'}
+                                                    </button>
+                                                    <button
+                                                        className="settings-ssh-host-edit"
+                                                        onClick={() => handleEditSSHHost(host)}
+                                                        title="Edit host"
+                                                    >
+                                                        ✎
+                                                    </button>
+                                                    <button
+                                                        className="settings-ssh-host-remove"
+                                                        onClick={() => handleRemoveSSHHost(host.hostId)}
+                                                        title="Remove host"
+                                                    >
+                                                        &times;
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                                <button className="settings-ssh-add-btn" onClick={handleAddSSHHostClick}>
+                                    Add Remote Machine
+                                </button>
+                            </>
+                        )}
                     </div>
 
                     {/* Group Settings */}

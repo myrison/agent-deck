@@ -37,6 +37,20 @@ func (p *Pool) Register(hostID string, cfg Config) {
 	p.configs[hostID] = cfg
 }
 
+// Unregister removes a host from the pool and closes any active connection
+func (p *Pool) Unregister(hostID string) {
+	p.mu.Lock()
+	conn, exists := p.connections[hostID]
+	delete(p.connections, hostID)
+	delete(p.configs, hostID)
+	p.mu.Unlock()
+
+	// Clean up ControlMaster socket if connection existed
+	if exists && conn != nil {
+		_ = conn.CloseControlMaster()
+	}
+}
+
 // Get returns a connection for the given host, creating one if needed
 func (p *Pool) Get(hostID string) (*Connection, error) {
 	p.mu.RLock()

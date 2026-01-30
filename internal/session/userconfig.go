@@ -1580,3 +1580,88 @@ func InitSSHPool() {
 		pool.Register(hostID, cfg)
 	}
 }
+
+// SetSSHHost creates or updates an SSH host configuration in config.toml.
+// The hostID becomes the key in [ssh_hosts.X] section.
+func SetSSHHost(hostID string, def SSHHostDef) error {
+	config, err := LoadUserConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Create a copy to avoid modifying cached config
+	configCopy := *config
+	if configCopy.SSHHosts == nil {
+		configCopy.SSHHosts = make(map[string]SSHHostDef)
+	}
+	configCopy.SSHHosts[hostID] = def
+
+	// Auto-enable remote discovery if this host has auto_discover
+	if def.AutoDiscover && !configCopy.RemoteDiscovery.Enabled {
+		configCopy.RemoteDiscovery.Enabled = true
+	}
+
+	if err := SaveUserConfig(&configCopy); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	// Register with SSH pool
+	pool := sshpkg.DefaultPool()
+	pool.Register(hostID, sshpkg.Config{
+		Host:         def.Host,
+		User:         def.User,
+		Port:         def.Port,
+		IdentityFile: def.IdentityFile,
+		JumpHost:     def.JumpHost,
+		TmuxPath:     def.TmuxPath,
+	})
+
+	return nil
+}
+
+// RemoveSSHHost removes an SSH host configuration from config.toml.
+func RemoveSSHHost(hostID string) error {
+	config, err := LoadUserConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if config.SSHHosts == nil {
+		return nil // Nothing to remove
+	}
+
+	// Create a copy to avoid modifying cached config
+	configCopy := *config
+	configCopy.SSHHosts = make(map[string]SSHHostDef)
+	for k, v := range config.SSHHosts {
+		if k != hostID {
+			configCopy.SSHHosts[k] = v
+		}
+	}
+
+	if err := SaveUserConfig(&configCopy); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	// Unregister from SSH pool
+	pool := sshpkg.DefaultPool()
+	pool.Unregister(hostID)
+
+	return nil
+}
+
+// ValidateSSHHostID checks if a host ID is valid for use as a TOML key.
+// Returns an error message if invalid, empty string if valid.
+func ValidateSSHHostID(hostID string) string {
+	if hostID == "" {
+		return "Host ID is required"
+	}
+	// TOML keys must be alphanumeric with underscores/hyphens
+	for _, c := range hostID {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '_' || c == '-') {
+			return "Host ID can only contain letters, numbers, underscores, and hyphens"
+		}
+	}
+	return ""
+}
