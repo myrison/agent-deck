@@ -40,7 +40,7 @@ func (l *fileLock) Lock() (*lockHandle, error) {
 
 	// Acquire exclusive lock (blocks until available)
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("failed to acquire lock: %w", err)
 	}
 
@@ -55,7 +55,7 @@ func (h *lockHandle) Unlock() error {
 
 	// Release the lock
 	if err := syscall.Flock(int(h.file.Fd()), syscall.LOCK_UN); err != nil {
-		h.file.Close()
+		_ = h.file.Close()
 		h.file = nil
 		return fmt.Errorf("failed to release lock: %w", err)
 	}

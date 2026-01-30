@@ -27,7 +27,7 @@ func TestFileLock_BasicLockUnlock(t *testing.T) {
 			t.Errorf("Second Lock() failed: %v", err)
 			return
 		}
-		defer handle2.Unlock()
+		defer func() { _ = handle2.Unlock() }()
 		done <- true
 	}()
 
@@ -250,7 +250,7 @@ func TestStorage_LockReleaseOnError(t *testing.T) {
 	if err != nil {
 		t.Errorf("Lock should be released after error, but Lock() failed: %v", err)
 	}
-	defer handle.Unlock()
+	defer func() { _ = handle.Unlock() }()
 
 	// If we got here without blocking, lock was properly released
 }

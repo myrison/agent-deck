@@ -222,7 +222,7 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 		if err != nil {
 			return fmt.Errorf("failed to acquire cross-process lock: %w", err)
 		}
-		defer handle.Unlock()
+		defer func() { _ = handle.Unlock() }()
 	}
 
 	s.mu.Lock()
@@ -371,7 +371,7 @@ func (s *Storage) LoadStorageData() (*StorageData, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to acquire cross-process lock: %w", err)
 		}
-		defer handle.Unlock()
+		defer func() { _ = handle.Unlock() }()
 	}
 
 	s.mu.Lock()
@@ -413,7 +413,7 @@ func (s *Storage) SaveStorageData(data *StorageData) error {
 		if err != nil {
 			return fmt.Errorf("failed to acquire cross-process lock: %w", err)
 		}
-		defer handle.Unlock()
+		defer func() { _ = handle.Unlock() }()
 	}
 
 	s.mu.Lock()
@@ -559,7 +559,7 @@ func (s *Storage) LoadWithGroups() ([]*Instance, []*GroupData, error) {
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to acquire cross-process lock: %w", err)
 		}
-		defer handle.Unlock()
+		defer func() { _ = handle.Unlock() }()
 	}
 
 	s.mu.Lock()
@@ -873,7 +873,7 @@ func (s *Storage) GetUpdatedAt() (time.Time, error) {
 		if err != nil {
 			return time.Time{}, fmt.Errorf("failed to acquire cross-process lock: %w", err)
 		}
-		defer handle.Unlock()
+		defer func() { _ = handle.Unlock() }()
 	}
 
 	s.mu.Lock()
