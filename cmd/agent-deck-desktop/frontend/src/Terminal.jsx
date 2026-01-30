@@ -709,10 +709,41 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
 
             const history = payload.data;
             logger.info('Received initial history:', history?.length || 0, 'bytes');
+
+            // DEBUG: Log buffer state BEFORE write
+            if (xtermRef.current) {
+                const bufBefore = xtermRef.current.buffer.active;
+                console.log(`%c[SCROLLBACK-DEBUG] BEFORE history write: baseY=${bufBefore.baseY} viewportY=${bufBefore.viewportY} length=${bufBefore.length} cursorY=${bufBefore.cursorY}`, 'color: orange; font-weight: bold');
+                LogFrontendDiagnostic(`[SCROLLBACK-DEBUG] BEFORE history: baseY=${bufBefore.baseY} viewportY=${bufBefore.viewportY} length=${bufBefore.length}`);
+            }
+
             if (xtermRef.current && history) {
+                // DEBUG: Log first 200 chars of history to see what we're writing
+                // eslint-disable-next-line no-control-regex
+                const historyPreview = history.substring(0, 200).replace(/\x1b/g, '\\x1b').replace(/\r/g, '\\r').replace(/\n/g, '\\n');
+                console.log(`%c[SCROLLBACK-DEBUG] History preview: ${historyPreview}...`, 'color: cyan');
+                LogFrontendDiagnostic(`[SCROLLBACK-DEBUG] History preview: ${historyPreview}`);
+
                 // Write initial scrollback to xterm
                 xtermRef.current.write(history);
+
+                // DEBUG: Log buffer state AFTER write
+                const bufAfter = xtermRef.current.buffer.active;
+                console.log(`%c[SCROLLBACK-DEBUG] AFTER history write: baseY=${bufAfter.baseY} viewportY=${bufAfter.viewportY} length=${bufAfter.length} cursorY=${bufAfter.cursorY}`, 'color: lime; font-weight: bold');
+                LogFrontendDiagnostic(`[SCROLLBACK-DEBUG] AFTER history: baseY=${bufAfter.baseY} viewportY=${bufAfter.viewportY} length=${bufAfter.length}`);
+
+                // Force viewport recalculation to make scrollback immediately accessible
+                // Without this, scrollback exists but isn't scrollable until window resize
+                if (fitAddonRef.current) {
+                    fitAddonRef.current.fit();
+                }
+
                 xtermRef.current.scrollToBottom();
+
+                // DEBUG: Log buffer state AFTER scrollToBottom
+                const bufFinal = xtermRef.current.buffer.active;
+                console.log(`%c[SCROLLBACK-DEBUG] AFTER scrollToBottom: baseY=${bufFinal.baseY} viewportY=${bufFinal.viewportY} length=${bufFinal.length}`, 'color: yellow; font-weight: bold');
+                LogFrontendDiagnostic(`[SCROLLBACK-DEBUG] AFTER scroll: baseY=${bufFinal.baseY} viewportY=${bufFinal.viewportY} length=${bufFinal.length}`);
 
                 // Mark session load complete for scroll tracking
                 setTimeout(() => {
@@ -736,6 +767,13 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             if (xtermRef.current && viewport) {
                 // Write initial viewport to xterm
                 xtermRef.current.write(viewport);
+
+                // Force viewport recalculation to make scrollback immediately accessible
+                // Without this, scrollback exists but isn't scrollable until window resize
+                if (fitAddonRef.current) {
+                    fitAddonRef.current.fit();
+                }
+
                 xtermRef.current.scrollToBottom();
 
                 // Mark session load complete for scroll tracking
@@ -763,6 +801,89 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         };
         const cancelResizeEpoch = EventsOn('terminal:resize-epoch', handleResizeEpoch);
 
+        // ============================================================
+        // SCROLLBACK HYDRATION (PTY streaming mode)
+        // ============================================================
+        // In PTY streaming mode, tmux sends cursor-positioning escape sequences
+        // that cause xterm.js to overwrite screen positions rather than scroll.
+        // The backend polls tmux's history_size and captures new scrollback lines,
+        // which we inject here to build up xterm.js's scrollback buffer.
+        // ============================================================
+        const handleScrollbackHydrate = (payload) => {
+            if (payload?.sessionId !== sessionId) return;
+
+            const { data, newLines } = payload;
+            if (!xtermRef.current || !data) return;
+
+            const term = xtermRef.current;
+            const bufBefore = term.buffer.active;
+
+            console.log(`%c[SCROLLBACK-HYDRATE] Received ${data.length} bytes (${newLines} new lines). Buffer before: baseY=${bufBefore.baseY} length=${bufBefore.length}`, 'color: cyan; font-weight: bold');
+            LogFrontendDiagnostic(`[SCROLLBACK-HYDRATE] Received ${data.length}b (${newLines} lines). baseY=${bufBefore.baseY} length=${bufBefore.length}`);
+
+            // Strategy: Write the scrollback content, then scroll lines down to push it into scrollback
+            // Save current viewport position
+            const wasAtBottom = bufBefore.viewportY >= bufBefore.baseY;
+            const savedViewportY = bufBefore.viewportY;
+
+            // Write scrollback data - this goes into the buffer
+            // Use escape sequences to properly inject into scrollback:
+            // 1. Save cursor position
+            // 2. Move to home (top-left)
+            // 3. Insert lines at top (pushes content down into scrollback)
+            // 4. Write the new content
+            // 5. Restore cursor position
+
+            // Actually, a simpler approach: write the data with newlines, which will
+            // push current content down into scrollback when it exceeds the viewport
+            // We need to use the "reverse index" approach or direct buffer manipulation
+
+            // For now, let's use a hack: write data at current position with scroll region
+            // This should push content into scrollback
+
+            // Simpler approach: just prepend to buffer by writing and letting natural scroll occur
+            // Write the content - xterm will handle scrolling
+            term.write(data);
+
+            const bufAfter = term.buffer.active;
+            console.log(`%c[SCROLLBACK-HYDRATE] After write: baseY=${bufAfter.baseY} length=${bufAfter.length}`, 'color: lime; font-weight: bold');
+            LogFrontendDiagnostic(`[SCROLLBACK-HYDRATE] After: baseY=${bufAfter.baseY} length=${bufAfter.length}`);
+
+            // If user was at bottom, stay at bottom
+            if (wasAtBottom) {
+                term.scrollToBottom();
+            }
+        };
+        const cancelScrollbackHydrate = EventsOn('terminal:scrollback-hydrate', handleScrollbackHydrate);
+
+        // ============================================================
+        // IDLE REFRESH HANDLER (PTY streaming mode - Phase 1.5)
+        // ============================================================
+        // After 500ms of no output, the backend captures full tmux scrollback
+        // and sends it here. We reset xterm and rewrite with the full content
+        // to fix scrollback accumulation issues from cursor-positioning sequences.
+        // ============================================================
+        const handleIdleRefresh = (payload) => {
+            if (payload?.sessionId !== sessionId) return;
+            if (!xtermRef.current || !payload.data) return;
+
+            const term = xtermRef.current;
+            const wasAtBottom = term.buffer.active.viewportY >= term.buffer.active.baseY;
+
+            console.log(`%c[IDLE-REFRESH] Received ${payload.data.length} bytes, resetting xterm`, 'color: cyan; font-weight: bold');
+            LogFrontendDiagnostic(`[IDLE-REFRESH] Received ${payload.data.length}b, wasAtBottom=${wasAtBottom}`);
+
+            // Reset and rewrite with full scrollback
+            term.reset();
+            term.write(payload.data);
+
+            // Restore scroll position
+            if (wasAtBottom) {
+                term.scrollToBottom();
+            }
+        };
+        const cancelIdleRefresh = EventsOn('terminal:idle-refresh', handleIdleRefresh);
+
         // Listen for data from backend (polling mode - history gaps and viewport diffs)
         // In polling mode, this receives:
         // 1. History gap lines (content that scrolled off viewport)
@@ -772,11 +893,23 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // RAF BATCHING: Instead of writing immediately (which can overwhelm xterm.js
         // during fast output like `seq 1 10000`), we buffer data and flush on the
         // next animation frame. This reduces DOM pressure and helps prevent data loss.
+        let dataEventCount = 0;
+        let lastBufferLogTime = 0;
         const handleTerminalData = (payload) => {
             // Filter: only process events for this terminal's session
             if (payload?.sessionId !== sessionId) return;
 
             if (xtermRef.current && payload.data) {
+                dataEventCount++;
+
+                // DEBUG: Log escape sequences in incoming data (first 10 events only to avoid spam)
+                if (dataEventCount <= 10) {
+                    // eslint-disable-next-line no-control-regex
+                    const preview = payload.data.substring(0, 100).replace(/\x1b/g, '\\x1b').replace(/\r/g, '\\r').replace(/\n/g, '\\n');
+                    console.log(`%c[STREAM-DEBUG] Event #${dataEventCount}: ${payload.data.length} bytes, preview: ${preview}`, 'color: magenta');
+                    LogFrontendDiagnostic(`[STREAM-DEBUG] Event #${dataEventCount}: ${payload.data.length}b preview: ${preview}`);
+                }
+
                 // Buffer the data
                 writeBufferRef.current += payload.data;
                 frontendStatsRef.current.eventsReceived++;
@@ -788,7 +921,24 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                         if (xtermRef.current && writeBufferRef.current.length > 0) {
                             const data = writeBufferRef.current;
                             writeBufferRef.current = '';
-                            xtermRef.current.write(data);
+
+                            // DEBUG: Log buffer state before and after write (throttled to 1/sec)
+                            const now = Date.now();
+                            if (now - lastBufferLogTime > 1000) {
+                                lastBufferLogTime = now;
+                                const bufBefore = xtermRef.current.buffer.active;
+                                console.log(`%c[BUFFER-DEBUG] BEFORE RAF write: baseY=${bufBefore.baseY} length=${bufBefore.length} cursorY=${bufBefore.cursorY} writing ${data.length}b`, 'color: orange');
+                                LogFrontendDiagnostic(`[BUFFER-DEBUG] BEFORE RAF: baseY=${bufBefore.baseY} length=${bufBefore.length} cursorY=${bufBefore.cursorY}`);
+
+                                xtermRef.current.write(data);
+
+                                const bufAfter = xtermRef.current.buffer.active;
+                                console.log(`%c[BUFFER-DEBUG] AFTER RAF write: baseY=${bufAfter.baseY} length=${bufAfter.length} cursorY=${bufAfter.cursorY}`, 'color: lime');
+                                LogFrontendDiagnostic(`[BUFFER-DEBUG] AFTER RAF: baseY=${bufAfter.baseY} length=${bufAfter.length} cursorY=${bufAfter.cursorY}`);
+                            } else {
+                                xtermRef.current.write(data);
+                            }
+
                             frontendStatsRef.current.rafFlushes++;
                             frontendStatsRef.current.bytesWritten += data.length;
                         }
@@ -1026,6 +1176,8 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             cancelHistory();
             cancelInitial();
             cancelResizeEpoch();
+            cancelScrollbackHydrate();
+            cancelIdleRefresh();
             cancelData();
             cancelExit();
             cancelConnLost();
