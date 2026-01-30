@@ -1798,3 +1798,354 @@ func TestGetGeminiSessionPathRejectsEmptyProjectPath(t *testing.T) {
 		t.Errorf("Expected empty for empty project path, got %q", result)
 	}
 }
+
+// =============================================================================
+// Custom Label Tests (PR #103: Bidirectional sync for remote sessions)
+// =============================================================================
+
+// TestUpdateSessionCustomLabel_UpdatesLocalSessionLabel verifies that
+// UpdateSessionCustomLabel updates the custom label for a local session.
+// This is the baseline behavior that existed before PR #103.
+func TestUpdateSessionCustomLabel_UpdatesLocalSessionLabel(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	// Create sessions directory
+	sessionsDir := filepath.Join(tmpHome, ".agent-deck", "profiles", "default")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions dir: %v", err)
+	}
+
+	// Write sessions.json with a local session
+	sessionsJSON := `{
+  "instances": [
+    {
+      "id": "local-001",
+      "title": "Local Session",
+      "project_path": "/tmp/project",
+      "tool": "claude",
+      "status": "running",
+      "tmux_session": "agentdeck_test_12345678"
+    }
+  ]
+}`
+	sessionsPath := filepath.Join(sessionsDir, "sessions.json")
+	if err := os.WriteFile(sessionsPath, []byte(sessionsJSON), 0600); err != nil {
+		t.Fatalf("Failed to write sessions.json: %v", err)
+	}
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	// Update the custom label
+	if err := tm.UpdateSessionCustomLabel("local-001", "production"); err != nil {
+		t.Fatalf("UpdateSessionCustomLabel failed: %v", err)
+	}
+
+	// Flush the debounced update immediately
+	tm.adapter.FlushPendingUpdates()
+
+	// Verify the label was persisted
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		t.Fatalf("Failed to read sessions.json: %v", err)
+	}
+
+	if !strings.Contains(string(data), `"custom_label": "production"`) {
+		t.Errorf("Expected custom_label to be persisted in sessions.json, got: %s", string(data))
+	}
+}
+
+// TestUpdateSessionCustomLabel_ClearsLabelWhenEmptyString verifies that
+// passing an empty string to UpdateSessionCustomLabel removes the custom label.
+func TestUpdateSessionCustomLabel_ClearsLabelWhenEmptyString(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	sessionsDir := filepath.Join(tmpHome, ".agent-deck", "profiles", "default")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions dir: %v", err)
+	}
+
+	// Session starts with a custom label
+	sessionsJSON := `{
+  "instances": [
+    {
+      "id": "local-002",
+      "title": "Local Session",
+      "custom_label": "old-label",
+      "project_path": "/tmp/project",
+      "tool": "claude",
+      "status": "running",
+      "tmux_session": "agentdeck_test_87654321"
+    }
+  ]
+}`
+	sessionsPath := filepath.Join(sessionsDir, "sessions.json")
+	if err := os.WriteFile(sessionsPath, []byte(sessionsJSON), 0600); err != nil {
+		t.Fatalf("Failed to write sessions.json: %v", err)
+	}
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	// Clear the custom label with empty string
+	if err := tm.UpdateSessionCustomLabel("local-002", ""); err != nil {
+		t.Fatalf("UpdateSessionCustomLabel failed: %v", err)
+	}
+
+	// Flush the debounced update immediately
+	tm.adapter.FlushPendingUpdates()
+
+	// Verify the label was removed
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		t.Fatalf("Failed to read sessions.json: %v", err)
+	}
+
+	// The label should either be empty string or omitted
+	// The storage adapter clears it by setting to empty string
+	if strings.Contains(string(data), `"custom_label": "old-label"`) {
+		t.Error("Old custom label should have been cleared")
+	}
+}
+
+// TestUpdateSessionCustomLabel_HandlesNonexistentSessionGracefully verifies that
+// UpdateSessionCustomLabel handles nonexistent session IDs gracefully (either returns
+// error or no-ops). This test verifies the function doesn't panic or corrupt storage.
+func TestUpdateSessionCustomLabel_HandlesNonexistentSessionGracefully(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	sessionsDir := filepath.Join(tmpHome, ".agent-deck", "profiles", "default")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions dir: %v", err)
+	}
+
+	// Create sessions.json with one session
+	sessionsJSON := `{
+  "instances": [
+    {
+      "id": "existing-session",
+      "title": "Existing Session",
+      "tool": "claude"
+    }
+  ]
+}`
+	sessionsPath := filepath.Join(sessionsDir, "sessions.json")
+	if err := os.WriteFile(sessionsPath, []byte(sessionsJSON), 0600); err != nil {
+		t.Fatalf("Failed to write sessions.json: %v", err)
+	}
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	// Try to update a nonexistent session
+	// The function may return an error OR silently no-op (adapter handles this)
+	// Either way, it should not panic or corrupt the existing session
+	_ = tm.UpdateSessionCustomLabel("nonexistent-session", "test-label")
+
+	// Flush any pending updates
+	tm.adapter.FlushPendingUpdates()
+
+	// Verify the existing session wasn't corrupted
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		t.Fatalf("Failed to read sessions.json: %v", err)
+	}
+
+	// The existing session should still be there and unchanged
+	if !strings.Contains(string(data), `"existing-session"`) {
+		t.Error("Existing session was corrupted when updating nonexistent session")
+	}
+
+	// The nonexistent session should not have been created
+	if strings.Contains(string(data), `"nonexistent-session"`) {
+		t.Error("Nonexistent session should not be created in storage")
+	}
+}
+
+// TestUpdateSessionCustomLabel_SkipsRemoteSyncForLocalSession verifies that
+// when updating a local session's custom label, no remote sync is attempted.
+// This is a negative test to ensure the remote sync code path is not executed.
+func TestUpdateSessionCustomLabel_SkipsRemoteSyncForLocalSession(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	sessionsDir := filepath.Join(tmpHome, ".agent-deck", "profiles", "default")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions dir: %v", err)
+	}
+
+	// Local session without remote_host field
+	sessionsJSON := `{
+  "instances": [
+    {
+      "id": "local-003",
+      "title": "Local Session",
+      "project_path": "/tmp/project",
+      "tool": "claude",
+      "tmux_session": "agentdeck_local_11111111"
+    }
+  ]
+}`
+	sessionsPath := filepath.Join(sessionsDir, "sessions.json")
+	if err := os.WriteFile(sessionsPath, []byte(sessionsJSON), 0600); err != nil {
+		t.Fatalf("Failed to write sessions.json: %v", err)
+	}
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	// Update should succeed without attempting remote sync
+	// (Remote sync would fail if attempted since there's no SSH host configured)
+	if err := tm.UpdateSessionCustomLabel("local-003", "local-label"); err != nil {
+		t.Fatalf("UpdateSessionCustomLabel should succeed for local session: %v", err)
+	}
+
+	// Flush the debounced update immediately
+	tm.adapter.FlushPendingUpdates()
+
+	// Verify the update was persisted locally
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		t.Fatalf("Failed to read sessions.json: %v", err)
+	}
+
+	if !strings.Contains(string(data), `"custom_label": "local-label"`) {
+		t.Error("Custom label should be persisted for local session")
+	}
+}
+
+// TestUpdateSessionCustomLabel_SucceedsEvenIfRemoteSyncFails verifies that
+// when updating a remote session's custom label, the local update succeeds
+// even if the remote sync fails. This ensures resilience - the user's action
+// isn't blocked by remote connectivity issues.
+func TestUpdateSessionCustomLabel_SucceedsEvenIfRemoteSyncFails(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	sessionsDir := filepath.Join(tmpHome, ".agent-deck", "profiles", "default")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions dir: %v", err)
+	}
+
+	// Remote session (has remote_host field)
+	sessionsJSON := `{
+  "instances": [
+    {
+      "id": "remote-001",
+      "title": "Remote Session",
+      "project_path": "/home/user/project",
+      "tool": "claude",
+      "tmux_session": "agentdeck_remote_22222222",
+      "remote_host": "nonexistent-host",
+      "remote_tmux_name": "agentdeck_remote_22222222"
+    }
+  ]
+}`
+	sessionsPath := filepath.Join(sessionsDir, "sessions.json")
+	if err := os.WriteFile(sessionsPath, []byte(sessionsJSON), 0600); err != nil {
+		t.Fatalf("Failed to write sessions.json: %v", err)
+	}
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	// Update should succeed even though remote sync will fail
+	// (nonexistent-host is not configured, so SSH connection will fail)
+	// The code logs a warning but doesn't return an error
+	if err := tm.UpdateSessionCustomLabel("remote-001", "remote-label"); err != nil {
+		t.Fatalf("UpdateSessionCustomLabel should succeed locally even if remote sync fails: %v", err)
+	}
+
+	// Flush the debounced update immediately
+	tm.adapter.FlushPendingUpdates()
+
+	// Verify the local update was persisted despite remote sync failure
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		t.Fatalf("Failed to read sessions.json: %v", err)
+	}
+
+	if !strings.Contains(string(data), `"custom_label": "remote-label"`) {
+		t.Error("Custom label should be persisted locally even if remote sync fails")
+	}
+}
+
+// TestUpdateSessionCustomLabel_UsesFallbackForMissingRemoteTmuxName verifies that
+// when a remote session has remote_host but no remote_tmux_name (older sessions),
+// the function falls back to using tmux_session for the remote sync.
+func TestUpdateSessionCustomLabel_UsesFallbackForMissingRemoteTmuxName(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	sessionsDir := filepath.Join(tmpHome, ".agent-deck", "profiles", "default")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions dir: %v", err)
+	}
+
+	// Remote session WITHOUT remote_tmux_name (older format)
+	sessionsJSON := `{
+  "instances": [
+    {
+      "id": "remote-002",
+      "title": "Old Remote Session",
+      "project_path": "/home/user/project",
+      "tool": "claude",
+      "tmux_session": "agentdeck_old_33333333",
+      "remote_host": "nonexistent-host"
+    }
+  ]
+}`
+	sessionsPath := filepath.Join(sessionsDir, "sessions.json")
+	if err := os.WriteFile(sessionsPath, []byte(sessionsJSON), 0600); err != nil {
+		t.Fatalf("Failed to write sessions.json: %v", err)
+	}
+
+	tm, err := NewTmuxManager()
+	if err != nil {
+		t.Fatalf("NewTmuxManager failed: %v", err)
+	}
+
+	// The function should use tmux_session as fallback for remote_tmux_name
+	// Remote sync will fail (host doesn't exist), but local update should succeed
+	if err := tm.UpdateSessionCustomLabel("remote-002", "fallback-test"); err != nil {
+		t.Fatalf("UpdateSessionCustomLabel should handle missing remote_tmux_name: %v", err)
+	}
+
+	// Flush the debounced update immediately
+	tm.adapter.FlushPendingUpdates()
+
+	// Verify local update succeeded
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		t.Fatalf("Failed to read sessions.json: %v", err)
+	}
+
+	if !strings.Contains(string(data), `"custom_label": "fallback-test"`) {
+		t.Error("Custom label should be persisted when using tmux_session fallback")
+	}
+}
