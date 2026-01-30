@@ -35,13 +35,19 @@ const BASE_TERMINAL_OPTIONS = {
     scrollback: 50000,
     allowProposedApi: true,
     // xterm.js v6 uses DOM renderer by default, with VS Code-based scrollbar
-    // Enable smooth scroll animation for visual smoothness (100ms duration)
-    smoothScrollDuration: 100,
+    // NOTE: smoothScrollDuration REMOVED - it causes scroll-to-bottom on click
+    // when user is scrolled up. See docs/xterm-scroll-bug-investigation.md
     fastScrollModifier: 'alt',
     // Window mode affects wrapping behavior
     windowsMode: false, // Unix-style wrapping (default)
     // Note: Terminal content doesn't reflow on resize (standard behavior)
     // Already-printed output stays wrapped at original width
+
+    // SCROLL-ON-CLICK BUG TEST (Attempt #31):
+    // Try disabling scroll-on-user-input to see if it prevents viewport snap
+    scrollOnUserInput: false,
+    // Ensure Option+click forces selection (may bypass scroll-to-bottom)
+    macOptionClickForcesSelection: true,
 };
 
 // requestAnimationFrame throttle - fires at most once per frame
@@ -141,8 +147,6 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // Using DOM renderer (xterm.js v6 default)
         // Note: WebGL addon breaks scroll detection in WKWebView
         logger.info('xterm.js v6 initialized with DOM renderer');
-        console.log('%c[RENDERER] Using DOM renderer', 'color: lime; font-weight: bold');
-        LogFrontendDiagnostic('[RENDERER] Using DOM renderer');
 
         // Unicode 11 disabled for testing - may be related to rendering corruption
         // term.unicode.activeVersion = '11';
@@ -157,6 +161,36 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
 
         // Expose for debugging (remove in production)
         window._xterm = term;
+
+        // ============================================================
+        // SCROLL-ON-CLICK BUG FIX: Force altKey when scrolled up
+        // ============================================================
+        // See docs/xterm-scroll-bug-investigation.md for full history.
+        //
+        // SOLUTION (Attempt #31b): When user is scrolled up (viewing history),
+        // force altKey=true on mouse events. This triggers xterm.js's
+        // macOptionClickForcesSelection behavior, which:
+        // 1. Disables mouse reporting (no escape sequences sent to tmux)
+        // 2. Enables local text selection in xterm.js
+        // 3. Prevents the scroll-to-bottom behavior
+        //
+        // This is transparent to the user - they just click normally.
+        // ============================================================
+        const forceAltKeyWhenScrolled = (e) => {
+            const buffer = term.buffer.active;
+            const isScrolledUp = buffer.viewportY < buffer.baseY;
+
+            if (isScrolledUp) {
+                // Force altKey to trigger macOptionClickForcesSelection behavior
+                Object.defineProperty(e, 'altKey', { get: () => true, configurable: true });
+            }
+        };
+
+        // Attach to capture phase so we modify events BEFORE xterm.js sees them
+        const scrollFixEvents = ['mousedown', 'mousemove', 'mouseup', 'click'];
+        scrollFixEvents.forEach(eventType => {
+            terminalRef.current?.addEventListener(eventType, forceAltKeyWhenScrolled, { capture: true });
+        });
 
         // Expose terminal and search addon via ref for enhanced search
         if (searchRef) {
@@ -178,31 +212,38 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // ============================================================
         let isInAltScreen = false;
 
+        // Track mouse modes (moved up so alt-screen handler can access it)
+        const mouseModes = new Set();
+
         const handleAltScreenChange = (payload) => {
             if (payload?.sessionId !== sessionId) return;
+            const wasInAltScreen = isInAltScreen;
             isInAltScreen = payload.inAltScreen;
             setIsAltScreen(payload.inAltScreen); // Update state for CSS class
-            console.log(`%c[ALT-SCREEN] Changed to: ${isInAltScreen}`, 'color: magenta; font-weight: bold');
-            LogFrontendDiagnostic(`[ALT-SCREEN] Changed to: ${isInAltScreen}`);
+
+            // When EXITING alt-screen (e.g., Claude Code exits), reset mouse modes
+            // Apps like CC enable mouse reporting, but may not properly disable on exit
+            // This ensures xterm.js stops forwarding mouse events to tmux
+            if (wasInAltScreen && !isInAltScreen) {
+                term.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l');
+                mouseModes.clear();
+            }
         };
         const cancelAltScreen = EventsOn('terminal:altscreen', handleAltScreenChange);
 
         // ============================================================
-        // MOUSE MODE TRACKING (parser hooks - may not work in polling mode)
+        // MOUSE MODE TRACKING (parser hooks)
         // ============================================================
         // Track which mouse modes the backend application has enabled.
-        // NOTE: In polling mode, these sequences may be stripped, so
-        // alt-screen tracking above is more reliable.
+        // NOTE: mouseModes Set is declared above (before alt-screen handler)
+        // so that alt-screen exit can clear it.
         // ============================================================
-        const mouseModes = new Set();
 
         // Monitor mouse mode enable sequences (CSI ? ... h)
         const enableHandler = term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, (params) => {
             for (const p of params) {
                 if ([1000, 1002, 1003, 1006].includes(p)) {
                     mouseModes.add(p);
-                    console.log(`%c[MOUSE] Enabled mode ${p}. Active modes:`, 'color: cyan', [...mouseModes]);
-                    LogFrontendDiagnostic(`[MOUSE] Enabled mode ${p}. Active: ${[...mouseModes].join(',')}`);
                 }
             }
             return false; // Allow xterm to process it too
@@ -211,10 +252,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // Monitor mouse mode disable sequences (CSI ? ... l)
         const disableHandler = term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, (params) => {
             for (const p of params) {
-                if (mouseModes.delete(p)) {
-                    console.log(`%c[MOUSE] Disabled mode ${p}. Active modes:`, 'color: orange', [...mouseModes]);
-                    LogFrontendDiagnostic(`[MOUSE] Disabled mode ${p}. Active: ${[...mouseModes].join(',')}`);
-                }
+                mouseModes.delete(p);
             }
             return false;
         });
@@ -617,7 +655,9 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // Uses window.__activeTerminalSessionId (also set by onData above) instead of
         // isFocusedRef, because WKWebView textarea focus/blur events are unreliable
         // when macOS native menu accelerators fire.
-        const handleTermFocus = () => { window.__activeTerminalSessionId = sessionId; };
+        const handleTermFocus = () => {
+            window.__activeTerminalSessionId = sessionId;
+        };
         if (term.textarea) {
             term.textarea.addEventListener('focus', handleTermFocus);
         }
@@ -1028,6 +1068,10 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             if (viewportEl) viewportEl.removeEventListener('scroll', handleDOMScroll);
             if (terminalRef.current) {
                 terminalRef.current.removeEventListener('wheel', handleWheel);
+                // Scroll-on-click fix cleanup (altKey override)
+                scrollFixEvents.forEach(eventType => {
+                    terminalRef.current?.removeEventListener(eventType, forceAltKeyWhenScrolled, { capture: true });
+                });
             }
             if (scrollSettleTimer) clearTimeout(scrollSettleTimer);
             if (wheelResetTimer) clearTimeout(wheelResetTimer);
