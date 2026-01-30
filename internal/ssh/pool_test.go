@@ -276,3 +276,148 @@ type testError struct {
 func (e *testError) Error() string {
 	return e.msg
 }
+
+// ============================================================================
+// Unregister Tests (PR #107: SSH Host Settings UX)
+// ============================================================================
+
+func TestPoolUnregister_RemovesConfigAndConnection(t *testing.T) {
+	pool := NewPool()
+	pool.Register("test-host", Config{Host: "localhost"})
+
+	// Inject a connected connection
+	conn := NewConnection(Config{Host: "localhost"})
+	conn.mu.Lock()
+	conn.connected = true
+	conn.mu.Unlock()
+
+	pool.mu.Lock()
+	pool.connections["test-host"] = conn
+	pool.mu.Unlock()
+
+	// Verify initial state via public API
+	if _, exists := pool.GetConfig("test-host"); !exists {
+		t.Fatal("Config should exist before Unregister")
+	}
+	if pool.GetIfExists("test-host") == nil {
+		t.Fatal("Connection should exist before Unregister")
+	}
+
+	// Unregister the host
+	pool.Unregister("test-host")
+
+	// Verify config is removed
+	if _, exists := pool.GetConfig("test-host"); exists {
+		t.Error("Config should be removed after Unregister")
+	}
+
+	// Verify connection is removed
+	if pool.GetIfExists("test-host") != nil {
+		t.Error("Connection should be removed after Unregister")
+	}
+}
+
+func TestPoolUnregister_RemovesConfigOnly_WhenNoConnection(t *testing.T) {
+	pool := NewPool()
+	pool.Register("config-only-host", Config{Host: "example.com"})
+
+	// Verify config exists but no connection
+	if _, exists := pool.GetConfig("config-only-host"); !exists {
+		t.Fatal("Config should exist before Unregister")
+	}
+	if pool.GetIfExists("config-only-host") != nil {
+		t.Fatal("No connection should exist - only config was registered")
+	}
+
+	// Unregister should succeed without error (no connection to clean up)
+	pool.Unregister("config-only-host")
+
+	// Verify config is removed
+	if _, exists := pool.GetConfig("config-only-host"); exists {
+		t.Error("Config should be removed after Unregister")
+	}
+}
+
+func TestPoolUnregister_PreservesOtherHosts(t *testing.T) {
+	pool := NewPool()
+	pool.Register("host-a", Config{Host: "a.example.com"})
+	pool.Register("host-b", Config{Host: "b.example.com"})
+
+	// Inject connections for both
+	for _, hid := range []string{"host-a", "host-b"} {
+		conn := NewConnection(Config{Host: hid})
+		conn.mu.Lock()
+		conn.connected = true
+		conn.mu.Unlock()
+
+		pool.mu.Lock()
+		pool.connections[hid] = conn
+		pool.mu.Unlock()
+	}
+
+	// Unregister only host-a
+	pool.Unregister("host-a")
+
+	// host-a should be gone
+	if _, exists := pool.GetConfig("host-a"); exists {
+		t.Error("host-a config should be removed")
+	}
+	if pool.GetIfExists("host-a") != nil {
+		t.Error("host-a connection should be removed")
+	}
+
+	// host-b should still exist
+	if _, exists := pool.GetConfig("host-b"); !exists {
+		t.Error("host-b config should still exist")
+	}
+	if pool.GetIfExists("host-b") == nil {
+		t.Error("host-b connection should still exist")
+	}
+}
+
+func TestPoolUnregister_NonexistentHost_NoError(t *testing.T) {
+	pool := NewPool()
+
+	// Unregistering nonexistent host should not panic or error
+	// (this is a no-op)
+	pool.Unregister("nonexistent")
+
+	// Pool should remain functional
+	pool.Register("new-host", Config{Host: "example.com"})
+	if _, exists := pool.GetConfig("new-host"); !exists {
+		t.Error("Pool should still work after Unregister of nonexistent host")
+	}
+}
+
+func TestPoolUnregister_HostNotInListAfterRemoval(t *testing.T) {
+	pool := NewPool()
+	pool.Register("alpha", Config{Host: "alpha.example.com"})
+	pool.Register("beta", Config{Host: "beta.example.com"})
+	pool.Register("gamma", Config{Host: "gamma.example.com"})
+
+	// Verify all three are listed
+	hosts := pool.ListHosts()
+	if len(hosts) != 3 {
+		t.Fatalf("Expected 3 hosts, got %d", len(hosts))
+	}
+
+	// Unregister beta
+	pool.Unregister("beta")
+
+	// Verify only alpha and gamma remain in ListHosts
+	hosts = pool.ListHosts()
+	if len(hosts) != 2 {
+		t.Fatalf("Expected 2 hosts after Unregister, got %d", len(hosts))
+	}
+
+	hostMap := make(map[string]bool)
+	for _, h := range hosts {
+		hostMap[h] = true
+	}
+	if hostMap["beta"] {
+		t.Error("beta should not be in ListHosts after Unregister")
+	}
+	if !hostMap["alpha"] || !hostMap["gamma"] {
+		t.Error("alpha and gamma should still be in ListHosts")
+	}
+}

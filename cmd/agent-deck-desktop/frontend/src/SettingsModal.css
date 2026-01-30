@@ -622,3 +622,281 @@
 .settings-appearance-checkbox {
     margin-top: 16px;
 }
+
+/* SSH Host Settings */
+.settings-ssh-hosts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.settings-ssh-host-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 6px;
+}
+
+.settings-ssh-host-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+}
+
+.settings-ssh-host-name {
+    font-size: var(--font-base);
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.settings-ssh-host-address {
+    font-size: var(--font-sm);
+    color: var(--text-muted);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.settings-ssh-host-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.settings-ssh-host-test,
+.settings-ssh-host-edit {
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid var(--border-secondary);
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: var(--font-sm);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.settings-ssh-host-test:hover,
+.settings-ssh-host-edit:hover {
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
+}
+
+.settings-ssh-host-test:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.settings-ssh-host-remove {
+    background: transparent;
+    border: none;
+    color: var(--text-dimmed);
+    font-size: var(--font-lg);
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
+}
+
+.settings-ssh-host-remove:hover {
+    color: var(--accent-error);
+    background: var(--danger-hover-bg);
+}
+
+.settings-ssh-test-result {
+    font-size: var(--font-base);
+    font-weight: 600;
+}
+
+.settings-ssh-test-result.success {
+    color: var(--accent-success);
+}
+
+.settings-ssh-test-result.error {
+    color: var(--accent-error);
+}
+
+.settings-ssh-add-btn {
+    padding: 8px 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: var(--font-base);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.settings-ssh-add-btn:hover {
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
+}
+
+/* SSH Host Form */
+.settings-ssh-host-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.settings-ssh-form-row {
+    display: flex;
+    gap: 12px;
+}
+
+.settings-ssh-form-field {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.settings-ssh-form-field-wide {
+    flex: 1.5;
+}
+
+.settings-ssh-form-field-narrow {
+    flex: 0 0 80px;
+}
+
+.settings-ssh-form-field label {
+    font-size: var(--font-sm);
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.settings-ssh-form-field input {
+    padding: 8px 10px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: var(--font-base);
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.settings-ssh-form-field input:focus {
+    border-color: var(--accent-primary);
+}
+
+.settings-ssh-form-field input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.settings-ssh-form-field input::placeholder {
+    color: var(--text-dimmed);
+}
+
+.settings-ssh-error {
+    font-size: var(--font-sm);
+    color: var(--accent-error);
+}
+
+.settings-ssh-error-banner {
+    padding: 8px 12px;
+    background: var(--danger-hover-bg);
+    border: 1px solid var(--accent-error);
+    border-radius: 6px;
+    color: var(--accent-error);
+    font-size: var(--font-sm);
+}
+
+.settings-ssh-form-checkboxes {
+    display: flex;
+    gap: 20px;
+    padding: 4px 0;
+}
+
+.settings-ssh-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: var(--font-base);
+    color: var(--text-secondary);
+}
+
+.settings-ssh-checkbox input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-primary);
+    cursor: pointer;
+}
+
+/* SSH Key section */
+.settings-ssh-key-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 0;
+}
+
+.settings-ssh-key-section .settings-ssh-checkbox {
+    flex-wrap: wrap;
+}
+
+.settings-ssh-key-hint {
+    flex-basis: 100%;
+    margin-left: 24px;
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+}
+
+.settings-ssh-custom-key {
+    margin-left: 24px;
+    margin-top: 4px;
+}
+
+.settings-ssh-custom-key input {
+    width: 100%;
+}
+
+.settings-ssh-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-secondary);
+}
+
+.settings-ssh-form-cancel {
+    padding: 8px 16px;
+    background: transparent;
+    border: 1px solid var(--border-secondary);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: var(--font-base);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.settings-ssh-form-cancel:hover {
+    border-color: var(--text-muted);
+    color: var(--text-primary);
+}
+
+.settings-ssh-form-save {
+    padding: 8px 16px;
+    background: var(--accent-primary);
+    border: none;
+    border-radius: 6px;
+    color: var(--tool-icon-text);
+    font-size: var(--font-base);
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+
+.settings-ssh-form-save:hover {
+    opacity: 0.9;
+}

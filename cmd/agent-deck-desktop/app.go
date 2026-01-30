@@ -288,6 +288,26 @@ func (a *App) BrowseLocalDirectory(defaultDir string) (string, error) {
 	})
 }
 
+// BrowseLocalFile opens a native file picker dialog.
+// Returns the selected file path, or empty string if cancelled.
+// defaultDir can start with ~ which will be expanded to user's home directory.
+func (a *App) BrowseLocalFile(defaultDir string) (string, error) {
+	// Expand ~ to home directory
+	if strings.HasPrefix(defaultDir, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			defaultDir = filepath.Join(home, defaultDir[1:])
+		}
+	}
+	if defaultDir == "" {
+		defaultDir, _ = os.UserHomeDir()
+	}
+	return wailsRuntime.OpenFileDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+		Title:            "Select File",
+		DefaultDirectory: defaultDir,
+		ShowHiddenFiles:  true, // SSH keys are often hidden (.ssh/)
+	})
+}
+
 // CreateSession creates a new tmux session and launches the specified AI tool.
 // If configKey is provided, the launch config settings will be applied.
 func (a *App) CreateSession(projectPath, title, tool, configKey string) (SessionInfo, error) {
@@ -741,6 +761,61 @@ func (a *App) TestSSHConnection(hostID string) error {
 	return a.sshBridge.TestConnection(hostID)
 }
 
+// TestSSHConnectionWithParams tests if a remote host is reachable using provided parameters.
+// This allows testing a connection before saving the host configuration.
+func (a *App) TestSSHConnectionWithParams(host, user string, port int, identityFile, jumpHost string) error {
+	args := []string{}
+
+	// Add jump host if configured
+	if jumpHost != "" {
+		args = append(args, "-J", jumpHost)
+	}
+
+	// Add identity file if configured
+	if identityFile != "" {
+		// Expand ~ to home directory
+		if strings.HasPrefix(identityFile, "~") {
+			if home, err := os.UserHomeDir(); err == nil {
+				identityFile = filepath.Join(home, identityFile[1:])
+			}
+		}
+		args = append(args, "-i", identityFile)
+	}
+
+	// Add port if non-default
+	if port != 0 && port != 22 {
+		args = append(args, "-p", fmt.Sprintf("%d", port))
+	}
+
+	// SSH options for testing
+	args = append(args, "-o", "StrictHostKeyChecking=accept-new")
+	args = append(args, "-o", "BatchMode=yes")
+	args = append(args, "-o", "ConnectTimeout=10")
+
+	// Build target
+	target := host
+	if user != "" {
+		target = user + "@" + host
+	}
+	args = append(args, target)
+
+	// Test command
+	args = append(args, "echo", "ok")
+
+	cmd := exec.Command("ssh", args...)
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		return fmt.Errorf("SSH connection failed: %w (output: %s)", err, strings.TrimSpace(string(output)))
+	}
+
+	if !strings.Contains(string(output), "ok") {
+		return fmt.Errorf("unexpected SSH response: %s", strings.TrimSpace(string(output)))
+	}
+
+	return nil
+}
+
 // GetSSHHostStatus returns connection status for all configured SSH hosts.
 func (a *App) GetSSHHostStatus() []SSHHostStatus {
 	statuses := a.sshBridge.GetHostStatus()
@@ -776,6 +851,62 @@ type SSHHostStatus struct {
 	HostID    string `json:"hostId"`
 	Connected bool   `json:"connected"`
 	LastError string `json:"lastError,omitempty"`
+}
+
+// SSHHostInfo represents SSH host configuration for the frontend.
+type SSHHostInfo struct {
+	HostID       string `json:"hostId"`
+	Host         string `json:"host"`
+	User         string `json:"user"`
+	Port         int    `json:"port"`
+	IdentityFile string `json:"identityFile"`
+	Description  string `json:"description"`
+	GroupName    string `json:"groupName"`
+	AutoDiscover bool   `json:"autoDiscover"`
+	TmuxPath     string `json:"tmuxPath"`
+	JumpHost     string `json:"jumpHost"`
+}
+
+// GetSSHHosts returns all configured SSH hosts.
+func (a *App) GetSSHHosts() []SSHHostInfo {
+	hosts := a.sshBridge.GetAllHosts()
+	result := make([]SSHHostInfo, 0, len(hosts))
+	for hostID, def := range hosts {
+		result = append(result, SSHHostInfo{
+			HostID:       hostID,
+			Host:         def.Host,
+			User:         def.User,
+			Port:         def.Port,
+			IdentityFile: def.IdentityFile,
+			Description:  def.Description,
+			GroupName:    def.GroupName,
+			AutoDiscover: def.AutoDiscover,
+			TmuxPath:     def.TmuxPath,
+			JumpHost:     def.JumpHost,
+		})
+	}
+	return result
+}
+
+// AddSSHHost creates a new SSH host configuration.
+func (a *App) AddSSHHost(hostID, host, user string, port int, identityFile, description, groupName string, autoDiscover bool, tmuxPath, jumpHost string) error {
+	return a.sshBridge.AddHost(hostID, host, user, port, identityFile, description, groupName, autoDiscover, tmuxPath, jumpHost)
+}
+
+// UpdateSSHHost updates an existing SSH host configuration.
+func (a *App) UpdateSSHHost(hostID, host, user string, port int, identityFile, description, groupName string, autoDiscover bool, tmuxPath, jumpHost string) error {
+	return a.sshBridge.UpdateHost(hostID, host, user, port, identityFile, description, groupName, autoDiscover, tmuxPath, jumpHost)
+}
+
+// RemoveSSHHost removes an SSH host configuration.
+func (a *App) RemoveSSHHost(hostID string) error {
+	return a.sshBridge.RemoveHost(hostID)
+}
+
+// ValidateSSHHost validates SSH host configuration fields.
+// Returns (isValid, errorMessage).
+func (a *App) ValidateSSHHost(hostID, host string) (bool, string) {
+	return a.sshBridge.ValidateHost(hostID, host)
 }
 
 // ==================== Saved Layouts Methods ====================

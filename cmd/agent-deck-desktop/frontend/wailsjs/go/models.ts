@@ -188,6 +188,36 @@ export namespace main {
 	        this.shortcut = source["shortcut"];
 	    }
 	}
+	export class SSHHostInfo {
+	    hostId: string;
+	    host: string;
+	    user: string;
+	    port: number;
+	    identityFile: string;
+	    description: string;
+	    groupName: string;
+	    autoDiscover: boolean;
+	    tmuxPath: string;
+	    jumpHost: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SSHHostInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hostId = source["hostId"];
+	        this.host = source["host"];
+	        this.user = source["user"];
+	        this.port = source["port"];
+	        this.identityFile = source["identityFile"];
+	        this.description = source["description"];
+	        this.groupName = source["groupName"];
+	        this.autoDiscover = source["autoDiscover"];
+	        this.tmuxPath = source["tmuxPath"];
+	        this.jumpHost = source["jumpHost"];
+	    }
+	}
 	export class SSHHostStatus {
 	    hostId: string;
 	    connected: boolean;

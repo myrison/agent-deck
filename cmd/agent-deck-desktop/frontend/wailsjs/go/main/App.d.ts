@@ -4,11 +4,15 @@ import {main} from '../models';
 
 export function AddQuickLaunchFavorite(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function AddSSHHost(arg1:string,arg2:string,arg3:string,arg4:number,arg5:string,arg6:string,arg7:string,arg8:boolean,arg9:string,arg10:string):Promise<void>;
+
 export function AddScanPath(arg1:string):Promise<void>;
 
 export function AttachSession(arg1:string,arg2:string,arg3:number,arg4:number):Promise<void>;
 
 export function BrowseLocalDirectory(arg1:string):Promise<string>;
+
+export function BrowseLocalFile(arg1:string):Promise<string>;
 
 export function CloseTerminal(arg1:string):Promise<void>;
 
@@ -61,6 +65,8 @@ export function GetQuickLaunchFavorites():Promise<Array<main.QuickLaunchFavorite
 export function GetSSHHostDisplayNames():Promise<Record<string, string>>;
 
 export function GetSSHHostStatus():Promise<Array<main.SSHHostStatus>>;
+
+export function GetSSHHosts():Promise<Array<main.SSHHostInfo>>;
 
 export function GetSavedLayoutByID(arg1:string):Promise<main.SavedLayout>;
 
@@ -122,6 +128,8 @@ export function RefreshTerminalAfterResize(arg1:string):Promise<void>;
 
 export function RemoveQuickLaunchFavorite(arg1:string):Promise<void>;
 
+export function RemoveSSHHost(arg1:string):Promise<void>;
+
 export function RemoveScanPath(arg1:string):Promise<void>;
 
 export function ResetGroupSettings():Promise<void>;
@@ -174,16 +182,22 @@ export function StartTmuxSession(arg1:string,arg2:string,arg3:number,arg4:number
 
 export function TestSSHConnection(arg1:string):Promise<void>;
 
+export function TestSSHConnectionWithParams(arg1:string,arg2:string,arg3:number,arg4:string,arg5:string):Promise<void>;
+
 export function ToggleGroupExpanded(arg1:string,arg2:boolean):Promise<void>;
 
 export function UpdateQuickLaunchFavoriteName(arg1:string,arg2:string):Promise<void>;
 
 export function UpdateQuickLaunchShortcut(arg1:string,arg2:string):Promise<void>;
 
+export function UpdateSSHHost(arg1:string,arg2:string,arg3:string,arg4:number,arg5:string,arg6:string,arg7:string,arg8:boolean,arg9:string,arg10:string):Promise<void>;
+
 export function UpdateSessionCustomLabel(arg1:string,arg2:string):Promise<void>;
 
 export function UpdateSessionStatus(arg1:string,arg2:string):Promise<void>;
 
 export function ValidateMCPConfigPath(arg1:string):Promise<Array<string>>;
+
+export function ValidateSSHHost(arg1:string,arg2:string):Promise<boolean|string>;
 
 export function WriteTerminal(arg1:string,arg2:string):Promise<void>;

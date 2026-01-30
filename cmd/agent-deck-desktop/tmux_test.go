@@ -1127,7 +1127,7 @@ func TestDetectSessionStatusReturnsErrorForSSHConnectionFailures(t *testing.T) {
 		content string
 	}{
 		{"failed to start terminal", "Error: failed to start terminal\nPlease check your configuration"},
-		{"failed to restart remote session", "RevDen: failed to restart remote session - SSH timeout"},
+		{"failed to restart remote session", "RevvySwarm: failed to restart remote session - SSH timeout"},
 		{"failed to create remote tmux session", "Error: failed to create remote tmux session on host"},
 		{"ssh connection failed", "ssh connection failed: Connection refused"},
 		{"could not resolve hostname", "ssh: Could not resolve hostname dev-server: nodename nor servname provided"},
@@ -1195,7 +1195,7 @@ func TestDetectSessionStatusErrorTakesPriorityOverPrompt(t *testing.T) {
 	// Content that has BOTH an error message AND a Claude prompt
 	// The error check should run first and return "error"
 	mixedContent := `ssh: connect to host server port 22: Connection refused
-RevDen: SSH connection failed
+RevvySwarm: SSH connection failed
 
 $ claude
 ╭─────────────────────────────────────────────────────╮

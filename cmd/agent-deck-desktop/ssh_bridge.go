@@ -91,3 +91,78 @@ func (b *SSHBridge) GetHostDisplayNames() map[string]string {
 	}
 	return result
 }
+
+// GetAllHosts returns all configured SSH hosts from config.toml.
+func (b *SSHBridge) GetAllHosts() map[string]session.SSHHostDef {
+	return session.GetAvailableSSHHosts()
+}
+
+// AddHost creates a new SSH host configuration in config.toml.
+func (b *SSHBridge) AddHost(hostID, host, user string, port int, identityFile, description, groupName string, autoDiscover bool, tmuxPath, jumpHost string) error {
+	// Validate the hostID
+	if errMsg := session.ValidateSSHHostID(hostID); errMsg != "" {
+		return fmt.Errorf(errMsg)
+	}
+
+	// Check if host already exists
+	if session.GetSSHHostDef(hostID) != nil {
+		return fmt.Errorf("SSH host '%s' already exists", hostID)
+	}
+
+	def := session.SSHHostDef{
+		Host:         host,
+		User:         user,
+		Port:         port,
+		IdentityFile: identityFile,
+		Description:  description,
+		GroupName:    groupName,
+		AutoDiscover: autoDiscover,
+		TmuxPath:     tmuxPath,
+		JumpHost:     jumpHost,
+	}
+
+	return session.SetSSHHost(hostID, def)
+}
+
+// UpdateHost updates an existing SSH host configuration in config.toml.
+func (b *SSHBridge) UpdateHost(hostID, host, user string, port int, identityFile, description, groupName string, autoDiscover bool, tmuxPath, jumpHost string) error {
+	// Validate the hostID
+	if errMsg := session.ValidateSSHHostID(hostID); errMsg != "" {
+		return fmt.Errorf(errMsg)
+	}
+
+	def := session.SSHHostDef{
+		Host:         host,
+		User:         user,
+		Port:         port,
+		IdentityFile: identityFile,
+		Description:  description,
+		GroupName:    groupName,
+		AutoDiscover: autoDiscover,
+		TmuxPath:     tmuxPath,
+		JumpHost:     jumpHost,
+	}
+
+	return session.SetSSHHost(hostID, def)
+}
+
+// RemoveHost removes an SSH host configuration from config.toml.
+func (b *SSHBridge) RemoveHost(hostID string) error {
+	return session.RemoveSSHHost(hostID)
+}
+
+// ValidateHost validates SSH host configuration fields.
+// Returns (isValid, errorMessage).
+func (b *SSHBridge) ValidateHost(hostID, host string) (bool, string) {
+	// Validate hostID (must be valid TOML key)
+	if errMsg := session.ValidateSSHHostID(hostID); errMsg != "" {
+		return false, errMsg
+	}
+
+	// Validate host is not empty
+	if host == "" {
+		return false, "Host/IP address is required"
+	}
+
+	return true, ""
+}

@@ -14,7 +14,7 @@ make dev            # Auto-reload on changes (requires air)
 make install-user   # Install to ~/.local/bin (no sudo)
 
 # Desktop app commands
-make desktop-dev      # Run desktop app in dev mode (shows as "RevDen (Dev)")
+make desktop-dev      # Run desktop app in dev mode (shows as "RevvySwarm (Dev)")
 make desktop-build    # Build production desktop app
 make desktop-install  # Build and install to /Applications
 ```
@@ -197,7 +197,7 @@ A Wails-based native app (`cmd/agent-deck-desktop/`) complements the TUI with be
 
 **Run in dev mode:**
 ```bash
-make desktop-dev    # From repo root - uses "RevDen (Dev)" branding
+make desktop-dev    # From repo root - uses "RevvySwarm (Dev)" branding
 ```
 
 ## Debugging Desktop App
