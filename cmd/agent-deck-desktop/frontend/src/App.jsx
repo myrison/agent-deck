@@ -50,6 +50,7 @@ import {
     restoreTabLayout,
 } from './layoutUtils';
 import { updateSessionLabelInLayout, tabContainsSession } from './utils/tabContextMenu';
+import { sortTabsBySection } from './utils/tabSections';
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
 
 const logger = createLogger('App');
@@ -343,16 +344,19 @@ function App() {
                 }
 
                 if (restoredTabs.length > 0) {
-                    setOpenTabs(restoredTabs);
+                    // Sort tabs so local tabs come first, then remote tabs
+                    // This ensures consistent visual ordering in section-grouped UI
+                    const sortedTabs = sortTabsBySection(restoredTabs);
+                    setOpenTabs(sortedTabs);
 
                     // Restore active tab — fall back to first tab if saved ID is missing
-                    const restoredActiveId = restoredTabs.find(t => t.id === savedState.activeTabId)
+                    const restoredActiveId = sortedTabs.find(t => t.id === savedState.activeTabId)
                         ? savedState.activeTabId
-                        : restoredTabs[0].id;
+                        : sortedTabs[0].id;
                     setActiveTabId(restoredActiveId);
 
                     // Set view to terminal and select the first session from the active tab
-                    const activeTab = restoredTabs.find(t => t.id === restoredActiveId);
+                    const activeTab = sortedTabs.find(t => t.id === restoredActiveId);
                     if (activeTab) {
                         const panes = getPaneList(activeTab.layout);
                         const firstBound = panes.find(p => p.session);
@@ -363,7 +367,7 @@ function App() {
                     }
 
                     logger.info('Restored tab state', {
-                        tabCount: restoredTabs.length,
+                        tabCount: sortedTabs.length,
                         activeTabId: restoredActiveId,
                     });
                 }
