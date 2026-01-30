@@ -364,3 +364,354 @@ func TestVerifyTmuxConfig_ShowOptionFails(t *testing.T) {
 // Both use non-existent sessions and test the same error path. Creating a distinct
 // failure mode where show-option succeeds but set-option fails is not possible with
 // real tmux, so this test is redundant and has been removed.
+
+// ============================================================
+// sanitizeHistoryForXterm() Tests
+// ============================================================
+
+// TestSanitizeHistoryForXterm_RemovesDestructiveSequences verifies that
+// sequences that would corrupt scrollback are removed.
+func TestSanitizeHistoryForXterm_RemovesDestructiveSequences(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "cursor home removed",
+			input:    "hello\x1b[Hworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "cursor position removed",
+			input:    "hello\x1b[5;10Hworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "cursor position alternate removed",
+			input:    "hello\x1b[5;10fworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "cursor up removed",
+			input:    "hello\x1b[2Aworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "cursor down removed",
+			input:    "hello\x1b[3Bworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "clear screen removed",
+			input:    "hello\x1b[2Jworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "clear to end removed",
+			input:    "hello\x1b[Jworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "clear line removed",
+			input:    "hello\x1b[Kworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "full reset removed",
+			input:    "hello\x1bcworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "alt screen xterm removed",
+			input:    "hello\x1b[?1049hworld\x1b[?1049ltest",
+			expected: "helloworldtest",
+		},
+		{
+			name:     "alt screen DEC removed",
+			input:    "hello\x1b[?47hworld\x1b[?47ltest",
+			expected: "helloworldtest",
+		},
+		{
+			name:     "cursor save/restore ANSI removed",
+			input:    "hello\x1b[sworld\x1b[utest",
+			expected: "helloworldtest",
+		},
+		{
+			name:     "cursor save/restore DEC removed",
+			input:    "hello\x1b7world\x1b8test",
+			expected: "helloworldtest",
+		},
+		{
+			name:     "scroll region removed",
+			input:    "hello\x1b[5;10rworld",
+			expected: "helloworld",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeHistoryForXterm(tt.input)
+			if result != tt.expected {
+				t.Errorf("sanitizeHistoryForXterm(%q) = %q, want %q",
+					tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestSanitizeHistoryForXterm_PreservesSGRColors verifies that color codes
+// are preserved (users want colored scrollback).
+func TestSanitizeHistoryForXterm_PreservesSGRColors(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "foreground color preserved",
+			input:    "\x1b[31mred text\x1b[0m",
+			expected: "\x1b[31mred text\x1b[0m",
+		},
+		{
+			name:     "background color preserved",
+			input:    "\x1b[44mblue bg\x1b[0m",
+			expected: "\x1b[44mblue bg\x1b[0m",
+		},
+		{
+			name:     "bold preserved",
+			input:    "\x1b[1mbold\x1b[0m",
+			expected: "\x1b[1mbold\x1b[0m",
+		},
+		{
+			name:     "complex SGR preserved",
+			input:    "\x1b[1;31;44mbold red on blue\x1b[0m",
+			expected: "\x1b[1;31;44mbold red on blue\x1b[0m",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeHistoryForXterm(tt.input)
+			if result != tt.expected {
+				t.Errorf("sanitizeHistoryForXterm(%q) = %q, want %q",
+					tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestSanitizeHistoryForXterm_MixedSequences verifies correct behavior
+// with both destructive and color sequences mixed together.
+func TestSanitizeHistoryForXterm_MixedSequences(t *testing.T) {
+	// Real-world scenario: colored output with cursor movements
+	input := "\x1b[31mError:\x1b[0m\x1b[H\x1b[K something failed"
+	expected := "\x1b[31mError:\x1b[0m something failed"
+
+	result := sanitizeHistoryForXterm(input)
+	if result != expected {
+		t.Errorf("sanitizeHistoryForXterm() failed on mixed sequences\ngot:  %q\nwant: %q",
+			result, expected)
+	}
+}
+
+// ============================================================
+// stripSeamSequences() Tests
+// ============================================================
+
+// TestStripSeamSequences_RemovesDestructiveSequences verifies that
+// sequences that would destroy pre-loaded scrollback are removed during
+// the initial PTY attachment phase.
+func TestStripSeamSequences_RemovesDestructiveSequences(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "full reset removed",
+			input:    "hello\x1bcworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "alt screen enter removed (xterm)",
+			input:    "hello\x1b[?1049hworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "alt screen exit removed (xterm)",
+			input:    "hello\x1b[?1049lworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "alt screen enter removed (DEC)",
+			input:    "hello\x1b[?47hworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "alt screen exit removed (DEC)",
+			input:    "hello\x1b[?47lworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "clear screen removed",
+			input:    "hello\x1b[2Jworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "cursor home removed",
+			input:    "hello\x1b[Hworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "cursor position with H removed",
+			input:    "hello\x1b[5;10Hworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "cursor position with f removed",
+			input:    "hello\x1b[5;10fworld",
+			expected: "helloworld",
+		},
+		{
+			name:     "simple cursor position removed",
+			input:    "hello\x1b[5Hworld",
+			expected: "helloworld",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := stripSeamSequences(tt.input)
+			if result != tt.expected {
+				t.Errorf("stripSeamSequences(%q) = %q, want %q",
+					tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestStripSeamSequences_PreservesNonDestructive verifies that
+// safe sequences like colors are preserved during seam filtering.
+func TestStripSeamSequences_PreservesNonDestructive(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "SGR colors preserved",
+			input:    "\x1b[31mred\x1b[0m",
+			expected: "\x1b[31mred\x1b[0m",
+		},
+		{
+			name:     "regular text preserved",
+			input:    "hello world",
+			expected: "hello world",
+		},
+		{
+			name:     "newlines preserved",
+			input:    "line1\nline2",
+			expected: "line1\nline2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := stripSeamSequences(tt.input)
+			if result != tt.expected {
+				t.Errorf("stripSeamSequences(%q) = %q, want %q",
+					tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestStripSeamSequences_InitialPTYAttachment simulates the real scenario:
+// tmux sends viewport redraw on PTY attach, which must not destroy
+// the pre-loaded scrollback history.
+func TestStripSeamSequences_InitialPTYAttachment(t *testing.T) {
+	// Simulate tmux sending clear screen + cursor home + prompt on attach
+	input := "\x1b[2J\x1b[H\x1b[?1049h$ ls\n"
+	expected := "$ ls\n"
+
+	result := stripSeamSequences(input)
+	if result != expected {
+		t.Errorf("stripSeamSequences() failed on PTY attach simulation\ngot:  %q\nwant: %q",
+			result, expected)
+	}
+}
+
+// ============================================================
+// findLastValidUTF8Boundary() Edge Cases
+// ============================================================
+
+// NOTE ON TEST COVERAGE LIMITATION (Adversarial Review Feedback):
+//
+// The existing TestFindLastValidUTF8Boundary tests the algorithm in isolation,
+// which is "state peeking" - testing internal byte indices rather than
+// user-observable behavior (emoji rendering correctly).
+//
+// IDEAL: Test readLoopStream() end-to-end with mock PTY that returns data
+// split mid-UTF-8, then verify terminal:data events contain valid UTF-8.
+//
+// BLOCKER: Requires dependency injection that doesn't exist:
+// - PTY is concrete struct (*os.File), not interface
+// - readLoopStream uses Wails runtime.EventsEmit (no mock)
+// - Terminal holds real context.Context, not test double
+//
+// TRADE-OFF: Keep algorithm tests as smoke tests until refactor.
+// The existing comprehensive tests (10+ cases) provide reasonable coverage
+// that the boundary detection logic works. If UTF-8 handling breaks,
+// users will notice immediately (corrupted emoji/international text).
+//
+// TODO: When adding DI for testing, replace these with behavioral tests:
+//   - TestReadLoopStream_EmojiSplitAcrossReads
+//   - TestReadLoopStream_InternationalTextBoundaries
+//   - TestReadLoopStream_FastOutputNoCorruption
+
+// TestFindLastValidUTF8Boundary_EdgeCases provides additional edge case coverage.
+// Acknowledged limitation: Tests algorithm in isolation, not integrated behavior.
+func TestFindLastValidUTF8Boundary_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []byte
+		expected int
+	}{
+		{
+			name:     "4-byte emoji at boundary",
+			input:    []byte("test🎉"),
+			expected: 8, // "test" (4) + 🎉 (4)
+		},
+		{
+			name:     "mixed ASCII and multi-byte",
+			input:    []byte("a\xC3\xA9b"), // aéb
+			expected: 4,                    // Complete
+		},
+		{
+			name:     "incomplete 3-byte at end",
+			input:    []byte("ok\xE2\x82"), // Start of €
+			expected: 2,                     // Return up to "ok"
+		},
+		{
+			name:     "single byte buffer",
+			input:    []byte{0x41}, // 'A'
+			expected: 1,
+		},
+		{
+			name:     "two-byte complete",
+			input:    []byte{0xC3, 0xA9}, // é
+			expected: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := findLastValidUTF8Boundary(tt.input)
+			if result != tt.expected {
+				t.Errorf("findLastValidUTF8Boundary(%v) = %d, want %d",
+					tt.input, result, tt.expected)
+			}
+		})
+	}
+}
