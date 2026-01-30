@@ -1040,6 +1040,10 @@ func (h *Home) Init() tea.Cmd {
 }
 
 // checkForUpdate checks for updates asynchronously
+//
+// NOTE: This fork (RevvySwarm) has extensive custom modifications that are
+// incompatible with upstream releases. The underlying CheckForUpdate() always
+// returns Available: false to prevent accidental upgrades.
 func (h *Home) checkForUpdate() tea.Cmd {
 	return func() tea.Msg {
 		info, _ := update.CheckForUpdate(Version, false)
