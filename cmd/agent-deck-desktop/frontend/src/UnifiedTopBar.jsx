@@ -142,9 +142,28 @@ export default function UnifiedTopBar({
         setEditingShortcut(null);
     };
 
-    // Tooltip content for favorites
+    // Tooltip content for favorites - JSX with favorite indicator
     const getFavoriteTooltipContent = useCallback((fav) => {
-        return `${fav.name}\n${fav.path}${fav.shortcut ? `\n${formatShortcut(fav.shortcut)}` : ''}`;
+        return (
+            <div className="session-tooltip">
+                <div className="tooltip-favorite-header">
+                    <span className="tooltip-favorite-star">★</span>
+                    <span>Favorite</span>
+                </div>
+                <div className="tooltip-row">
+                    <span style={{ fontWeight: 500 }}>{fav.name}</span>
+                </div>
+                <div className="tooltip-row">
+                    <span className="tooltip-path">{fav.path}</span>
+                </div>
+                {fav.shortcut && (
+                    <div className="tooltip-row">
+                        <span className="tooltip-icon">⌨</span>
+                        <span>{formatShortcut(fav.shortcut)}</span>
+                    </div>
+                )}
+            </div>
+        );
     }, []);
 
     // Build existing shortcuts map for conflict detection
@@ -398,6 +417,7 @@ export default function UnifiedTopBar({
                             onMouseEnter={(e) => showTooltip(e, getFavoriteTooltipContent(fav))}
                             onMouseLeave={hideTooltip}
                         >
+                            <span className="quick-launch-star">★</span>
                             <span
                                 className="quick-launch-icon"
                                 style={{ backgroundColor: getToolColor(fav.tool) }}
