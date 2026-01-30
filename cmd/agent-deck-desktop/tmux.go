@@ -1436,12 +1436,41 @@ func (tm *TmuxManager) DeleteSession(sessionID string, sshBridge *SSHBridge) err
 
 // UpdateSessionCustomLabel updates the custom_label field for a session.
 // Pass an empty string to remove the custom label.
+// For remote sessions, this also syncs the label to the remote host's storage.
 func (tm *TmuxManager) UpdateSessionCustomLabel(sessionID, customLabel string) error {
 	if tm.adapter == nil {
 		return fmt.Errorf("storage adapter not initialized")
 	}
 
-	// Use debounced update
+	// Load storage to check if this is a remote session
+	data, err := tm.adapter.LoadStorageData()
+	if err != nil {
+		return fmt.Errorf("failed to load storage data: %w", err)
+	}
+
+	// Find the session to check if it's remote
+	var remoteHost, remoteTmuxName string
+	for _, inst := range data.Instances {
+		if inst.ID == sessionID {
+			remoteHost = inst.RemoteHost
+			remoteTmuxName = inst.RemoteTmuxName
+			// Fallback to TmuxSession if RemoteTmuxName is not set (older sessions)
+			if remoteTmuxName == "" {
+				remoteTmuxName = inst.TmuxSession
+			}
+			break
+		}
+	}
+
+	// If this is a remote session, sync the label to the remote host
+	if remoteHost != "" && remoteTmuxName != "" {
+		if err := session.UpdateRemoteSessionCustomLabel(remoteHost, remoteTmuxName, customLabel); err != nil {
+			log.Printf("Warning: failed to sync custom label to remote host %s: %v", remoteHost, err)
+			// Don't fail the whole operation - still update locally
+		}
+	}
+
+	// Update local storage (debounced)
 	tm.adapter.ScheduleUpdate(sessionID, session.FieldUpdate{CustomLabel: &customLabel})
 	return nil
 }
