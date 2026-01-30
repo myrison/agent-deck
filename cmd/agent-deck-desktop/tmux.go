@@ -258,7 +258,7 @@ func (tm *TmuxManager) PersistSession(s SessionInfo) error {
 // Returns the detected status ("running", "waiting", "idle", "error") and whether detection succeeded.
 func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bool) {
 	// Capture pane content (last 50 lines should be enough for detection)
-	cmd := exec.Command("tmux", "capture-pane", "-t", tmuxSession, "-p", "-S", "-50")
+	cmd := exec.Command(tmuxBinaryPath, "capture-pane", "-t", tmuxSession, "-p", "-S", "-50")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", false
@@ -691,7 +691,7 @@ func (tm *TmuxManager) detectStatusesParallel(sessions []sessionToDetect) map[st
 // Returns nil if not found or on error.
 func (tm *TmuxManager) extractContextPctFromPane(tmuxSession string) *int {
 	// Capture pane content (last 50 lines should include status bar)
-	cmd := exec.Command("tmux", "capture-pane", "-t", tmuxSession, "-p", "-S", "-50")
+	cmd := exec.Command(tmuxBinaryPath, "capture-pane", "-t", tmuxSession, "-p", "-S", "-50")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil

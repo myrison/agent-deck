@@ -459,8 +459,8 @@ function App() {
     // Visibility-aware status polling for activity ribbon
     // Only polls when app is visible and tabs are open
     useEffect(() => {
-        if (!showActivityRibbon) {
-            logger.debug('Activity ribbon disabled, skipping status polling');
+        if (!showActivityRibbon && !showContextMeter) {
+            logger.debug('Activity ribbon and context meter both disabled, skipping status polling');
             return;
         }
 
@@ -561,7 +561,7 @@ function App() {
             clearTimeout(initialPollTimer);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [showActivityRibbon]);
+    }, [showActivityRibbon, showContextMeter]);
 
     // Helper to get friendly SSH host name with "(via SSH)" suffix
     const getSSHHostFriendlyName = useCallback((hostId) => {
