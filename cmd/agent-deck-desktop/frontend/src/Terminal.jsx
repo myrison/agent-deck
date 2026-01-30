@@ -35,13 +35,19 @@ const BASE_TERMINAL_OPTIONS = {
     scrollback: 50000,
     allowProposedApi: true,
     // xterm.js v6 uses DOM renderer by default, with VS Code-based scrollbar
-    // Enable smooth scroll animation for visual smoothness (100ms duration)
-    smoothScrollDuration: 100,
+    // NOTE: smoothScrollDuration REMOVED - it causes scroll-to-bottom on click
+    // when user is scrolled up. See docs/xterm-scroll-bug-investigation.md
     fastScrollModifier: 'alt',
     // Window mode affects wrapping behavior
     windowsMode: false, // Unix-style wrapping (default)
     // Note: Terminal content doesn't reflow on resize (standard behavior)
     // Already-printed output stays wrapped at original width
+
+    // SCROLL-ON-CLICK BUG TEST (Attempt #31):
+    // Try disabling scroll-on-user-input to see if it prevents viewport snap
+    scrollOnUserInput: false,
+    // Ensure Option+click forces selection (may bypass scroll-to-bottom)
+    macOptionClickForcesSelection: true,
 };
 
 // requestAnimationFrame throttle - fires at most once per frame
@@ -88,6 +94,10 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
     // Data formatted for old dimensions during resize transition should be handled gracefully
     const resizeEpochRef = useRef(0);
     const resizeGraceUntilRef = useRef(0);
+
+    // Cached scroll state for performance - updated only on scroll events
+    // Used by forceAltKeyWhenScrolled to avoid accessing buffer.active on every mouse event
+    const isScrolledUpRef = useRef(false);
 
     // Update terminal theme when app theme changes
     useEffect(() => {
@@ -141,8 +151,6 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // Using DOM renderer (xterm.js v6 default)
         // Note: WebGL addon breaks scroll detection in WKWebView
         logger.info('xterm.js v6 initialized with DOM renderer');
-        console.log('%c[RENDERER] Using DOM renderer', 'color: lime; font-weight: bold');
-        LogFrontendDiagnostic('[RENDERER] Using DOM renderer');
 
         // Unicode 11 disabled for testing - may be related to rendering corruption
         // term.unicode.activeVersion = '11';
@@ -157,6 +165,47 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
 
         // Expose for debugging (remove in production)
         window._xterm = term;
+
+        // ============================================================
+        // SCROLL-ON-CLICK BUG FIX: Force altKey when scrolled up
+        // ============================================================
+        // See docs/xterm-scroll-bug-investigation.md for full history.
+        //
+        // SOLUTION (Attempt #31b): When user is scrolled up (viewing history),
+        // force altKey=true on mouse events. This triggers xterm.js's
+        // macOptionClickForcesSelection behavior, which:
+        // 1. Disables mouse reporting (no escape sequences sent to tmux)
+        // 2. Enables local text selection in xterm.js
+        // 3. Prevents the scroll-to-bottom behavior
+        //
+        // This is transparent to the user - they just click normally.
+        //
+        // PERFORMANCE: We cache isScrolledUp state and update only on scroll
+        // events, avoiding buffer.active access on every mouse event (100+/sec).
+        // ============================================================
+
+        // Update cached scroll state (called on scroll events only)
+        const updateScrollState = () => {
+            const buffer = term.buffer.active;
+            isScrolledUpRef.current = buffer.viewportY < buffer.baseY;
+        };
+
+        // Listen for scroll events to update cached state
+        const scrollStateDisposable = term.onScroll(updateScrollState);
+
+        // Use cached state for mouse events (very fast - no buffer access)
+        const forceAltKeyWhenScrolled = (e) => {
+            if (isScrolledUpRef.current) {
+                // Force altKey to trigger macOptionClickForcesSelection behavior
+                Object.defineProperty(e, 'altKey', { get: () => true, configurable: true });
+            }
+        };
+
+        // Attach to capture phase so we modify events BEFORE xterm.js sees them
+        const scrollFixEvents = ['mousedown', 'mousemove', 'mouseup', 'click'];
+        scrollFixEvents.forEach(eventType => {
+            terminalRef.current?.addEventListener(eventType, forceAltKeyWhenScrolled, { capture: true });
+        });
 
         // Expose terminal and search addon via ref for enhanced search
         if (searchRef) {
@@ -178,31 +227,38 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // ============================================================
         let isInAltScreen = false;
 
+        // Track mouse modes (moved up so alt-screen handler can access it)
+        const mouseModes = new Set();
+
         const handleAltScreenChange = (payload) => {
             if (payload?.sessionId !== sessionId) return;
+            const wasInAltScreen = isInAltScreen;
             isInAltScreen = payload.inAltScreen;
             setIsAltScreen(payload.inAltScreen); // Update state for CSS class
-            console.log(`%c[ALT-SCREEN] Changed to: ${isInAltScreen}`, 'color: magenta; font-weight: bold');
-            LogFrontendDiagnostic(`[ALT-SCREEN] Changed to: ${isInAltScreen}`);
+
+            // When EXITING alt-screen (e.g., Claude Code exits), reset mouse modes
+            // Apps like CC enable mouse reporting, but may not properly disable on exit
+            // This ensures xterm.js stops forwarding mouse events to tmux
+            if (wasInAltScreen && !isInAltScreen) {
+                term.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l');
+                mouseModes.clear();
+            }
         };
         const cancelAltScreen = EventsOn('terminal:altscreen', handleAltScreenChange);
 
         // ============================================================
-        // MOUSE MODE TRACKING (parser hooks - may not work in polling mode)
+        // MOUSE MODE TRACKING (parser hooks)
         // ============================================================
         // Track which mouse modes the backend application has enabled.
-        // NOTE: In polling mode, these sequences may be stripped, so
-        // alt-screen tracking above is more reliable.
+        // NOTE: mouseModes Set is declared above (before alt-screen handler)
+        // so that alt-screen exit can clear it.
         // ============================================================
-        const mouseModes = new Set();
 
         // Monitor mouse mode enable sequences (CSI ? ... h)
         const enableHandler = term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, (params) => {
             for (const p of params) {
                 if ([1000, 1002, 1003, 1006].includes(p)) {
                     mouseModes.add(p);
-                    console.log(`%c[MOUSE] Enabled mode ${p}. Active modes:`, 'color: cyan', [...mouseModes]);
-                    LogFrontendDiagnostic(`[MOUSE] Enabled mode ${p}. Active: ${[...mouseModes].join(',')}`);
                 }
             }
             return false; // Allow xterm to process it too
@@ -211,10 +267,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // Monitor mouse mode disable sequences (CSI ? ... l)
         const disableHandler = term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, (params) => {
             for (const p of params) {
-                if (mouseModes.delete(p)) {
-                    console.log(`%c[MOUSE] Disabled mode ${p}. Active modes:`, 'color: orange', [...mouseModes]);
-                    LogFrontendDiagnostic(`[MOUSE] Disabled mode ${p}. Active: ${[...mouseModes].join(',')}`);
-                }
+                mouseModes.delete(p);
             }
             return false;
         });
@@ -426,19 +479,18 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             const viewportEl = terminalRef.current?.querySelector('.xterm-viewport');
             if (viewportEl) {
                 const style = window.getComputedStyle(viewportEl);
-                console.log(`%c[DIAG] .xterm-viewport: scrollTop=${viewportEl.scrollTop} scrollHeight=${viewportEl.scrollHeight} clientHeight=${viewportEl.clientHeight}`, 'color: magenta');
-                console.log(`%c[DIAG] overflow: ${style.overflow} overflowY: ${style.overflowY}`, 'color: magenta');
+                logger.debug(`[DIAG] .xterm-viewport: scrollTop=${viewportEl.scrollTop} scrollHeight=${viewportEl.scrollHeight} clientHeight=${viewportEl.clientHeight}`);
+                logger.debug(`[DIAG] overflow: ${style.overflow} overflowY: ${style.overflowY}`);
                 LogFrontendDiagnostic(`[DIAG] viewport: scrollTop=${viewportEl.scrollTop} scrollHeight=${viewportEl.scrollHeight} clientHeight=${viewportEl.clientHeight} overflow=${style.overflowY}`);
 
                 // Try adding a pointerdown listener to see if pointer events work
                 viewportEl.addEventListener('pointerdown', () => {
-                    console.log('%c[EVENT] pointerdown on viewport!', 'color: red; font-weight: bold');
+                    logger.debug('[EVENT] pointerdown on viewport');
                     LogFrontendDiagnostic('[EVENT] pointerdown on viewport');
                 });
             }
 
-            console.log('%c========== SESSION LOAD COMPLETE ==========', 'color: lime; font-weight: bold; font-size: 14px');
-            console.log(`%c[LOAD-DONE] viewportY=${lastViewportY} baseY=${lastBaseY} length=${viewport.length}`, 'color: lime');
+            logger.debug(`SESSION LOAD COMPLETE: viewportY=${lastViewportY} baseY=${lastBaseY} length=${viewport.length}`);
             LogFrontendDiagnostic(`========== SESSION LOAD COMPLETE: viewportY=${lastViewportY} baseY=${lastBaseY} ==========`);
         };
 
@@ -489,7 +541,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
 
                 // Send Page Up/Down based on scroll direction
                 const pageSeq = scrollingUp ? '\x1b[5~' : '\x1b[6~';
-                console.log(`%c[SCROLLBAR] Alt: Page ${scrollingUp ? 'Up' : 'Down'}`, 'color: cyan');
+                logger.debug(`[SCROLLBAR] Alt: Page ${scrollingUp ? 'Up' : 'Down'}`);
                 WriteTerminal(sessionId, pageSeq).catch(console.error);
 
                 // Reset scroll position
@@ -499,7 +551,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         };
         if (viewportEl) {
             viewportEl.addEventListener('scroll', handleDOMScroll, { passive: true });
-            console.log('%c[INIT] DOM scroll listener attached', 'color: green');
+            logger.debug('[INIT] DOM scroll listener attached');
         }
 
         const attemptRepaint = () => {
@@ -564,7 +616,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 const pageSeq = pendingDirection === 'up' ? '\x1b[5~' : '\x1b[6~';
                 pendingDirection = null;
 
-                console.log(`%c[WHEEL] Alt: Page ${scrollUp ? 'Up' : 'Down'} (throttled)`, 'color: lime');
+                logger.debug(`[WHEEL] Alt: Page ${scrollUp ? 'Up' : 'Down'} (throttled)`);
                 WriteTerminal(sessionId, pageSeq).catch(console.error);
                 return;
             }
@@ -590,10 +642,10 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
 
         // Use capture phase and NOT passive (so we can preventDefault)
         terminalRef.current?.addEventListener('wheel', handleWheel, { passive: false, capture: true });
-        console.log('%c[INIT] Wheel interception enabled - using programmatic scrollLines()', 'color: lime; font-weight: bold');
+        logger.debug('[INIT] Wheel interception enabled - using programmatic scrollLines()');
         LogFrontendDiagnostic('[INIT] Wheel interception enabled');
 
-        console.log('%c[INIT] All scroll detection methods initialized', 'color: green; font-weight: bold');
+        logger.debug('[INIT] All scroll detection methods initialized');
         LogFrontendDiagnostic('[INIT] Scroll detection initialized');
 
         // Listen for debug messages from backend
@@ -617,7 +669,9 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // Uses window.__activeTerminalSessionId (also set by onData above) instead of
         // isFocusedRef, because WKWebView textarea focus/blur events are unreliable
         // when macOS native menu accelerators fire.
-        const handleTermFocus = () => { window.__activeTerminalSessionId = sessionId; };
+        const handleTermFocus = () => {
+            window.__activeTerminalSessionId = sessionId;
+        };
         if (term.textarea) {
             term.textarea.addEventListener('focus', handleTermFocus);
         }
@@ -669,9 +723,17 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
 
             const history = payload.data;
             logger.info('Received initial history:', history?.length || 0, 'bytes');
+
             if (xtermRef.current && history) {
                 // Write initial scrollback to xterm
                 xtermRef.current.write(history);
+
+                // Force viewport recalculation to make scrollback immediately accessible
+                // Without this, scrollback exists but isn't scrollable until window resize
+                if (fitAddonRef.current) {
+                    fitAddonRef.current.fit();
+                }
+
                 xtermRef.current.scrollToBottom();
 
                 // Mark session load complete for scroll tracking
@@ -696,6 +758,13 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             if (xtermRef.current && viewport) {
                 // Write initial viewport to xterm
                 xtermRef.current.write(viewport);
+
+                // Force viewport recalculation to make scrollback immediately accessible
+                // Without this, scrollback exists but isn't scrollable until window resize
+                if (fitAddonRef.current) {
+                    fitAddonRef.current.fit();
+                }
+
                 xtermRef.current.scrollToBottom();
 
                 // Mark session load complete for scroll tracking
@@ -723,6 +792,64 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         };
         const cancelResizeEpoch = EventsOn('terminal:resize-epoch', handleResizeEpoch);
 
+        // ============================================================
+        // SCROLLBACK HYDRATION (PTY streaming mode - Phase 3 WIP)
+        // ============================================================
+        // NOTE: This handler is currently unused. The backend does not emit
+        // 'terminal:scrollback-hydrate' events yet. Kept for Phase 3 implementation.
+        //
+        // Design: In PTY streaming mode, tmux sends cursor-positioning escape
+        // sequences that cause xterm.js to overwrite screen positions rather than
+        // scroll. The backend would poll tmux's history_size and capture new
+        // scrollback lines, which we'd inject here to build up xterm.js's buffer.
+        //
+        // Current workaround: Idle Refresh (below) captures full scrollback after
+        // output goes idle and resets xterm.js, which works well enough for now.
+        // ============================================================
+        const handleScrollbackHydrate = (payload) => {
+            if (payload?.sessionId !== sessionId) return;
+
+            const { data } = payload;
+            if (!xtermRef.current || !data) return;
+
+            const term = xtermRef.current;
+            const wasAtBottom = term.buffer.active.viewportY >= term.buffer.active.baseY;
+
+            // Write the content - xterm will handle scrolling
+            term.write(data);
+
+            // If user was at bottom, stay at bottom
+            if (wasAtBottom) {
+                term.scrollToBottom();
+            }
+        };
+        const cancelScrollbackHydrate = EventsOn('terminal:scrollback-hydrate', handleScrollbackHydrate);
+
+        // ============================================================
+        // IDLE REFRESH HANDLER (PTY streaming mode - Phase 1.5)
+        // ============================================================
+        // After 500ms of no output, the backend captures full tmux scrollback
+        // and sends it here. We reset xterm and rewrite with the full content
+        // to fix scrollback accumulation issues from cursor-positioning sequences.
+        // ============================================================
+        const handleIdleRefresh = (payload) => {
+            if (payload?.sessionId !== sessionId) return;
+            if (!xtermRef.current || !payload.data) return;
+
+            const term = xtermRef.current;
+            const wasAtBottom = term.buffer.active.viewportY >= term.buffer.active.baseY;
+
+            // Reset and rewrite with full scrollback
+            term.reset();
+            term.write(payload.data);
+
+            // Restore scroll position
+            if (wasAtBottom) {
+                term.scrollToBottom();
+            }
+        };
+        const cancelIdleRefresh = EventsOn('terminal:idle-refresh', handleIdleRefresh);
+
         // Listen for data from backend (polling mode - history gaps and viewport diffs)
         // In polling mode, this receives:
         // 1. History gap lines (content that scrolled off viewport)
@@ -748,7 +875,9 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                         if (xtermRef.current && writeBufferRef.current.length > 0) {
                             const data = writeBufferRef.current;
                             writeBufferRef.current = '';
+
                             xtermRef.current.write(data);
+
                             frontendStatsRef.current.rafFlushes++;
                             frontendStatsRef.current.bytesWritten += data.length;
                         }
@@ -943,7 +1072,6 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                         // 3. Polling loop for display updates via SSH
                         await StartRemoteTmuxSession(sessionId, session.remoteHost, session.tmuxSession, session.projectPath || '', session.tool || 'shell', cols, rows);
                         logger.info('Remote polling session started');
-                        console.log('%c[LOAD] Remote SSH polling session started', 'color: cyan; font-weight: bold');
                         LogFrontendDiagnostic('[LOAD] Remote SSH polling session started');
                     } else {
                         // Local session - use local polling
@@ -954,7 +1082,6 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                         // 3. Polling loop for display updates
                         await StartTmuxSession(sessionId, session.tmuxSession, cols, rows);
                         logger.info('Polling session started');
-                        console.log('%c[LOAD] Polling session started', 'color: cyan; font-weight: bold');
                         LogFrontendDiagnostic('[LOAD] Polling session started');
                     }
                 } else {
@@ -986,6 +1113,8 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             cancelHistory();
             cancelInitial();
             cancelResizeEpoch();
+            cancelScrollbackHydrate();
+            cancelIdleRefresh();
             cancelData();
             cancelExit();
             cancelConnLost();
@@ -1014,6 +1143,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 clearTimeout(scrollbackRefreshTimer);
             }
             resizeObserver.disconnect();
+            scrollStateDisposable.dispose();
             scrollDisposable.dispose();
             dataDisposable.dispose();
             selectionDisposable.dispose();
@@ -1028,6 +1158,10 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             if (viewportEl) viewportEl.removeEventListener('scroll', handleDOMScroll);
             if (terminalRef.current) {
                 terminalRef.current.removeEventListener('wheel', handleWheel);
+                // Scroll-on-click fix cleanup (altKey override)
+                scrollFixEvents.forEach(eventType => {
+                    terminalRef.current?.removeEventListener(eventType, forceAltKeyWhenScrolled, { capture: true });
+                });
             }
             if (scrollSettleTimer) clearTimeout(scrollSettleTimer);
             if (wheelResetTimer) clearTimeout(wheelResetTimer);

@@ -119,9 +119,8 @@ func main() {
 		logLevel = logger.DEBUG
 	}
 
-	// In dev mode, start hidden to prevent focus-stealing on hot-reload.
-	// Click dock icon to reveal window.
-	// NOTE: Temporarily disabled for testing - set to false to make window visible
+	// MUST be false - window is never shown if startHidden=true (Wails behavior).
+	// Setting to isDev would hide the window permanently in dev mode.
 	startHidden := false
 
 	// Set app title based on mode and window number

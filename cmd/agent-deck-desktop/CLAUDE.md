@@ -92,14 +92,32 @@ React Frontend (frontend/src/)
 └── SettingsModal.jsx           Theme, font size, soft newline preferences
 ```
 
-### Data Flow: Terminal Polling Mode
+### Data Flow: Two Modes
 
-The app uses polling instead of direct PTY streaming to solve xterm.js scrollback accumulation issues:
+The app supports two terminal modes, controlled by `pty_streaming` in `~/.agent-deck/config.toml`:
+
+#### Polling Mode (Default)
+
+Legacy mode using capture-pane polling:
 
 1. **Connect**: `StartTmuxSession()` → resize tmux → capture full history → emit `terminal:history` → attach PTY (input only) → start polling
 2. **Poll loop** (80ms): Check alt-screen state → fetch history gap (new scrollback) → diff viewport → emit `terminal:data`
 3. **Viewport diff**: `HistoryTracker.DiffViewport()` compares current vs last viewport, generates minimal ANSI update sequence
 4. **History gap**: Lines that scrolled off viewport between polls are emitted verbatim for scrollback
+
+**Known issue**: DiffViewport can generate invalid ANSI during fast output, causing rendering corruption.
+
+#### PTY Streaming Mode (Experimental)
+
+Direct PTY streaming that fixes ANSI corruption. Enable with `pty_streaming = true` under `[desktop.terminal]`.
+
+1. **Connect**: `startTmuxSessionStreaming()` → resize tmux → attach PTY FIRST → buffer output (100ms)
+2. **History capture**: Capture scrollback history AFTER attach (Attach-First strategy avoids race condition)
+3. **Emit**: `terminal:history` (scrollback) → `terminal:data` (buffered viewport) → continue streaming
+4. **Live streaming**: `readLoopStream()` emits PTY output directly to xterm.js
+5. **Filtering**: `stripDeviceAttributes()` removes terminal ID sequences; `stripTTSMarkers()` removes TTS markers
+
+**See**: `docs/pty-streaming-implementation-plan.md` for full architecture
 
 ### Key Files
 

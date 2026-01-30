@@ -1,13 +1,14 @@
 # PTY Streaming Implementation Plan
 
-**Status:** Phase 1 COMPLETE - Config toggle implemented, ready for merge
-**Branch:** `feature/pty-streaming`
-**Worktree:** `../agent-deck-pty-streaming`
-**PR:** https://github.com/myrison/agent-deck/pull/99
+**Status:** Phase 2 COMPLETE - History Hydration implemented
+**Branch:** `feature/pty-streaming-phase2`
+**Worktree:** `../agent-deck-pty-phase2`
+**PR:** https://github.com/myrison/agent-deck/pull/100
 **Created:** 2026-01-29
 **Council Review #1:** 2026-01-29 (GPT-5.2, Gemini 3 Pro, Claude Opus 4.5, Grok 4)
 **Council Review #2:** 2026-01-29 (Final Review - same council)
-**Phase 1 Completed:** 2026-01-29
+**Phase 1 Completed:** 2026-01-29 (PR #99 merged)
+**Phase 2 Completed:** 2026-01-29
 
 ---
 
@@ -591,6 +592,26 @@ func (t *Terminal) StartTmuxSessionWithHistory(tmuxSession string, cols, rows in
     return nil
 }
 ```
+
+#### 2.2 Phase 2 Implementation Notes (Completed 2026-01-29)
+
+**Actual implementation differs from plan above:**
+
+1. **Buffering approach**: Used `PTY.SetReadDeadline()` for timed reads instead of goroutine-based buffering. This is simpler and avoids coordination issues.
+
+2. **`bufferPTYOutput()` helper**: Reads from PTY for a specified duration using timed reads with 20ms intervals, accumulating into a buffer.
+
+3. **Device Attributes Bug Fix**: Added `stripDeviceAttributes()` to filter out terminal identification escape sequences (`[?1;2c`, `[>0;276;0c`) that tmux sends on attach. Without this, garbage text appeared in the input area.
+
+4. **Files modified:**
+   - `terminal.go`: Rewrote `startTmuxSessionStreaming()` with Attach-First strategy
+   - `pty.go`: Added `SetReadDeadline()` method
+   - `terminal_pty_streaming_test.go`: Added tests for `isTimeoutError()` and `stripDeviceAttributes()`
+
+5. **Testing verified:**
+   - 80KB+ of scrollback history correctly loads on connect
+   - Device attribute sequences no longer leak to display
+   - Fast output (`/context`) renders correctly
 
 ### Phase 3: Resize Handling
 

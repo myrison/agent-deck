@@ -691,6 +691,9 @@ func TestInstance_Restart_ResumesClaudeSession(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available")
 	}
+	if _, err := exec.LookPath("claude"); err != nil {
+		t.Skip("claude not available - test requires claude CLI for restart functionality")
+	}
 
 	// Create instance with known session ID (simulating previous session)
 	inst := NewInstanceWithTool("restart-test", "/tmp", "claude")

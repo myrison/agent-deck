@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/asheshgoplani/agent-deck/internal/tmux"
 )
 
 // TestSyncSessionCustomLabel_UpdatesIncorrectLabel verifies that SyncSessionCustomLabel corrects
@@ -314,14 +312,12 @@ func TestFetchRemoteStorageSnapshot_IncludesCustomLabels(t *testing.T) {
 
 	// Simulate the snapshot building logic
 	sessionCustomLabels := make(map[string]string)
-	var allSessions []*InstanceData
 
 	for _, inst := range rawData.Instances {
 		// Skip remote-of-remote sessions
 		if inst.RemoteHost != "" {
 			continue
 		}
-		allSessions = append(allSessions, inst)
 		if inst.TmuxSession != "" && inst.CustomLabel != "" {
 			sessionCustomLabels[inst.TmuxSession] = inst.CustomLabel
 		}
@@ -370,10 +366,7 @@ func TestDiscoveryPullsCustomLabelsFromRemote(t *testing.T) {
 	}
 
 	// Simulate the discovery code that creates a new instance
-	customLabel := ""
-	if snapshot != nil {
-		customLabel = snapshot.SessionCustomLabels[tmuxName]
-	}
+	customLabel := snapshot.SessionCustomLabels[tmuxName]
 
 	if customLabel != "backend-api" {
 		t.Errorf("Custom label not pulled from snapshot: got %q, want %q", customLabel, "backend-api")
@@ -444,30 +437,4 @@ func TestRemoteCustomLabelSync_Integration(t *testing.T) {
 	// 2. Label syncs to remote host's sessions.json
 	// 3. Remote discovery pulls the label back
 	// 4. Label persists across app restarts
-}
-
-// Mock SSH executor for testing (not implemented - would require refactoring to inject dependencies)
-type mockSSHExecutor struct {
-	commands []string
-	outputs  map[string]string
-	errors   map[string]error
-}
-
-func (m *mockSSHExecutor) RunCommand(cmd string) (string, error) {
-	m.commands = append(m.commands, cmd)
-	if err, ok := m.errors[cmd]; ok {
-		return "", err
-	}
-	if output, ok := m.outputs[cmd]; ok {
-		return output, nil
-	}
-	return "", nil
-}
-
-func (m *mockSSHExecutor) ListSessionsWithInfo() (map[string]tmux.SessionInfo, error) {
-	return nil, nil
-}
-
-func (m *mockSSHExecutor) HostID() string {
-	return "mock-host"
 }
