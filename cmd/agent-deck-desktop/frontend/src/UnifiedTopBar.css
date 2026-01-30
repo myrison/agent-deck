@@ -1,7 +1,7 @@
 /* Unified Top Bar - combines Quick Launch and Session Tabs */
 .unified-top-bar {
     display: flex;
-    align-items: center;
+    align-items: stretch; /* Stretch to match tallest child */
     gap: 8px;
     padding: 8px 12px;
     background: var(--bg-tertiary);
@@ -10,11 +10,13 @@
     min-height: 44px;
 }
 
-/* Quick Launch Section (left side) - slightly darker background */
+/* Quick Launch Section (left side) - 2-row grid, vertical-first flow */
 .quick-launch-section {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+    display: grid;
+    grid-template-rows: repeat(2, 1fr);  /* Always 2 rows */
+    grid-auto-flow: column;              /* Fill columns vertically first */
+    grid-auto-columns: min-content;      /* Columns size to content */
+    gap: 4px;
     flex-shrink: 0;
     max-width: 40%;
     overflow-x: auto;
@@ -22,6 +24,13 @@
     padding: 6px 10px;
     border-radius: 6px;
     margin-right: 4px;
+    align-content: center;               /* Center content when not full */
+}
+
+/* Single favorite: center vertically in the 2-row space */
+.quick-launch-section.single-favorite {
+    grid-template-rows: 1fr;             /* Single row when only 1 item */
+    align-items: center;
 }
 
 /* Hide scrollbar for quick launch */
@@ -83,10 +92,11 @@
     margin-left: 4px;
 }
 
-/* Add Button */
+/* Add Button - spans both rows in the grid */
 .quick-launch-add {
+    grid-row: span 2;                    /* Span both rows */
     width: 28px;
-    height: 28px;
+    min-height: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -97,7 +107,11 @@
     cursor: pointer;
     font-size: var(--font-2xl);
     transition: border-color 0.1s, color 0.1s;
-    flex-shrink: 0;
+}
+
+/* Single favorite: add button spans only 1 row */
+.quick-launch-section.single-favorite .quick-launch-add {
+    grid-row: span 1;
 }
 
 .quick-launch-add:hover {
@@ -108,11 +122,11 @@
 /* Divider between Quick Launch and Session Tabs */
 .top-bar-divider {
     width: 2px;
-    height: 28px;
+    align-self: stretch;                 /* Match height of neighbors */
+    margin: 4px 8px;                     /* Slight vertical inset */
     background: var(--accent-primary);
     opacity: 0.6;
     flex-shrink: 0;
-    margin: 0 8px;
     border-radius: 1px;
 }
 
@@ -121,6 +135,7 @@
     flex: 1;
     display: flex;
     align-items: center;
+    align-self: center;                  /* Center vertically when favorites are taller */
     gap: 4px;
     overflow-x: auto;
     min-width: 0; /* Allow shrinking */
@@ -153,6 +168,7 @@
     font-family: inherit;
     transition: background 0.1s, border-color 0.1s;
     flex-shrink: 0;
+    align-self: center;                  /* Center vertically */
     margin-left: auto;
 }
 

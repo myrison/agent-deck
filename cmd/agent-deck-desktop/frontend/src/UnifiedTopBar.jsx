@@ -386,9 +386,9 @@ export default function UnifiedTopBar({
 
     return (
         <div className="unified-top-bar">
-            {/* Quick Launch Section */}
+            {/* Quick Launch Section - 2-row grid with vertical-first stacking */}
             {hasFavorites && (
-                <div className="quick-launch-section">
+                <div className={`quick-launch-section${favorites.length === 1 ? ' single-favorite' : ''}`}>
                     {favorites.map((fav) => (
                         <button
                             key={fav.path}
