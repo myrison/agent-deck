@@ -151,7 +151,7 @@ export default function UnifiedTopBar({
                     <span>Favorite</span>
                 </div>
                 <div className="tooltip-row">
-                    <span style={{ fontWeight: 500 }}>{fav.name}</span>
+                    <span className="tooltip-name">{fav.name}</span>
                 </div>
                 <div className="tooltip-row">
                     <span className="tooltip-path">{fav.path}</span>

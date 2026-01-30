@@ -62,7 +62,7 @@
     left: -5px;
     width: 14px;
     height: 14px;
-    background: #fbbf24;
+    background: var(--accent-favorite);
     border-radius: 50%;
     display: flex;
     align-items: center;

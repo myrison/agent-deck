@@ -100,7 +100,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    color: #fbbf24;
+    color: var(--accent-favorite);
     font-weight: 600;
     font-size: var(--font-md);
     padding-bottom: 4px;
@@ -110,4 +110,8 @@
 
 .tooltip-favorite-star {
     font-size: var(--font-lg);
+}
+
+.tooltip-name {
+    font-weight: 500;
 }
