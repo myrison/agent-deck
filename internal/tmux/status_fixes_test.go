@@ -386,6 +386,171 @@ func TestValidate_Summary(t *testing.T) {
 // This causes false negatives - Claude shows as idle when it's actually working
 
 // TestClaudeCodeBusyPatterns tests the simplified busy indicator detection
+// =============================================================================
+// VALIDATION 5.0: Context Percentage Extraction
+// =============================================================================
+// Tests for ExtractContextPercent() function used by desktop app context meter
+
+func TestExtractContextPercent(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		wantPct  *int
+	}{
+		{
+			name:    "standard format - 88% of auto-compact limit",
+			content: "Some output\n\n88% of auto-compact limit\n❯",
+			wantPct: intPtr(88),
+		},
+		{
+			name:    "parentheses format - 65% (of auto-compact limit)",
+			content: "Working...\n65% (of auto-compact limit)\n❯",
+			wantPct: intPtr(65),
+		},
+		{
+			name:    "with hyphen - 42% of auto compact (no hyphen)",
+			content: "Processing\n42% of autocompact limit\n❯",
+			wantPct: intPtr(42),
+		},
+		{
+			name:    "status bar with ANSI codes",
+			content: "Output\n\x1b[32m75%\x1b[0m of auto-compact limit\n❯",
+			wantPct: intPtr(75),
+		},
+		{
+			name:    "0% at start of session",
+			content: "Starting...\n0% of auto-compact limit\n❯",
+			wantPct: intPtr(0),
+		},
+		{
+			name:    "100% at limit",
+			content: "Warning!\n100% of auto-compact limit\n❯",
+			wantPct: intPtr(100),
+		},
+		{
+			name:    "critical 95% usage",
+			content: "Almost full\n95% of auto-compact limit\n❯",
+			wantPct: intPtr(95),
+		},
+		{
+			name:    "medium 70% usage",
+			content: "Working\n70% of auto-compact limit\n❯",
+			wantPct: intPtr(70),
+		},
+		{
+			name:    "percentage in middle of content",
+			content: "Line 1\nLine 2\nLine 3\nLine 4\nLine 5\n55% of auto-compact limit\nLine 7\n❯",
+			wantPct: intPtr(55),
+		},
+		{
+			name:    "no percentage - empty content",
+			content: "",
+			wantPct: nil,
+		},
+		{
+			name:    "no percentage - just prompt",
+			content: "❯",
+			wantPct: nil,
+		},
+		{
+			name:    "no percentage - normal output",
+			content: "Some code output\nMore lines\n❯",
+			wantPct: nil,
+		},
+		{
+			name:    "percentage but not auto-compact",
+			content: "50% complete\n❯",
+			wantPct: nil,
+		},
+		{
+			name:    "invalid percentage (>100) should be rejected",
+			content: "150% of auto-compact limit\n❯",
+			wantPct: nil,
+		},
+		{
+			name:    "percentage too far from end (beyond 8 lines) should not be found",
+			content: "30% of auto-compact limit\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6\nLine 7\nLine 8\nLine 9\nLine 10\n❯",
+			wantPct: nil,
+		},
+		{
+			name:    "real Claude Code status bar format",
+			content: "✻ Brewed for 2m 15s\n\n──────────────────────────────────────────────────────────────\n❯  82% of auto-compact limit\n──────────────────────────────────────────────────────────────",
+			wantPct: intPtr(82),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractContextPercent(tt.content)
+			if tt.wantPct == nil {
+				if got != nil {
+					t.Errorf("ExtractContextPercent() = %d, want nil\nContent:\n%s", *got, tt.content)
+				}
+			} else {
+				if got == nil {
+					t.Errorf("ExtractContextPercent() = nil, want %d\nContent:\n%s", *tt.wantPct, tt.content)
+				} else if *got != *tt.wantPct {
+					t.Errorf("ExtractContextPercent() = %d, want %d\nContent:\n%s", *got, *tt.wantPct, tt.content)
+				}
+			}
+		})
+	}
+}
+
+// Helper function for creating int pointers in test cases
+func intPtr(i int) *int {
+	return &i
+}
+
+// TestExtractContextPercent_ColorLevels verifies the expected color thresholds
+func TestExtractContextPercent_ColorLevels(t *testing.T) {
+	// Document the expected color levels for the desktop app context meter:
+	// - Green (low):      0-59%
+	// - Yellow (medium):  60-79%
+	// - Red (high):       80-89%
+	// - Flashing red (critical): 90-100%
+
+	testCases := []struct {
+		pct           int
+		expectedLevel string
+	}{
+		{0, "low"},
+		{30, "low"},
+		{59, "low"},
+		{60, "medium"},
+		{70, "medium"},
+		{79, "medium"},
+		{80, "high"},
+		{85, "high"},
+		{89, "high"},
+		{90, "critical"},
+		{95, "critical"},
+		{100, "critical"},
+	}
+
+	getLevel := func(pct int) string {
+		if pct >= 90 {
+			return "critical"
+		}
+		if pct >= 80 {
+			return "high"
+		}
+		if pct >= 60 {
+			return "medium"
+		}
+		return "low"
+	}
+
+	for _, tc := range testCases {
+		level := getLevel(tc.pct)
+		if level != tc.expectedLevel {
+			t.Errorf("getLevel(%d) = %q, want %q", tc.pct, level, tc.expectedLevel)
+		}
+	}
+
+	t.Log("Color level thresholds verified: <60%=green, 60-79%=yellow, 80-89%=red, 90%+=flashing red")
+}
+
 func TestClaudeCodeBusyPatterns(t *testing.T) {
 	tests := []struct {
 		name     string

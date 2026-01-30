@@ -53,6 +53,9 @@ type TerminalConfig struct {
 	// This fixes ANSI rendering corruption during fast output but is experimental.
 	// Default: false (disabled for safe rollout)
 	PtyStreaming bool `toml:"pty_streaming"`
+	// ShowContextMeter shows a thin progress bar below each Claude tab indicating
+	// context window usage (auto-compact percentage). Default: true
+	ShowContextMeter *bool `toml:"show_context_meter"`
 }
 
 // DesktopSettingsManager manages desktop-specific settings in config.toml
@@ -168,6 +171,12 @@ func (dsm *DesktopSettingsManager) loadDesktopSettings() (*DesktopConfig, error)
 		config.Desktop.Terminal.FileBasedActivityDetection = &enabled
 	}
 
+	// Apply default for ShowContextMeter (enabled by default)
+	if config.Desktop.Terminal.ShowContextMeter == nil {
+		enabled := true
+		config.Desktop.Terminal.ShowContextMeter = &enabled
+	}
+
 	return &config.Desktop, nil
 }
 
@@ -201,6 +210,9 @@ func (dsm *DesktopSettingsManager) saveDesktopSettings(desktop *DesktopConfig) e
 	}
 	if desktop.Terminal.FileBasedActivityDetection != nil {
 		terminalConfig["file_based_activity_detection"] = *desktop.Terminal.FileBasedActivityDetection
+	}
+	if desktop.Terminal.ShowContextMeter != nil {
+		terminalConfig["show_context_meter"] = *desktop.Terminal.ShowContextMeter
 	}
 
 	// Update the desktop section
@@ -474,6 +486,31 @@ func (dsm *DesktopSettingsManager) SetFileBasedActivityDetection(enabled bool) e
 	}
 
 	config.Terminal.FileBasedActivityDetection = &enabled
+	return dsm.saveDesktopSettings(config)
+}
+
+// GetShowContextMeter returns whether the context meter is enabled on Claude tabs.
+// The context meter shows auto-compact usage percentage below each Claude session tab.
+// Enabled by default.
+func (dsm *DesktopSettingsManager) GetShowContextMeter() (bool, error) {
+	config, err := dsm.loadDesktopSettings()
+	if err != nil {
+		return true, err // Default to enabled
+	}
+	if config.Terminal.ShowContextMeter == nil {
+		return true, nil // Default to enabled
+	}
+	return *config.Terminal.ShowContextMeter, nil
+}
+
+// SetShowContextMeter enables or disables the context meter on Claude tabs.
+func (dsm *DesktopSettingsManager) SetShowContextMeter(enabled bool) error {
+	config, err := dsm.loadDesktopSettings()
+	if err != nil {
+		config = newDefaultDesktopConfig()
+	}
+
+	config.Terminal.ShowContextMeter = &enabled
 	return dsm.saveDesktopSettings(config)
 }
 

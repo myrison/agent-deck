@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './SettingsModal.css';
 import LaunchConfigEditor from './LaunchConfigEditor';
-import { GetLaunchConfigs, DeleteLaunchConfig, GetSoftNewlineMode, SetSoftNewlineMode, SetFontSize, GetScrollSpeed, SetScrollSpeed, ResetGroupSettings, GetAutoCopyOnSelectEnabled, SetAutoCopyOnSelectEnabled, GetShowActivityRibbon, SetShowActivityRibbon, GetFileBasedActivityDetection, SetFileBasedActivityDetection, GetScanPaths, AddScanPath, RemoveScanPath, GetScanMaxDepth, SetScanMaxDepth, BrowseLocalDirectory } from '../wailsjs/go/main/App';
+import { GetLaunchConfigs, DeleteLaunchConfig, GetSoftNewlineMode, SetSoftNewlineMode, SetFontSize, GetScrollSpeed, SetScrollSpeed, ResetGroupSettings, GetAutoCopyOnSelectEnabled, SetAutoCopyOnSelectEnabled, GetShowActivityRibbon, SetShowActivityRibbon, GetShowContextMeter, SetShowContextMeter, GetFileBasedActivityDetection, SetFileBasedActivityDetection, GetScanPaths, AddScanPath, RemoveScanPath, GetScanMaxDepth, SetScanMaxDepth, BrowseLocalDirectory } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { TOOLS } from './utils/tools';
 import ToolIcon from './ToolIcon';
@@ -23,6 +23,7 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
     const [softNewlineMode, setSoftNewlineMode] = useState('both');
     const [autoCopyOnSelect, setAutoCopyOnSelect] = useState(false);
     const [showActivityRibbon, setShowActivityRibbon] = useState(true);
+    const [showContextMeter, setShowContextMeter] = useState(true);
     const [fileBasedActivityDetection, setFileBasedActivityDetection] = useState(true);
     const [scanPaths, setScanPaths] = useState([]);
     const [scanMaxDepth, setScanMaxDepth] = useState(2);
@@ -70,6 +71,14 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
             logger.info('Loaded activity ribbon setting:', ribbonEnabled);
         } catch (err) {
             logger.error('Failed to load activity ribbon setting:', err);
+        }
+
+        try {
+            const contextMeterEnabled = await GetShowContextMeter();
+            setShowContextMeter(contextMeterEnabled);
+            logger.info('Loaded context meter setting:', contextMeterEnabled);
+        } catch (err) {
+            logger.error('Failed to load context meter setting:', err);
         }
 
         try {
@@ -170,6 +179,17 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
             logger.info('Set activity ribbon:', enabled);
         } catch (err) {
             logger.error('Failed to save activity ribbon setting:', err);
+            alert('Failed to save setting: ' + err.message);
+        }
+    };
+
+    const handleShowContextMeterChange = async (enabled) => {
+        try {
+            await SetShowContextMeter(enabled);
+            setShowContextMeter(enabled);
+            logger.info('Set context meter:', enabled);
+        } catch (err) {
+            logger.error('Failed to save context meter setting:', err);
             alert('Failed to save setting: ' + err.message);
         }
     };
@@ -381,6 +401,20 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
                             </label>
                             <p className="settings-input-description">
                                 Display waiting time indicator below each session tab.
+                            </p>
+                        </div>
+                        <div className="settings-checkbox-item settings-appearance-checkbox">
+                            <label className="settings-checkbox-label">
+                                <input
+                                    type="checkbox"
+                                    checked={showContextMeter}
+                                    onChange={(e) => handleShowContextMeterChange(e.target.checked)}
+                                />
+                                Show context meter on Claude tabs
+                            </label>
+                            <p className="settings-input-description">
+                                Display context usage progress bar below each Claude session tab.
+                                Shows auto-compact percentage (green &lt;60%, yellow 60-80%, red &ge;80%).
                             </p>
                         </div>
                         <div className="settings-checkbox-item settings-appearance-checkbox">
