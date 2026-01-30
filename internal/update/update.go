@@ -1,4 +1,10 @@
 // Package update provides version checking and self-update functionality.
+//
+// NOTE: This fork (RevvySwarm) disables auto-update checking to prevent accidental
+// upgrades that would break custom functionality (desktop app, SSH support, etc.).
+// The update infrastructure is retained for potential future use with manual updates.
+//
+//nolint:unused // Unused functions retained for potential future manual update support
 package update
 
 import (
@@ -198,50 +204,19 @@ func CompareVersions(v1, v2 string) int {
 
 // CheckForUpdate checks if a new version is available
 // Uses cache to avoid hitting GitHub API too frequently
+//
+// NOTE: This fork (RevvySwarm) has extensive custom modifications that are
+// incompatible with upstream releases. Auto-update checking is disabled to
+// prevent users from accidentally upgrading and breaking their install.
+// Valuable upstream changes are manually reviewed and cherry-picked.
 func CheckForUpdate(currentVersion string, forceCheck bool) (*UpdateInfo, error) {
-	info := &UpdateInfo{
+	// FORK: Always return no update available to prevent accidental upgrades
+	// This fork has custom modifications (desktop app, SSH support, etc.) that
+	// would be broken by upgrading to upstream releases.
+	return &UpdateInfo{
 		Available:      false,
 		CurrentVersion: currentVersion,
-	}
-
-	// Try to use cache first (unless force check)
-	if !forceCheck {
-		cache, err := loadCache()
-		if err == nil && time.Since(cache.CheckedAt) < checkInterval {
-			// Cache is fresh, use it
-			info.LatestVersion = cache.LatestVersion
-			info.DownloadURL = cache.DownloadURL
-			info.ReleaseURL = cache.ReleaseURL
-			info.Available = CompareVersions(currentVersion, cache.LatestVersion) < 0
-			return info, nil
-		}
-	}
-
-	// Fetch from GitHub
-	release, err := fetchLatestRelease()
-	if err != nil {
-		return info, err
-	}
-
-	latestVersion := strings.TrimPrefix(release.TagName, "v")
-	downloadURL := getAssetURL(release)
-
-	// Update cache
-	cache := &UpdateCache{
-		CheckedAt:      time.Now(),
-		LatestVersion:  latestVersion,
-		CurrentVersion: currentVersion,
-		DownloadURL:    downloadURL,
-		ReleaseURL:     release.HTMLURL,
-	}
-	_ = saveCache(cache) // Ignore cache save errors
-
-	info.LatestVersion = latestVersion
-	info.DownloadURL = downloadURL
-	info.ReleaseURL = release.HTMLURL
-	info.Available = CompareVersions(currentVersion, latestVersion) < 0
-
-	return info, nil
+	}, nil
 }
 
 // CheckForUpdateAsync checks for updates in the background

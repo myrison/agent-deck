@@ -75,6 +75,9 @@ type UserConfig struct {
 	// Instances defines multiple instance behavior settings
 	Instances InstanceSettings `toml:"instances"`
 
+	// Shell defines shell environment settings for sessions
+	Shell ShellSettings `toml:"shell"`
+
 	// ProjectDiscovery defines settings for project discovery in desktop app
 	ProjectDiscovery ProjectDiscoverySettings `toml:"project_discovery"`
 
@@ -208,7 +211,7 @@ type PreviewSettings struct {
 	ShowOutput *bool `toml:"show_output"`
 
 	// ShowAnalytics shows session analytics panel for Claude sessions
-	// Default: true (pointer to distinguish "not set" from "explicitly false")
+	// Default: false (pointer to distinguish "not set" from "explicitly false")
 	ShowAnalytics *bool `toml:"show_analytics"`
 
 	// Analytics configures which sections to show in the analytics panel
@@ -266,10 +269,10 @@ type InstanceSettings struct {
 	AllowMultiple bool `toml:"allow_multiple"`
 }
 
-// GetShowAnalytics returns whether to show analytics, defaulting to true
+// GetShowAnalytics returns whether to show analytics, defaulting to false
 func (p *PreviewSettings) GetShowAnalytics() bool {
 	if p.ShowAnalytics == nil {
-		return true // Default: analytics ON
+		return false // Default: analytics OFF (opt-in)
 	}
 	return *p.ShowAnalytics
 }
@@ -332,9 +335,34 @@ func (c *UserConfig) GetShowOutput() bool {
 	return c.Preview.GetShowOutput()
 }
 
-// GetShowAnalytics returns whether to show analytics panel, defaulting to true
+// GetShowAnalytics returns whether to show analytics panel, defaulting to false
 func (c *UserConfig) GetShowAnalytics() bool {
 	return c.Preview.GetShowAnalytics()
+}
+
+// ShellSettings defines shell environment configuration for sessions
+type ShellSettings struct {
+	// EnvFiles is a list of .env files to source before running commands
+	// Supports ~ expansion and relative paths (resolved from project directory)
+	// Example: [".env", "~/.secrets"]
+	EnvFiles []string `toml:"env_files"`
+
+	// InitScript is a shell script or command to run before commands
+	// For direnv: 'eval "$(direnv hook bash)"'
+	// For file: "~/.agent-deck/init.sh"
+	InitScript string `toml:"init_script"`
+
+	// IgnoreMissingEnvFiles silently ignores missing .env files (default: true)
+	// When false, missing files cause command failure
+	IgnoreMissingEnvFiles *bool `toml:"ignore_missing_env_files"`
+}
+
+// GetIgnoreMissingEnvFiles returns the ignore_missing_env_files setting with default of true
+func (s ShellSettings) GetIgnoreMissingEnvFiles() bool {
+	if s.IgnoreMissingEnvFiles == nil {
+		return true // Default to ignoring missing files
+	}
+	return *s.IgnoreMissingEnvFiles
 }
 
 // ClaudeSettings defines Claude Code configuration
@@ -351,6 +379,10 @@ type ClaudeSettings struct {
 	// DangerousMode enables --dangerously-skip-permissions flag for Claude sessions
 	// Default: false
 	DangerousMode bool `toml:"dangerous_mode"`
+
+	// EnvFile is a tool-specific .env file to source before running Claude
+	// Resolved relative to project directory if not absolute
+	EnvFile string `toml:"env_file"`
 }
 
 // GeminiSettings defines Gemini CLI configuration
@@ -358,6 +390,10 @@ type GeminiSettings struct {
 	// YoloMode enables --yolo flag for Gemini sessions (auto-approve all actions)
 	// Default: false
 	YoloMode bool `toml:"yolo_mode"`
+
+	// EnvFile is a tool-specific .env file to source before running Gemini
+	// Resolved relative to project directory if not absolute
+	EnvFile string `toml:"env_file"`
 }
 
 // WorktreeSettings contains git worktree preferences
@@ -427,6 +463,10 @@ type ToolDef struct {
 
 	// SessionIDJsonPath is the jq path to extract session ID from JSON output
 	SessionIDJsonPath string `toml:"session_id_json_path"`
+
+	// EnvFile is a tool-specific .env file to source before running the tool
+	// Resolved relative to project directory if not absolute
+	EnvFile string `toml:"env_file"`
 }
 
 // MCPDef defines an MCP server configuration for the MCP Manager

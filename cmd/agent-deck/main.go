@@ -48,63 +48,20 @@ func initUpdateSettings() {
 
 // printUpdateNotice checks for updates and prints a one-liner if available
 // Uses cache to avoid API calls - only prints if update was already detected
+//
+// NOTE: Disabled in this fork (RevvySwarm) which has extensive custom modifications
+// (desktop app, SSH support, etc.) that would be broken by upstream upgrades.
 func printUpdateNotice() {
-	settings := session.GetUpdateSettings()
-	if !settings.CheckEnabled || !settings.NotifyInCLI {
-		return
-	}
-
-	info, err := update.CheckForUpdate(Version, false)
-	if err != nil || info == nil || !info.Available {
-		return
-	}
-
-	// Print update notice to stderr so it doesn't interfere with JSON output
-	fmt.Fprintf(os.Stderr, "\n💡 Update available: v%s → v%s (run: agent-deck update)\n",
-		info.CurrentVersion, info.LatestVersion)
+	// FORK: Update notifications disabled - see CheckForUpdate() in internal/update/update.go
 }
 
 // promptForUpdate checks for updates and prompts user if auto_update is enabled
+//
+// NOTE: Disabled in this fork (RevvySwarm) which has extensive custom modifications
+// (desktop app, SSH support, etc.) that would be broken by upstream upgrades.
 func promptForUpdate() bool {
-	settings := session.GetUpdateSettings()
-	if !settings.CheckEnabled {
-		return false
-	}
-
-	info, err := update.CheckForUpdate(Version, false)
-	if err != nil || info == nil || !info.Available {
-		return false
-	}
-
-	// If auto_update is disabled, just show notification (don't prompt)
-	if !settings.AutoUpdate {
-		fmt.Fprintf(os.Stderr, "\n💡 Update available: v%s → v%s (run: agent-deck update)\n",
-			info.CurrentVersion, info.LatestVersion)
-		return false
-	}
-
-	// auto_update is enabled - prompt user
-	fmt.Printf("\n⬆ Update available: v%s → v%s\n", info.CurrentVersion, info.LatestVersion)
-	fmt.Print("Update now? [Y/n]: ")
-
-	var response string
-	_, _ = fmt.Scanln(&response)
-	response = strings.TrimSpace(strings.ToLower(response))
-
-	// Default to yes (empty or "y" or "yes")
-	if response != "" && response != "y" && response != "yes" {
-		fmt.Println("Skipped. Run 'agent-deck update' later.")
-		return false
-	}
-
-	fmt.Println()
-	if err := update.PerformUpdate(info.DownloadURL); err != nil {
-		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
-		return false
-	}
-
-	fmt.Println("Restart agent-deck to use the new version.")
-	return true
+	// FORK: Update prompts disabled - see CheckForUpdate() in internal/update/update.go
+	return false
 }
 
 // initColorProfile configures lipgloss color profile based on terminal capabilities.

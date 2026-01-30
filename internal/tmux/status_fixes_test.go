@@ -386,6 +386,171 @@ func TestValidate_Summary(t *testing.T) {
 // This causes false negatives - Claude shows as idle when it's actually working
 
 // TestClaudeCodeBusyPatterns tests the simplified busy indicator detection
+// =============================================================================
+// VALIDATION 5.0: Context Percentage Extraction
+// =============================================================================
+// Tests for ExtractContextPercent() function used by desktop app context meter
+
+func TestExtractContextPercent(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		wantPct  *int
+	}{
+		{
+			name:    "standard format - 88% of auto-compact limit",
+			content: "Some output\n\n88% of auto-compact limit\n❯",
+			wantPct: intPtr(88),
+		},
+		{
+			name:    "parentheses format - 65% (of auto-compact limit)",
+			content: "Working...\n65% (of auto-compact limit)\n❯",
+			wantPct: intPtr(65),
+		},
+		{
+			name:    "with hyphen - 42% of auto compact (no hyphen)",
+			content: "Processing\n42% of autocompact limit\n❯",
+			wantPct: intPtr(42),
+		},
+		{
+			name:    "status bar with ANSI codes",
+			content: "Output\n\x1b[32m75%\x1b[0m of auto-compact limit\n❯",
+			wantPct: intPtr(75),
+		},
+		{
+			name:    "0% at start of session",
+			content: "Starting...\n0% of auto-compact limit\n❯",
+			wantPct: intPtr(0),
+		},
+		{
+			name:    "100% at limit",
+			content: "Warning!\n100% of auto-compact limit\n❯",
+			wantPct: intPtr(100),
+		},
+		{
+			name:    "critical 95% usage",
+			content: "Almost full\n95% of auto-compact limit\n❯",
+			wantPct: intPtr(95),
+		},
+		{
+			name:    "medium 70% usage",
+			content: "Working\n70% of auto-compact limit\n❯",
+			wantPct: intPtr(70),
+		},
+		{
+			name:    "percentage in middle of content",
+			content: "Line 1\nLine 2\nLine 3\nLine 4\nLine 5\n55% of auto-compact limit\nLine 7\n❯",
+			wantPct: intPtr(55),
+		},
+		{
+			name:    "no percentage - empty content",
+			content: "",
+			wantPct: nil,
+		},
+		{
+			name:    "no percentage - just prompt",
+			content: "❯",
+			wantPct: nil,
+		},
+		{
+			name:    "no percentage - normal output",
+			content: "Some code output\nMore lines\n❯",
+			wantPct: nil,
+		},
+		{
+			name:    "percentage but not auto-compact",
+			content: "50% complete\n❯",
+			wantPct: nil,
+		},
+		{
+			name:    "invalid percentage (>100) should be rejected",
+			content: "150% of auto-compact limit\n❯",
+			wantPct: nil,
+		},
+		{
+			name:    "percentage too far from end (beyond 8 lines) should not be found",
+			content: "30% of auto-compact limit\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6\nLine 7\nLine 8\nLine 9\nLine 10\n❯",
+			wantPct: nil,
+		},
+		{
+			name:    "real Claude Code status bar format",
+			content: "✻ Brewed for 2m 15s\n\n──────────────────────────────────────────────────────────────\n❯  82% of auto-compact limit\n──────────────────────────────────────────────────────────────",
+			wantPct: intPtr(82),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractContextPercent(tt.content)
+			if tt.wantPct == nil {
+				if got != nil {
+					t.Errorf("ExtractContextPercent() = %d, want nil\nContent:\n%s", *got, tt.content)
+				}
+			} else {
+				if got == nil {
+					t.Errorf("ExtractContextPercent() = nil, want %d\nContent:\n%s", *tt.wantPct, tt.content)
+				} else if *got != *tt.wantPct {
+					t.Errorf("ExtractContextPercent() = %d, want %d\nContent:\n%s", *got, *tt.wantPct, tt.content)
+				}
+			}
+		})
+	}
+}
+
+// Helper function for creating int pointers in test cases
+func intPtr(i int) *int {
+	return &i
+}
+
+// TestExtractContextPercent_ColorLevels verifies the expected color thresholds
+func TestExtractContextPercent_ColorLevels(t *testing.T) {
+	// Document the expected color levels for the desktop app context meter:
+	// - Green (low):      0-59%
+	// - Yellow (medium):  60-79%
+	// - Red (high):       80-89%
+	// - Flashing red (critical): 90-100%
+
+	testCases := []struct {
+		pct           int
+		expectedLevel string
+	}{
+		{0, "low"},
+		{30, "low"},
+		{59, "low"},
+		{60, "medium"},
+		{70, "medium"},
+		{79, "medium"},
+		{80, "high"},
+		{85, "high"},
+		{89, "high"},
+		{90, "critical"},
+		{95, "critical"},
+		{100, "critical"},
+	}
+
+	getLevel := func(pct int) string {
+		if pct >= 90 {
+			return "critical"
+		}
+		if pct >= 80 {
+			return "high"
+		}
+		if pct >= 60 {
+			return "medium"
+		}
+		return "low"
+	}
+
+	for _, tc := range testCases {
+		level := getLevel(tc.pct)
+		if level != tc.expectedLevel {
+			t.Errorf("getLevel(%d) = %q, want %q", tc.pct, level, tc.expectedLevel)
+		}
+	}
+
+	t.Log("Color level thresholds verified: <60%=green, 60-79%=yellow, 80-89%=red, 90%+=flashing red")
+}
+
 func TestClaudeCodeBusyPatterns(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -465,5 +630,283 @@ func TestClaudeCodeBusyPatterns(t *testing.T) {
 				t.Errorf("hasBusyIndicator() = %v, want %v\nContent:\n%s", got, tt.wantBusy, tt.content)
 			}
 		})
+	}
+}
+
+// =============================================================================
+// VALIDATION 5.0: thinkingPattern Requires Spinner Prefix
+// =============================================================================
+// Fix: thinkingPattern now requires a braille spinner character prefix
+// to avoid matching normal English words like "processing" or "computing"
+
+func TestThinkingPatternRequiresSpinner(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{
+			name:    "spinner prefix matches",
+			content: "⠋ Thinking... (25s · 340 tokens)",
+			want:    true,
+		},
+		{
+			name:    "different spinner matches",
+			content: "⠸ Clauding... (10s · 100 tokens)",
+			want:    true,
+		},
+		{
+			name:    "spinner with extra space",
+			content: "⠹  Computing... (5s · 50 tokens)",
+			want:    true,
+		},
+		{
+			name:    "no spinner prefix - should NOT match",
+			content: "Processing... (25s · 340 tokens)",
+			want:    false,
+		},
+		{
+			name:    "bare word in normal text - should NOT match",
+			content: "We are computing the result (total: 42)",
+			want:    false,
+		},
+		{
+			name:    "whimsical word without spinner - should NOT match",
+			content: "Flibbertigibbeting... (25s · 340 tokens)",
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := thinkingPattern.MatchString(tt.content)
+			if got != tt.want {
+				t.Errorf("thinkingPattern.MatchString(%q) = %v, want %v", tt.content, got, tt.want)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// VALIDATION 5.1: Spinner Check Skips Box-Drawing Lines
+// =============================================================================
+// Fix: Lines starting with box-drawing characters (│├└ etc.) are skipped
+// in the spinner char check to prevent false GREEN from UI borders
+
+func TestSpinnerCheckSkipsBoxDrawingLines(t *testing.T) {
+	sess := NewSession("box-drawing-test", "/tmp")
+	sess.Command = "claude"
+
+	tests := []struct {
+		name     string
+		content  string
+		wantBusy bool
+	}{
+		{
+			name: "spinner on normal line",
+			content: `Some output
+⠋ Processing request...`,
+			wantBusy: true,
+		},
+		{
+			name: "spinner-like char in box-drawing line",
+			content: `│ Some box content ⠋
+├ More content
+└ End`,
+			wantBusy: false, // Box-drawing lines should be skipped
+		},
+		{
+			name: "box-drawing only with no real spinner",
+			content: `╭─────────────────────────────╮
+│ ⠋ This is a box border      │
+╰─────────────────────────────╯`,
+			wantBusy: false,
+		},
+		{
+			name: "real spinner after box-drawing lines",
+			content: `│ Some box content
+⠙ Loading modules`,
+			wantBusy: true, // The real spinner is on a non-box line
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sess.hasBusyIndicator(tt.content)
+			if got != tt.wantBusy {
+				t.Errorf("hasBusyIndicator() = %v, want %v\nContent:\n%s", got, tt.wantBusy, tt.content)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// VALIDATION 6.0: Claude Code 2.1.25+ Active Spinner Detection
+// =============================================================================
+// Claude Code 2.1.25 removed "ctrl+c to interrupt" from the status line.
+// Active state: spinner symbol + word + unicode ellipsis (…)
+// Done state: "✻ Worked for 54s" (no ellipsis)
+
+func TestClaudeCode2125_ActiveDetection(t *testing.T) {
+	sess := NewSession("claude-2125-test", "/tmp")
+	sess.Command = "claude"
+
+	tests := []struct {
+		name     string
+		content  string
+		wantBusy bool
+	}{
+		// Active states (should be GREEN)
+		{
+			name:     "active - ✳ spinner with ellipsis",
+			content:  "✳ Gusting… (35s · ↑ 673 tokens)",
+			wantBusy: true,
+		},
+		{
+			name:     "active - ✽ spinner with ellipsis and thinking",
+			content:  "✽ Metamorphosing… (33s · ↑ 144 tokens · thinking)",
+			wantBusy: true,
+		},
+		{
+			name:     "active - · spinner with ellipsis",
+			content:  "· Sublimating… (39s · ↓ 1.8k tokens)",
+			wantBusy: true,
+		},
+		{
+			name:     "active - ✶ spinner with ellipsis",
+			content:  "✶ Billowing… (41s · ↓ 720 tokens)",
+			wantBusy: true,
+		},
+		{
+			name:     "active - ✻ spinner with ellipsis",
+			content:  "✻ Gusting… (43s · ↓ 914 tokens)",
+			wantBusy: true,
+		},
+		{
+			name:     "active - ✢ spinner with ellipsis",
+			content:  "✢ Channelling… (ctrl+c to interrupt · ctrl+t to hide todos · 2m 54s · ↓ 2.5k tokens · thinking)",
+			wantBusy: true,
+		},
+		{
+			name: "active - with surrounding content",
+			content: `Some previous output here
+
+✳ Cooking… (12s · ↑ 200 tokens)
+──────────────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────────────`,
+			wantBusy: true,
+		},
+		{
+			name:     "active - unknown future word with ellipsis",
+			content:  "✳ Discombobulating… (5s · ↑ 50 tokens)",
+			wantBusy: true,
+		},
+		// Done states (should NOT be GREEN)
+		{
+			name:     "done - Worked for N seconds",
+			content:  "✻ Worked for 54s",
+			wantBusy: false,
+		},
+		{
+			name:     "done - Churned for N seconds",
+			content:  "✻ Churned for 47s",
+			wantBusy: false,
+		},
+		{
+			name: "done - Sautéed with prompt",
+			content: `✻ Sautéed for 32s
+
+──────────────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────────────`,
+			wantBusy: false,
+		},
+		// Backward compat: old-style ctrl+c still works
+		{
+			name:     "backward compat - ctrl+c to interrupt",
+			content:  "⠙ Thinking... (25s · 340 tokens · ctrl+c to interrupt)",
+			wantBusy: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sess.hasBusyIndicator(tt.content)
+			if got != tt.wantBusy {
+				t.Errorf("hasBusyIndicator() = %v, want %v\nContent:\n%s", got, tt.wantBusy, tt.content)
+			}
+		})
+	}
+}
+
+func TestClaudeCode2125_NormalizeContent(t *testing.T) {
+	sess := NewSession("claude-2125-normalize", "/tmp")
+
+	// Different spinner states of the same content should normalize to the same hash
+	contents := []string{
+		"· Sublimating… (39s · ↓ 1.8k tokens)",
+		"✳ Sublimating… (39s · ↓ 1.8k tokens)",
+		"✽ Sublimating… (39s · ↓ 1.8k tokens)",
+		"✶ Sublimating… (39s · ↓ 1.8k tokens)",
+		"✻ Sublimating… (39s · ↓ 1.8k tokens)",
+	}
+
+	hashes := make([]string, len(contents))
+	for i, c := range contents {
+		hashes[i] = sess.hashContent(sess.normalizeContent(c))
+	}
+
+	// All should produce the same hash (spinner chars stripped, dynamic status normalized)
+	for i := 1; i < len(hashes); i++ {
+		if hashes[i] != hashes[0] {
+			t.Errorf("Hash mismatch: content[0] hash=%s, content[%d] hash=%s\n  content[0]: %q\n  content[%d]: %q",
+				hashes[0], i, hashes[i], contents[0], i, contents[i])
+		}
+	}
+}
+
+func TestClaudeCode2125_SpinnerActiveRegex(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"✳ gusting…", true},
+		{"· sublimating…", true},
+		{"✻ cooking…", true},
+		{"✢ channelling…", true},
+		{"✻ worked for 54s", false},  // done state, no ellipsis
+		{"✻ churned for 47s", false}, // done state, no ellipsis
+		{"some random text…", false}, // no spinner symbol
+		{"✻ ", false},                // no word
+	}
+
+	for _, tt := range tests {
+		got := claudeSpinnerActivePattern.MatchString(tt.input)
+		if got != tt.want {
+			t.Errorf("claudeSpinnerActivePattern.MatchString(%q) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestClaudeCode2125_DynamicStatusPattern(t *testing.T) {
+	// Verify the updated dynamicStatusPattern matches new token format with arrows
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"(45s · 1234 tokens · ctrl+c to interrupt)", true}, // old format
+		{"(35s · ↑ 673 tokens)", true},                      // new format with up arrow
+		{"(39s · ↓ 1.8k tokens)", true},                     // new format with down arrow
+		{"(33s · ↑ 144 tokens · thinking)", true},            // new with thinking
+		{"(41s · ↓ 720 tokens)", true},                       // simple new format
+		{"(some text)", false},                               // not a status
+	}
+
+	for _, tt := range tests {
+		got := dynamicStatusPattern.MatchString(tt.input)
+		if got != tt.want {
+			t.Errorf("dynamicStatusPattern.MatchString(%q) = %v, want %v", tt.input, got, tt.want)
+		}
 	}
 }

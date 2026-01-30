@@ -745,6 +745,8 @@ func (h *Home) syncViewport() {
 
 	// Filter bar is always shown for consistent layout (matches View())
 	filterBarHeight := 1
+	// FORK NOTE: Update banner code intentionally retained for potential future re-enablement.
+	// Currently disabled via CheckForUpdate() always returning Available: false.
 	updateBannerHeight := 0
 	if h.updateInfo != nil && h.updateInfo.Available {
 		updateBannerHeight = 1
@@ -964,6 +966,8 @@ func (h *Home) getVisibleHeight() int {
 	helpBarHeight := 2
 	panelTitleLines := 2
 	filterBarHeight := 1
+	// FORK NOTE: Update banner code intentionally retained for potential future re-enablement.
+	// Currently disabled via CheckForUpdate() always returning Available: false.
 	updateBannerHeight := 0
 	if h.updateInfo != nil && h.updateInfo.Available {
 		updateBannerHeight = 1
@@ -1040,6 +1044,13 @@ func (h *Home) Init() tea.Cmd {
 }
 
 // checkForUpdate checks for updates asynchronously
+//
+// FORK NOTE: This fork (RevvySwarm) has extensive custom modifications that are
+// incompatible with upstream releases. The underlying CheckForUpdate() always
+// returns Available: false to prevent accidental upgrades.
+//
+// This code and the update banner UI are intentionally retained for potential
+// future re-enablement. To re-enable: modify CheckForUpdate() in internal/update/update.go
 func (h *Home) checkForUpdate() tea.Cmd {
 	return func() tea.Msg {
 		info, _ := update.CheckForUpdate(Version, false)
@@ -4667,6 +4678,9 @@ func (h *Home) View() string {
 
 	// ═══════════════════════════════════════════════════════════════════
 	// UPDATE BANNER (if update available)
+	// FORK NOTE: This code is intentionally retained for potential future re-enablement.
+	// Currently disabled via CheckForUpdate() always returning Available: false.
+	// To re-enable: modify CheckForUpdate() in internal/update/update.go
 	// ═══════════════════════════════════════════════════════════════════
 	updateBannerHeight := 0
 	if h.updateInfo != nil && h.updateInfo.Available {

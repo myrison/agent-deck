@@ -57,6 +57,61 @@ gh pr create --title "..." --body "..."
 2. Verify base branch is `main`
 3. If you accidentally create an upstream PR, close it immediately with an apology
 
+## Development Workflow - Git Worktrees
+
+**⚠️ CRITICAL - ALWAYS USE WORKTREES FOR DEVELOPMENT ⚠️**
+
+**ALL development work MUST be done in a git worktree, NEVER in the main clone.**
+
+### Worktree Workflow (MANDATORY)
+
+When starting ANY development task:
+
+1. **Check if you're in the main clone:**
+   ```bash
+   git rev-parse --show-toplevel  # If this is the main repo, create a worktree
+   ```
+
+2. **Look for an existing worktree matching the task:**
+   ```bash
+   git worktree list
+   # Or use the skill: /worktree-list
+   ```
+
+3. **If no matching worktree exists, create one:**
+   ```bash
+   # Use the skill (PREFERRED):
+   /dev-test-worktree <branch-name>
+
+   # Or manually:
+   git worktree add ../agent-deck-<feature-name> -b <branch-name>
+   cd ../agent-deck-<feature-name>
+   ```
+
+4. **Work in the worktree, not the main clone**
+
+### Why Worktrees?
+
+- **Isolation**: Keep main clone clean and stable
+- **Parallel work**: Test multiple branches simultaneously
+- **Safety**: Protect main branch from accidental changes
+- **Clean state**: Each worktree has its own working directory and index
+
+### Example
+
+```bash
+# ✅ CORRECT - Create worktree first
+/dev-test-worktree feat-new-feature
+# ... work is now isolated in worktree ...
+
+# ❌ WRONG - Working directly in main clone
+cd ~/agent-deck
+git checkout -b feat-new-feature
+# ... this pollutes the main clone ...
+```
+
+**If you receive a development request and detect you're in the main clone, your FIRST action must be to set up a worktree.**
+
 ## Architecture Overview
 
 Agent Deck is a terminal session manager for AI coding agents (Claude Code, Gemini CLI, OpenCode), built with Go and Bubble Tea TUI framework. It runs sessions inside tmux for persistence.

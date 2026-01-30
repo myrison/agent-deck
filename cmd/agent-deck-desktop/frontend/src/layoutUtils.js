@@ -792,8 +792,8 @@ export function updateSessionsInLayout(layout, updateMap) {
     if (layout.type === 'pane') {
         if (layout.session?.id && updateMap.has(layout.session.id)) {
             const update = updateMap.get(layout.session.id);
-            // Check if anything actually changed
-            if (layout.session.status !== update.status || layout.session.waitingSince !== update.waitingSince) {
+            // Check if anything actually changed (status, waitingSince, or contextPct)
+            if (layout.session.status !== update.status || layout.session.waitingSince !== update.waitingSince || layout.session.contextPct !== update.contextPct) {
                 return {
                     layout: {
                         ...layout,
@@ -801,6 +801,7 @@ export function updateSessionsInLayout(layout, updateMap) {
                             ...layout.session,
                             status: update.status,
                             waitingSince: update.waitingSince,
+                            contextPct: update.contextPct,
                         },
                     },
                     changed: true,

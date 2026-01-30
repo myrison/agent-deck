@@ -174,6 +174,10 @@ export function GetShowActivityRibbon() {
   return window['go']['main']['App']['GetShowActivityRibbon']();
 }
 
+export function GetShowContextMeter() {
+  return window['go']['main']['App']['GetShowContextMeter']();
+}
+
 export function GetSoftNewlineMode() {
   return window['go']['main']['App']['GetSoftNewlineMode']();
 }
@@ -340,6 +344,10 @@ export function SetSetupDismissed(arg1) {
 
 export function SetShowActivityRibbon(arg1) {
   return window['go']['main']['App']['SetShowActivityRibbon'](arg1);
+}
+
+export function SetShowContextMeter(arg1) {
+  return window['go']['main']['App']['SetShowContextMeter'](arg1);
 }
 
 export function SetSoftNewlineMode(arg1) {

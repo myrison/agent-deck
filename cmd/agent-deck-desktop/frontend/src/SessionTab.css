@@ -269,3 +269,72 @@
     border-radius: 1px;
     z-index: 1;
 }
+
+/* =============================================================================
+   Context Meter - Shows Claude's auto-compact context usage percentage
+   ============================================================================= */
+
+/* Container: thin bar at bottom of tab */
+.context-meter {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--bg-tertiary);  /* Gray track background */
+    border-radius: 0 0 4px 4px;  /* Match tab border-radius */
+    overflow: hidden;
+}
+
+/* Fill bar: shows proportional context usage */
+.context-meter-fill {
+    height: 100%;
+    width: var(--pct, 0%);
+    transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+/* Color levels based on context usage percentage */
+.context-meter-fill[data-level="none"] {
+    background: var(--text-muted);
+    width: 0;
+}
+
+.context-meter-fill[data-level="low"] {
+    background: var(--accent-success);  /* Green: <60% */
+}
+
+.context-meter-fill[data-level="medium"] {
+    background: var(--accent-warning);  /* Yellow: 60-80% */
+}
+
+.context-meter-fill[data-level="high"] {
+    background: var(--accent-error);  /* Red: 80-90% */
+}
+
+.context-meter-fill[data-level="critical"] {
+    background: var(--accent-error);  /* Red with flash: ≥90% */
+    animation: context-flash 0.5s ease-in-out infinite;
+}
+
+@keyframes context-flash {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* Tooltip styling for context info */
+.tooltip-context {
+    font-size: var(--font-md);
+}
+
+.tooltip-context-low {
+    color: var(--accent-success);
+}
+
+.tooltip-context-medium {
+    color: var(--accent-warning);
+}
+
+.tooltip-context-high,
+.tooltip-context-critical {
+    color: var(--accent-error);
+}

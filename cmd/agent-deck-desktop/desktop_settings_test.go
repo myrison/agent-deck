@@ -801,3 +801,116 @@ func TestPtyStreamingPreservesOtherSettings(t *testing.T) {
 		t.Errorf("Expected scrollback 25000 preserved, got %d", scrollback)
 	}
 }
+
+// =============================================================================
+// Context Meter Settings Tests
+// =============================================================================
+
+// TestShowContextMeterDefaultEnabled verifies that the context meter defaults to
+// enabled when no config exists, showing auto-compact usage on Claude tabs.
+func TestShowContextMeterDefaultEnabled(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	dsm := &DesktopSettingsManager{configPath: configPath}
+
+	// Default should be true (enabled)
+	enabled, err := dsm.GetShowContextMeter()
+	if err != nil {
+		t.Fatalf("GetShowContextMeter failed: %v", err)
+	}
+	if !enabled {
+		t.Error("Expected default ShowContextMeter to be true (enabled)")
+	}
+}
+
+// TestShowContextMeterRoundTrip verifies that the setting can be toggled on and
+// off and persists correctly.
+func TestShowContextMeterRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	dsm := &DesktopSettingsManager{configPath: configPath}
+
+	// Disable the feature
+	err := dsm.SetShowContextMeter(false)
+	if err != nil {
+		t.Fatalf("SetShowContextMeter(false) failed: %v", err)
+	}
+
+	enabled, err := dsm.GetShowContextMeter()
+	if err != nil {
+		t.Fatalf("GetShowContextMeter failed: %v", err)
+	}
+	if enabled {
+		t.Error("Expected ShowContextMeter to be false after disabling")
+	}
+
+	// Re-enable the feature
+	err = dsm.SetShowContextMeter(true)
+	if err != nil {
+		t.Fatalf("SetShowContextMeter(true) failed: %v", err)
+	}
+
+	enabled, _ = dsm.GetShowContextMeter()
+	if !enabled {
+		t.Error("Expected ShowContextMeter to be true after re-enabling")
+	}
+}
+
+// TestShowContextMeterPersistence verifies that the setting persists across
+// manager instances (simulating app restart).
+func TestShowContextMeterPersistence(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	// First manager: disable the feature
+	dsm1 := &DesktopSettingsManager{configPath: configPath}
+	err := dsm1.SetShowContextMeter(false)
+	if err != nil {
+		t.Fatalf("SetShowContextMeter failed: %v", err)
+	}
+
+	// Second manager (simulating app restart): verify setting persisted
+	dsm2 := &DesktopSettingsManager{configPath: configPath}
+	enabled, err := dsm2.GetShowContextMeter()
+	if err != nil {
+		t.Fatalf("GetShowContextMeter failed: %v", err)
+	}
+	if enabled {
+		t.Error("Expected ShowContextMeter to remain false after 'restart'")
+	}
+}
+
+// TestShowContextMeterPreservesOtherSettings verifies that toggling this setting
+// doesn't affect other settings like theme, font size, or activity ribbon.
+func TestShowContextMeterPreservesOtherSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	dsm := &DesktopSettingsManager{configPath: configPath}
+
+	// Set theme, font size, and activity ribbon first
+	dsm.SetTheme("light")
+	dsm.SetFontSize(18)
+	dsm.SetShowActivityRibbon(false)
+
+	// Toggle context meter
+	dsm.SetShowContextMeter(false)
+
+	// Verify other settings preserved
+	theme, _ := dsm.GetTheme()
+	if theme != "light" {
+		t.Errorf("Expected theme 'light' preserved, got '%s'", theme)
+	}
+
+	fontSize, _ := dsm.GetFontSize()
+	if fontSize != 18 {
+		t.Errorf("Expected fontSize 18 preserved, got %d", fontSize)
+	}
+
+	ribbon, _ := dsm.GetShowActivityRibbon()
+	if ribbon {
+		t.Error("Expected ShowActivityRibbon false preserved, got true")
+	}
+}

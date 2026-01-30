@@ -4,7 +4,7 @@ import ToolIcon, { BranchIcon } from './ToolIcon';
 import ActivityRibbon from './ActivityRibbon';
 import { useTooltip } from './Tooltip';
 import { createLogger } from './logger';
-import { getPaneList, findPane, countPanes } from './layoutUtils';
+import { getPaneList, findPane } from './layoutUtils';
 
 const logger = createLogger('SessionTab');
 
@@ -42,7 +42,17 @@ function getRelativePath(fullPath) {
     return fullPath;
 }
 
-export default function SessionTab({ tab, index, isActive, onSwitch, onClose, onContextMenu, isDragging, dragOverSide, onDragStart, onDragEnd, onDragOver, onDrop, showActivityRibbon }) {
+// Get context usage level for styling (Claude sessions only)
+// Returns: 'none' (no data), 'low' (<60%), 'medium' (60-80%), 'high' (80-90%), 'critical' (≥90%)
+function getContextLevel(pct) {
+    if (pct === null || pct === undefined) return 'none';
+    if (pct >= 90) return 'critical';  // Flashing red
+    if (pct >= 80) return 'high';      // Red
+    if (pct >= 60) return 'medium';    // Yellow
+    return 'low';                       // Green
+}
+
+export default function SessionTab({ tab, index, isActive, onSwitch, onClose, onContextMenu, isDragging, dragOverSide, onDragStart, onDragEnd, onDragOver, onDrop, showActivityRibbon, showContextMeter }) {
     const { show: showTooltip, hide: hideTooltip, Tooltip } = useTooltip();
     const tabButtonRef = useRef(null);
 
@@ -145,6 +155,14 @@ export default function SessionTab({ tab, index, isActive, onSwitch, onClose, on
                     >●</span>
                     <span>{session.status || 'unknown'}</span>
                 </div>
+
+                {/* Context usage (Claude only) */}
+                {session.tool === 'claude' && session.contextPct !== null && session.contextPct !== undefined && (
+                    <div className={`tooltip-row tooltip-context tooltip-context-${getContextLevel(session.contextPct)}`}>
+                        <span className="tooltip-icon">📊</span>
+                        <span>{session.contextPct}% of auto-compact limit</span>
+                    </div>
+                )}
 
                 {/* Git branch */}
                 {session.gitBranch && (
@@ -270,6 +288,16 @@ export default function SessionTab({ tab, index, isActive, onSwitch, onClose, on
                 >
                     ×
                 </button>
+                {/* Context meter (Claude sessions only) */}
+                {showContextMeter && session?.tool === 'claude' && (
+                    <div className="context-meter">
+                        <div
+                            className="context-meter-fill"
+                            style={{ '--pct': `${session.contextPct ?? 0}%` }}
+                            data-level={getContextLevel(session.contextPct)}
+                        />
+                    </div>
+                )}
             </button>
             <Tooltip />
         </div>

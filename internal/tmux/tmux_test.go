@@ -1325,14 +1325,26 @@ func TestGetStatusInitializationVariants(t *testing.T) {
 func TestStatusFlickerOnInvisibleCharsIntegration(t *testing.T) {
 	skipIfNoTmuxServer(t)
 
-	// 1. Setup a real tmux session
-	session := NewSession("flicker-test", t.TempDir())
+	// 1. Setup a real tmux session with unique name to avoid conflicts
+	sessionName := fmt.Sprintf("flicker-test-%d", time.Now().UnixNano())
+	session := NewSession(sessionName, t.TempDir())
 	err := session.Start("")
 	assert.NoError(t, err, "Failed to start tmux session")
 	defer func() { _ = session.Kill() }()
 
-	// Wait for session to be ready
-	time.Sleep(100 * time.Millisecond)
+	// Wait for session to actually exist in tmux (with retry)
+	// This prevents flaky "inactive" status on first GetStatus() call
+	maxRetries := 20
+	retryDelay := 50 * time.Millisecond
+	for i := 0; i < maxRetries; i++ {
+		if session.Exists() {
+			break
+		}
+		if i == maxRetries-1 {
+			t.Fatal("Session did not start within timeout")
+		}
+		time.Sleep(retryDelay)
+	}
 
 	// Helper to send content to the pane
 	sendToPane := func(content string) {
@@ -1354,6 +1366,9 @@ func TestStatusFlickerOnInvisibleCharsIntegration(t *testing.T) {
 
 	// Set up "needs attention" state: acknowledged=false, cooldown expired
 	session.mu.Lock()
+	if session.stateTracker == nil {
+		t.Fatal("stateTracker should be initialized after first GetStatus() call")
+	}
 	session.stateTracker.lastChangeTime = time.Now().Add(-3 * time.Second)
 	session.stateTracker.acknowledged = false // Mark as needing attention
 	session.mu.Unlock()
@@ -1370,6 +1385,9 @@ func TestStatusFlickerOnInvisibleCharsIntegration(t *testing.T) {
 
 	// Expire cooldown again and ensure acknowledged stays false
 	session.mu.Lock()
+	if session.stateTracker == nil {
+		t.Fatal("stateTracker should still be initialized")
+	}
 	session.stateTracker.lastChangeTime = time.Now().Add(-3 * time.Second)
 	session.stateTracker.acknowledged = false // Keep needing attention
 	session.mu.Unlock()
