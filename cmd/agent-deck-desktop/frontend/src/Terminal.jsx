@@ -35,8 +35,9 @@ const BASE_TERMINAL_OPTIONS = {
     scrollback: 50000,
     allowProposedApi: true,
     // xterm.js v6 uses DOM renderer by default, with VS Code-based scrollbar
-    // NOTE: smoothScrollDuration REMOVED - it causes scroll-to-bottom on click
-    // when user is scrolled up. See docs/xterm-scroll-bug-investigation.md
+    // TEST: Re-enabling smoothScrollDuration to test if scroll-to-bottom bug recurs
+    // Previous bug: click while scrolled up caused viewport snap to bottom
+    smoothScrollDuration: 125, // 125ms animation (xterm.js default is 0)
     fastScrollModifier: 'alt',
     // Window mode affects wrapping behavior
     windowsMode: false, // Unix-style wrapping (default)
