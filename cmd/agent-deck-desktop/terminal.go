@@ -1240,9 +1240,14 @@ func (t *Terminal) triggerIdleRefresh() {
 			TerminalEvent{SessionID: sessionID, Data: content})
 	}
 
-	// Reset counter
+	// Reset counter and viewport state
+	// The frontend does term.reset() on idle-refresh, so we must also reset
+	// lastViewportLines to avoid stale diffs on the next poll cycle
 	t.mu.Lock()
 	t.linesSinceLastRefresh = 0
+	if t.historyTracker != nil {
+		t.historyTracker.Reset()
+	}
 	t.mu.Unlock()
 }
 
@@ -1868,6 +1873,20 @@ func (t *Terminal) GetScrollback() (string, error) {
 
 	t.debugLog("[SCROLLBACK] After sanitize: %d bytes", len(content))
 	return content, nil
+}
+
+// ResetViewportState resets the viewport diff state, causing the next poll
+// to do a full viewport refresh instead of an incremental diff.
+// Call this when switching back to a session to avoid stale cursor positioning.
+func (t *Terminal) ResetViewportState() {
+	t.mu.Lock()
+	tracker := t.historyTracker
+	t.mu.Unlock()
+
+	if tracker != nil {
+		tracker.Reset()
+		t.debugLog("[VIEWPORT] Reset viewport state for fresh diff on next poll")
+	}
 }
 
 // Close terminates the PTY and stops polling.

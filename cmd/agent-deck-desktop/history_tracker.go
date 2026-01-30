@@ -133,9 +133,19 @@ func (ht *HistoryTracker) FetchHistoryGap(currentHistorySize int) (string, error
 // minimal ANSI escape sequence to update xterm.js in-place.
 // This handles spinners, progress bars, and other in-place updates efficiently.
 func (ht *HistoryTracker) DiffViewport(currentContent string) string {
-	// Split into lines, trimming trailing empty lines (tmux pads to pane height)
-	currentContent = strings.TrimRight(currentContent, "\n")
-	newLines := strings.Split(currentContent, "\n")
+	// Split into lines - do NOT trim trailing newlines!
+	// We must preserve exact row positions so array index i = screen row i+1.
+	// Trimming trailing blank lines causes cursor offset bugs when Claude Code's
+	// input area resizes and shifts content up/down between captures.
+	rawLines := strings.Split(strings.TrimSuffix(currentContent, "\n"), "\n")
+
+	// Normalize to viewport height: ensure exactly viewportRows lines
+	// This guarantees array index always corresponds to screen row
+	newLines := make([]string, ht.viewportRows)
+	for i := 0; i < ht.viewportRows && i < len(rawLines); i++ {
+		newLines[i] = rawLines[i]
+	}
+	// Remaining entries are empty strings (blank rows at bottom)
 
 	// If no previous state, this is first capture - do full write
 	if len(ht.lastViewportLines) == 0 {

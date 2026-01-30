@@ -449,6 +449,7 @@ export namespace main {
 	    status: string;
 	    // Go type: time
 	    waitingSince?: any;
+	    contextPct?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new StatusUpdate(source);
@@ -459,6 +460,7 @@ export namespace main {
 	        this.id = source["id"];
 	        this.status = source["status"];
 	        this.waitingSince = this.convertValues(source["waitingSince"], null);
+	        this.contextPct = source["contextPct"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

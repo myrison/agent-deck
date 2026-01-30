@@ -258,6 +258,10 @@ export function ResetPipelineStats(arg1) {
   return window['go']['main']['App']['ResetPipelineStats'](arg1);
 }
 
+export function ResetTerminalViewport(arg1) {
+  return window['go']['main']['App']['ResetTerminalViewport'](arg1);
+}
+
 export function ResizeTerminal(arg1, arg2, arg3) {
   return window['go']['main']['App']['ResizeTerminal'](arg1, arg2, arg3);
 }

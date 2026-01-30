@@ -133,6 +133,16 @@ func (a *App) CloseTerminal(sessionID string) error {
 	return a.terminals.Close(sessionID)
 }
 
+// ResetTerminalViewport resets the viewport diff state for a session.
+// Call this when switching back to a terminal tab to avoid stale cursor positioning
+// from the previous viewport state causing a brief visual glitch.
+func (a *App) ResetTerminalViewport(sessionID string) {
+	t := a.terminals.Get(sessionID)
+	if t != nil {
+		t.ResetViewportState()
+	}
+}
+
 // ListSessions returns all Agent Deck sessions.
 func (a *App) ListSessions() ([]SessionInfo, error) {
 	return a.tmux.ListSessions()

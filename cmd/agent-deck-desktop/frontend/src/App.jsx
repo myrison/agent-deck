@@ -23,7 +23,7 @@ import HostPicker, { LOCAL_HOST_ID } from './HostPicker';
 import DeleteSessionDialog from './DeleteSessionDialog';
 import Toast from './Toast';
 import { BranchIcon } from './ToolIcon';
-import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames, DeleteSession, OpenNewWindow, GetOpenTabState, SaveOpenTabState, HasScanPaths, GetSetupDismissed, GetShowActivityRibbon, GetShowContextMeter, RefreshSessionStatuses } from '../wailsjs/go/main/App';
+import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames, DeleteSession, OpenNewWindow, GetOpenTabState, SaveOpenTabState, HasScanPaths, GetSetupDismissed, GetShowActivityRibbon, GetShowContextMeter, RefreshSessionStatuses, ResetTerminalViewport } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE } from './constants/terminal';
 import { shouldInterceptShortcut, hasAppModifier } from './utils/platform';
@@ -668,6 +668,8 @@ function App() {
                         layout: updatePaneSession(t.layout, paneWithSession.id, session),
                     };
                 }));
+                // Reset viewport state to avoid stale cursor positioning
+                ResetTerminalViewport(session.id).catch(() => {});
                 return;
             }
         }
@@ -746,6 +748,17 @@ function App() {
         logger.info('Switching to tab', { tabId, tabName: tab.name });
         setActiveTabId(tabId);
         setView('terminal');
+
+        // Reset viewport state for all sessions in this tab to avoid stale
+        // cursor positioning from when the tab was last active
+        const panes = getPaneList(tab.layout);
+        for (const pane of panes) {
+            if (pane.session?.id) {
+                ResetTerminalViewport(pane.session.id).catch(() => {
+                    // Ignore errors - terminal may not exist yet
+                });
+            }
+        }
 
         // Get the active pane's session from the tab
         const activePane = findPane(tab.layout, tab.activePaneId);
