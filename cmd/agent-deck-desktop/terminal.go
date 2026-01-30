@@ -485,9 +485,10 @@ func (t *Terminal) bufferPTYOutput(pty *PTY, duration time.Duration) ([]byte, er
 		}
 
 		if err := pty.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
-			t.debugLog("[PTY-STREAM] SetReadDeadline error: %v", err)
-			// Fall back to untimed read
-			pty.SetReadDeadline(time.Time{})
+			t.debugLog("[PTY-STREAM] SetReadDeadline error: %v, returning buffered data to avoid blocking", err)
+			// Cannot do timed reads - return what we have rather than risk blocking forever
+			pty.SetReadDeadline(time.Time{}) // Clear any partial deadline
+			break
 		}
 
 		n, err := pty.Read(buf)
