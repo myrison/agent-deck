@@ -40,11 +40,12 @@ type UpdatedInstance struct {
 
 // RemoteStorageSnapshot contains data fetched from remote sessions.json
 type RemoteStorageSnapshot struct {
-	Groups            []*GroupData      // Remote's group definitions
-	SessionGroupPaths map[string]string // tmux_session name -> group_path mapping
-	SessionTools      map[string]string // tmux_session name -> tool mapping
-	SessionTitles     map[string]string // tmux_session name -> title mapping (authoritative)
-	AllSessions       []*InstanceData   // All sessions from sessions.json (for discovering error-state sessions)
+	Groups              []*GroupData      // Remote's group definitions
+	SessionGroupPaths   map[string]string // tmux_session name -> group_path mapping
+	SessionTools        map[string]string // tmux_session name -> tool mapping
+	SessionTitles       map[string]string // tmux_session name -> title mapping (authoritative)
+	SessionCustomLabels map[string]string // tmux_session name -> custom_label mapping
+	AllSessions         []*InstanceData   // All sessions from sessions.json (for discovering error-state sessions)
 }
 
 // agentDeckSessionPattern matches agentdeck_<title>_<8-hex-chars> tmux session names
@@ -72,12 +73,13 @@ func FetchRemoteStorageSnapshot(sshExec *tmux.SSHExecutor) *RemoteStorageSnapsho
 		return nil
 	}
 
-	// Build session-to-group, session-to-tool, and session-to-title mappings
+	// Build session-to-group, session-to-tool, session-to-title, and session-to-custom-label mappings
 	// IMPORTANT: Skip sessions that are themselves remote (prevents circular discovery)
 	// If machine A discovers B, and B has remote sessions from A, we must not re-discover those
 	sessionGroupPaths := make(map[string]string)
 	sessionTools := make(map[string]string)
 	sessionTitles := make(map[string]string)
+	sessionCustomLabels := make(map[string]string)
 	var allSessions []*InstanceData
 	for _, inst := range data.Instances {
 		// Skip remote-of-remote sessions to prevent circular loops
@@ -98,15 +100,20 @@ func FetchRemoteStorageSnapshot(sshExec *tmux.SSHExecutor) *RemoteStorageSnapsho
 			if inst.Title != "" {
 				sessionTitles[inst.TmuxSession] = inst.Title
 			}
+			// Store custom label from remote's sessions.json
+			if inst.CustomLabel != "" {
+				sessionCustomLabels[inst.TmuxSession] = inst.CustomLabel
+			}
 		}
 	}
 
 	return &RemoteStorageSnapshot{
-		Groups:            data.Groups,
-		SessionGroupPaths: sessionGroupPaths,
-		SessionTools:      sessionTools,
-		SessionTitles:     sessionTitles,
-		AllSessions:       allSessions,
+		Groups:              data.Groups,
+		SessionGroupPaths:   sessionGroupPaths,
+		SessionTools:        sessionTools,
+		SessionTitles:       sessionTitles,
+		SessionCustomLabels: sessionCustomLabels,
+		AllSessions:         allSessions,
 	}
 }
 
@@ -383,6 +390,13 @@ func DiscoverRemoteSessionsForHost(hostID string, existing []*Instance) ([]*Inst
 					log.Printf("[REMOTE-DISCOVERY] Updated title: %s on %s: %s -> %s",
 						rs.Name, hostID, oldTitle, existingInst.Title)
 				}
+
+			// Sync custom label from remote - trust remote's authoritative value
+			oldLabel := existingInst.CustomLabel
+			if SyncSessionCustomLabel(existingInst, rs.Name, remoteSnapshot) {
+				log.Printf("[REMOTE-DISCOVERY] Updated custom label: %s on %s: %q -> %q",
+					rs.Name, hostID, oldLabel, existingInst.CustomLabel)
+			}
 			}
 			continue
 		}
@@ -403,9 +417,16 @@ func DiscoverRemoteSessionsForHost(hostID string, existing []*Instance) ([]*Inst
 		localGroupPath := TransformRemoteGroupPath(remoteGroupPath, groupPrefix, groupName)
 
 		// Create new instance for discovered session
+	// Get custom label from remote's sessions.json if available
+	customLabel := ""
+	if remoteSnapshot != nil {
+		customLabel = remoteSnapshot.SessionCustomLabels[rs.Name]
+	}
+
 		inst := &Instance{
 			ID:             remoteID,
 			Title:          title,
+		CustomLabel:    customLabel,
 			ProjectPath:    rs.WorkingDir,
 			GroupPath:      localGroupPath,
 			Tool:           remoteTool,
@@ -460,6 +481,7 @@ func DiscoverRemoteSessionsForHost(hostID string, existing []*Instance) ([]*Inst
 			inst := &Instance{
 				ID:             remoteID,
 				Title:          remoteInst.Title,
+		CustomLabel:    remoteInst.CustomLabel,
 				ProjectPath:    remoteInst.ProjectPath,
 				GroupPath:      localGroupPath,
 				Tool:           remoteInst.Tool,
@@ -572,6 +594,19 @@ func SyncSessionTitle(inst *Instance, tmuxName string, snapshot *RemoteStorageSn
 	}
 	if remoteTitle := snapshot.SessionTitles[tmuxName]; remoteTitle != "" && inst.Title != remoteTitle {
 		inst.Title = remoteTitle
+		return true
+	}
+	return false
+}
+
+// SyncSessionCustomLabel updates an instance's custom label if the snapshot has a different
+// authoritative custom label. Returns true if the custom label was updated.
+func SyncSessionCustomLabel(inst *Instance, tmuxName string, snapshot *RemoteStorageSnapshot) bool {
+	if snapshot == nil {
+		return false
+	}
+	if remoteLabel := snapshot.SessionCustomLabels[tmuxName]; remoteLabel != "" && inst.CustomLabel != remoteLabel {
+		inst.CustomLabel = remoteLabel
 		return true
 	}
 	return false
