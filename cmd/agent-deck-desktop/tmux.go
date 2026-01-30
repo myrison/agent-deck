@@ -292,16 +292,12 @@ func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bo
 		}
 	}
 
-	// Use the prompt detector from internal/tmux
-	detector := tmux.NewPromptDetector(tool)
-	if detector.HasPrompt(content) {
-		return "waiting", true
-	}
+	// ═══════════════════════════════════════════════════════════════════════
+	// BUSY indicators - Check these FIRST before prompt detection
+	// If busy, session is definitely "running" regardless of prompt state
+	// ═══════════════════════════════════════════════════════════════════════
 
-	// If no prompt detected, check for busy indicators.
-	// Note: "thinking" was intentionally removed - it causes false positives because
-	// the word can appear in Claude's responses or persist in scrollback history.
-	// The interrupt messages are shown almost immediately when Claude is actively working.
+	// Check for explicit interrupt messages (most reliable)
 	busyIndicators := []string{
 		"ctrl+c to interrupt",
 		"esc to interrupt",
@@ -310,6 +306,43 @@ func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bo
 		if strings.Contains(contentLower, indicator) {
 			return "running", true
 		}
+	}
+
+	// Check for spinner characters in last 5 lines (indicates active processing)
+	// These are the exact braille spinner chars from cli-spinners "dots"
+	// Used by Claude Code for "Thinking...", "Flummoxing...", "Running...", etc.
+	spinnerChars := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	lines := strings.Split(content, "\n")
+	lastLines := lines
+	if len(lastLines) > 5 {
+		lastLines = lastLines[len(lastLines)-5:]
+	}
+	for _, line := range lastLines {
+		for _, spinner := range spinnerChars {
+			if strings.Contains(line, spinner) {
+				return "running", true
+			}
+		}
+	}
+
+	// Check for timing indicators with "tokens" (indicates active processing)
+	// Format: "Thinking… (45s · 1234 tokens · ...)" or "Flummoxing... (5m 53s · ↓ 5.0k tokens · ...)"
+	if strings.Contains(contentLower, "tokens") {
+		// Has tokens count - check if it's a processing indicator
+		if strings.Contains(contentLower, "thinking") ||
+			strings.Contains(contentLower, "connecting") ||
+			strings.Contains(contentLower, "flummoxing") ||
+			strings.Contains(contentLower, "running") {
+			return "running", true
+		}
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// WAITING detection - Use prompt detector to check if Claude is at prompt
+	// ═══════════════════════════════════════════════════════════════════════
+	detector := tmux.NewPromptDetector(tool)
+	if detector.HasPrompt(content) {
+		return "waiting", true
 	}
 
 	// Default to idle if we can't determine
