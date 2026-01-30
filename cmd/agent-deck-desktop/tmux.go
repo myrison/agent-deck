@@ -298,11 +298,13 @@ func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bo
 		return "waiting", true
 	}
 
-	// If no prompt detected, check for busy indicators
+	// If no prompt detected, check for busy indicators.
+	// Note: "thinking" was intentionally removed - it causes false positives because
+	// the word can appear in Claude's responses or persist in scrollback history.
+	// The interrupt messages are shown almost immediately when Claude is actively working.
 	busyIndicators := []string{
 		"ctrl+c to interrupt",
 		"esc to interrupt",
-		"thinking",
 	}
 	for _, indicator := range busyIndicators {
 		if strings.Contains(contentLower, indicator) {
