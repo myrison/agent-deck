@@ -9,6 +9,7 @@ import { createLogger } from './logger';
 import { formatShortcut } from './utils/shortcuts';
 import { getToolColor } from './utils/tools';
 import { shouldRenderTabContextMenu, hasTabCustomLabel, getTabSession } from './utils/tabContextMenu';
+import { groupTabsBySection, canReorderBetween } from './utils/tabSections';
 import ToolIcon from './ToolIcon';
 import { useTooltip } from './Tooltip';
 
@@ -315,7 +316,6 @@ export default function UnifiedTopBar({
 
     const handleTabDragOver = useCallback((e, tab) => {
         e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
         const currentDragState = dragStateRef.current;
         if (!currentDragState || tab.id === currentDragState.draggedTabId) {
             if (currentDragState?.overTabId) {
@@ -323,6 +323,18 @@ export default function UnifiedTopBar({
             }
             return;
         }
+
+        // Check if cross-section drop (block it)
+        const draggedTab = openTabs.find(t => t.id === currentDragState.draggedTabId);
+        if (!canReorderBetween(draggedTab, tab)) {
+            e.dataTransfer.dropEffect = 'none';
+            if (currentDragState?.overTabId) {
+                updateDragState({ ...currentDragState, overTabId: null, dropSide: null });
+            }
+            return;
+        }
+
+        e.dataTransfer.dropEffect = 'move';
         const rect = e.currentTarget.getBoundingClientRect();
         const midX = rect.left + rect.width / 2;
         const side = e.clientX < midX ? 'left' : 'right';
@@ -333,7 +345,7 @@ export default function UnifiedTopBar({
             }
             updateDragState({ ...currentDragState, overTabId: tab.id, dropSide: side });
         }
-    }, [updateDragState]);
+    }, [updateDragState, openTabs]);
 
     const handleTabDrop = useCallback((e) => {
         e.preventDefault();
@@ -344,6 +356,31 @@ export default function UnifiedTopBar({
     }, [executeReorder, updateDragState]);
 
     const hasFavorites = favorites.length > 0;
+
+    // Group tabs by local/remote sections
+    const { localTabs, remoteTabs } = groupTabsBySection(openTabs);
+    const hasRemoteTabs = remoteTabs.length > 0;
+    const hasLocalTabs = localTabs.length > 0;
+
+    // Helper to render a SessionTab with all the standard props
+    const renderTab = (tab, index) => (
+        <SessionTab
+            key={tab.id}
+            tab={tab}
+            index={index}
+            isActive={tab.id === activeTabId}
+            onSwitch={() => onSwitchTab?.(tab.id)}
+            onClose={() => onCloseTab?.(tab.id)}
+            onContextMenu={(e) => handleTabContextMenu(e, tab)}
+            isDragging={dragState?.draggedTabId === tab.id}
+            dragOverSide={dragState?.overTabId === tab.id ? dragState.dropSide : null}
+            onDragStart={(e) => handleTabDragStart(e, tab)}
+            onDragEnd={handleTabDragEnd}
+            onDragOver={(e) => handleTabDragOver(e, tab)}
+            onDrop={handleTabDrop}
+            showActivityRibbon={showActivityRibbon}
+        />
+    );
 
     return (
         <div className="unified-top-bar">
@@ -386,30 +423,42 @@ export default function UnifiedTopBar({
             {/* Divider - only shown when favorites exist */}
             {hasFavorites && <div className="top-bar-divider" />}
 
-            {/* Session Tabs Section */}
+            {/* Session Tabs Section - contains local and remote tab sections */}
             <div
                 className={`session-tabs-section${!hasFavorites ? ' no-favorites' : ''}`}
                 onDrop={handleTabDrop}
                 onDragOver={(e) => e.preventDefault()}
             >
-                {openTabs.map((tab, index) => (
-                    <SessionTab
-                        key={tab.id}
-                        tab={tab}
-                        index={index}
-                        isActive={tab.id === activeTabId}
-                        onSwitch={() => onSwitchTab?.(tab.id)}
-                        onClose={() => onCloseTab?.(tab.id)}
-                        onContextMenu={(e) => handleTabContextMenu(e, tab)}
-                        isDragging={dragState?.draggedTabId === tab.id}
-                        dragOverSide={dragState?.overTabId === tab.id ? dragState.dropSide : null}
-                        onDragStart={(e) => handleTabDragStart(e, tab)}
-                        onDragEnd={handleTabDragEnd}
-                        onDragOver={(e) => handleTabDragOver(e, tab)}
-                        onDrop={handleTabDrop}
-                        showActivityRibbon={showActivityRibbon}
-                    />
-                ))}
+                {/* Local Tabs Section */}
+                {hasLocalTabs && (
+                    <div className={`tab-section local-section${hasRemoteTabs ? ' with-underline' : ''}`}>
+                        {localTabs.map((tab, index) => renderTab(tab, index))}
+                        {hasRemoteTabs && (
+                            <div
+                                className="section-underline local"
+                                onMouseEnter={(e) => showTooltip(e, 'Local Sessions')}
+                                onMouseLeave={hideTooltip}
+                            />
+                        )}
+                    </div>
+                )}
+
+                {/* Section Gap - only when both sections exist */}
+                {hasLocalTabs && hasRemoteTabs && (
+                    <div className="section-gap" />
+                )}
+
+                {/* Remote Tabs Section */}
+                {hasRemoteTabs && (
+                    <div className="tab-section remote-section with-underline">
+                        {remoteTabs.map((tab, index) => renderTab(tab, localTabs.length + index))}
+                        <div
+                            className="section-underline remote"
+                            onMouseEnter={(e) => showTooltip(e, 'Remote Sessions')}
+                            onMouseLeave={hideTooltip}
+                        />
+                    </div>
+                )}
             </div>
 
             {/* Palette Button */}
