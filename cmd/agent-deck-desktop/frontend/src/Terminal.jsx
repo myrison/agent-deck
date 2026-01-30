@@ -95,6 +95,10 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
     const resizeEpochRef = useRef(0);
     const resizeGraceUntilRef = useRef(0);
 
+    // Cached scroll state for performance - updated only on scroll events
+    // Used by forceAltKeyWhenScrolled to avoid accessing buffer.active on every mouse event
+    const isScrolledUpRef = useRef(false);
+
     // Update terminal theme when app theme changes
     useEffect(() => {
         if (xtermRef.current) {
@@ -175,12 +179,23 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // 3. Prevents the scroll-to-bottom behavior
         //
         // This is transparent to the user - they just click normally.
+        //
+        // PERFORMANCE: We cache isScrolledUp state and update only on scroll
+        // events, avoiding buffer.active access on every mouse event (100+/sec).
         // ============================================================
-        const forceAltKeyWhenScrolled = (e) => {
-            const buffer = term.buffer.active;
-            const isScrolledUp = buffer.viewportY < buffer.baseY;
 
-            if (isScrolledUp) {
+        // Update cached scroll state (called on scroll events only)
+        const updateScrollState = () => {
+            const buffer = term.buffer.active;
+            isScrolledUpRef.current = buffer.viewportY < buffer.baseY;
+        };
+
+        // Listen for scroll events to update cached state
+        const scrollStateDisposable = term.onScroll(updateScrollState);
+
+        // Use cached state for mouse events (very fast - no buffer access)
+        const forceAltKeyWhenScrolled = (e) => {
+            if (isScrolledUpRef.current) {
                 // Force altKey to trigger macOptionClickForcesSelection behavior
                 Object.defineProperty(e, 'altKey', { get: () => true, configurable: true });
             }
@@ -464,19 +479,18 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             const viewportEl = terminalRef.current?.querySelector('.xterm-viewport');
             if (viewportEl) {
                 const style = window.getComputedStyle(viewportEl);
-                console.log(`%c[DIAG] .xterm-viewport: scrollTop=${viewportEl.scrollTop} scrollHeight=${viewportEl.scrollHeight} clientHeight=${viewportEl.clientHeight}`, 'color: magenta');
-                console.log(`%c[DIAG] overflow: ${style.overflow} overflowY: ${style.overflowY}`, 'color: magenta');
+                logger.debug(`[DIAG] .xterm-viewport: scrollTop=${viewportEl.scrollTop} scrollHeight=${viewportEl.scrollHeight} clientHeight=${viewportEl.clientHeight}`);
+                logger.debug(`[DIAG] overflow: ${style.overflow} overflowY: ${style.overflowY}`);
                 LogFrontendDiagnostic(`[DIAG] viewport: scrollTop=${viewportEl.scrollTop} scrollHeight=${viewportEl.scrollHeight} clientHeight=${viewportEl.clientHeight} overflow=${style.overflowY}`);
 
                 // Try adding a pointerdown listener to see if pointer events work
                 viewportEl.addEventListener('pointerdown', () => {
-                    console.log('%c[EVENT] pointerdown on viewport!', 'color: red; font-weight: bold');
+                    logger.debug('[EVENT] pointerdown on viewport');
                     LogFrontendDiagnostic('[EVENT] pointerdown on viewport');
                 });
             }
 
-            console.log('%c========== SESSION LOAD COMPLETE ==========', 'color: lime; font-weight: bold; font-size: 14px');
-            console.log(`%c[LOAD-DONE] viewportY=${lastViewportY} baseY=${lastBaseY} length=${viewport.length}`, 'color: lime');
+            logger.debug(`SESSION LOAD COMPLETE: viewportY=${lastViewportY} baseY=${lastBaseY} length=${viewport.length}`);
             LogFrontendDiagnostic(`========== SESSION LOAD COMPLETE: viewportY=${lastViewportY} baseY=${lastBaseY} ==========`);
         };
 
@@ -527,7 +541,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
 
                 // Send Page Up/Down based on scroll direction
                 const pageSeq = scrollingUp ? '\x1b[5~' : '\x1b[6~';
-                console.log(`%c[SCROLLBAR] Alt: Page ${scrollingUp ? 'Up' : 'Down'}`, 'color: cyan');
+                logger.debug(`[SCROLLBAR] Alt: Page ${scrollingUp ? 'Up' : 'Down'}`);
                 WriteTerminal(sessionId, pageSeq).catch(console.error);
 
                 // Reset scroll position
@@ -537,7 +551,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         };
         if (viewportEl) {
             viewportEl.addEventListener('scroll', handleDOMScroll, { passive: true });
-            console.log('%c[INIT] DOM scroll listener attached', 'color: green');
+            logger.debug('[INIT] DOM scroll listener attached');
         }
 
         const attemptRepaint = () => {
@@ -602,7 +616,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 const pageSeq = pendingDirection === 'up' ? '\x1b[5~' : '\x1b[6~';
                 pendingDirection = null;
 
-                console.log(`%c[WHEEL] Alt: Page ${scrollUp ? 'Up' : 'Down'} (throttled)`, 'color: lime');
+                logger.debug(`[WHEEL] Alt: Page ${scrollUp ? 'Up' : 'Down'} (throttled)`);
                 WriteTerminal(sessionId, pageSeq).catch(console.error);
                 return;
             }
@@ -628,10 +642,10 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
 
         // Use capture phase and NOT passive (so we can preventDefault)
         terminalRef.current?.addEventListener('wheel', handleWheel, { passive: false, capture: true });
-        console.log('%c[INIT] Wheel interception enabled - using programmatic scrollLines()', 'color: lime; font-weight: bold');
+        logger.debug('[INIT] Wheel interception enabled - using programmatic scrollLines()');
         LogFrontendDiagnostic('[INIT] Wheel interception enabled');
 
-        console.log('%c[INIT] All scroll detection methods initialized', 'color: green; font-weight: bold');
+        logger.debug('[INIT] All scroll detection methods initialized');
         LogFrontendDiagnostic('[INIT] Scroll detection initialized');
 
         // Listen for debug messages from backend
@@ -710,27 +724,9 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             const history = payload.data;
             logger.info('Received initial history:', history?.length || 0, 'bytes');
 
-            // DEBUG: Log buffer state BEFORE write
-            if (xtermRef.current) {
-                const bufBefore = xtermRef.current.buffer.active;
-                console.log(`%c[SCROLLBACK-DEBUG] BEFORE history write: baseY=${bufBefore.baseY} viewportY=${bufBefore.viewportY} length=${bufBefore.length} cursorY=${bufBefore.cursorY}`, 'color: orange; font-weight: bold');
-                LogFrontendDiagnostic(`[SCROLLBACK-DEBUG] BEFORE history: baseY=${bufBefore.baseY} viewportY=${bufBefore.viewportY} length=${bufBefore.length}`);
-            }
-
             if (xtermRef.current && history) {
-                // DEBUG: Log first 200 chars of history to see what we're writing
-                // eslint-disable-next-line no-control-regex
-                const historyPreview = history.substring(0, 200).replace(/\x1b/g, '\\x1b').replace(/\r/g, '\\r').replace(/\n/g, '\\n');
-                console.log(`%c[SCROLLBACK-DEBUG] History preview: ${historyPreview}...`, 'color: cyan');
-                LogFrontendDiagnostic(`[SCROLLBACK-DEBUG] History preview: ${historyPreview}`);
-
                 // Write initial scrollback to xterm
                 xtermRef.current.write(history);
-
-                // DEBUG: Log buffer state AFTER write
-                const bufAfter = xtermRef.current.buffer.active;
-                console.log(`%c[SCROLLBACK-DEBUG] AFTER history write: baseY=${bufAfter.baseY} viewportY=${bufAfter.viewportY} length=${bufAfter.length} cursorY=${bufAfter.cursorY}`, 'color: lime; font-weight: bold');
-                LogFrontendDiagnostic(`[SCROLLBACK-DEBUG] AFTER history: baseY=${bufAfter.baseY} viewportY=${bufAfter.viewportY} length=${bufAfter.length}`);
 
                 // Force viewport recalculation to make scrollback immediately accessible
                 // Without this, scrollback exists but isn't scrollable until window resize
@@ -739,11 +735,6 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 }
 
                 xtermRef.current.scrollToBottom();
-
-                // DEBUG: Log buffer state AFTER scrollToBottom
-                const bufFinal = xtermRef.current.buffer.active;
-                console.log(`%c[SCROLLBACK-DEBUG] AFTER scrollToBottom: baseY=${bufFinal.baseY} viewportY=${bufFinal.viewportY} length=${bufFinal.length}`, 'color: yellow; font-weight: bold');
-                LogFrontendDiagnostic(`[SCROLLBACK-DEBUG] AFTER scroll: baseY=${bufFinal.baseY} viewportY=${bufFinal.viewportY} length=${bufFinal.length}`);
 
                 // Mark session load complete for scroll tracking
                 setTimeout(() => {
@@ -802,52 +793,30 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         const cancelResizeEpoch = EventsOn('terminal:resize-epoch', handleResizeEpoch);
 
         // ============================================================
-        // SCROLLBACK HYDRATION (PTY streaming mode)
+        // SCROLLBACK HYDRATION (PTY streaming mode - Phase 3 WIP)
         // ============================================================
-        // In PTY streaming mode, tmux sends cursor-positioning escape sequences
-        // that cause xterm.js to overwrite screen positions rather than scroll.
-        // The backend polls tmux's history_size and captures new scrollback lines,
-        // which we inject here to build up xterm.js's scrollback buffer.
+        // NOTE: This handler is currently unused. The backend does not emit
+        // 'terminal:scrollback-hydrate' events yet. Kept for Phase 3 implementation.
+        //
+        // Design: In PTY streaming mode, tmux sends cursor-positioning escape
+        // sequences that cause xterm.js to overwrite screen positions rather than
+        // scroll. The backend would poll tmux's history_size and capture new
+        // scrollback lines, which we'd inject here to build up xterm.js's buffer.
+        //
+        // Current workaround: Idle Refresh (below) captures full scrollback after
+        // output goes idle and resets xterm.js, which works well enough for now.
         // ============================================================
         const handleScrollbackHydrate = (payload) => {
             if (payload?.sessionId !== sessionId) return;
 
-            const { data, newLines } = payload;
+            const { data } = payload;
             if (!xtermRef.current || !data) return;
 
             const term = xtermRef.current;
-            const bufBefore = term.buffer.active;
+            const wasAtBottom = term.buffer.active.viewportY >= term.buffer.active.baseY;
 
-            console.log(`%c[SCROLLBACK-HYDRATE] Received ${data.length} bytes (${newLines} new lines). Buffer before: baseY=${bufBefore.baseY} length=${bufBefore.length}`, 'color: cyan; font-weight: bold');
-            LogFrontendDiagnostic(`[SCROLLBACK-HYDRATE] Received ${data.length}b (${newLines} lines). baseY=${bufBefore.baseY} length=${bufBefore.length}`);
-
-            // Strategy: Write the scrollback content, then scroll lines down to push it into scrollback
-            // Save current viewport position
-            const wasAtBottom = bufBefore.viewportY >= bufBefore.baseY;
-            const savedViewportY = bufBefore.viewportY;
-
-            // Write scrollback data - this goes into the buffer
-            // Use escape sequences to properly inject into scrollback:
-            // 1. Save cursor position
-            // 2. Move to home (top-left)
-            // 3. Insert lines at top (pushes content down into scrollback)
-            // 4. Write the new content
-            // 5. Restore cursor position
-
-            // Actually, a simpler approach: write the data with newlines, which will
-            // push current content down into scrollback when it exceeds the viewport
-            // We need to use the "reverse index" approach or direct buffer manipulation
-
-            // For now, let's use a hack: write data at current position with scroll region
-            // This should push content into scrollback
-
-            // Simpler approach: just prepend to buffer by writing and letting natural scroll occur
             // Write the content - xterm will handle scrolling
             term.write(data);
-
-            const bufAfter = term.buffer.active;
-            console.log(`%c[SCROLLBACK-HYDRATE] After write: baseY=${bufAfter.baseY} length=${bufAfter.length}`, 'color: lime; font-weight: bold');
-            LogFrontendDiagnostic(`[SCROLLBACK-HYDRATE] After: baseY=${bufAfter.baseY} length=${bufAfter.length}`);
 
             // If user was at bottom, stay at bottom
             if (wasAtBottom) {
@@ -870,9 +839,6 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             const term = xtermRef.current;
             const wasAtBottom = term.buffer.active.viewportY >= term.buffer.active.baseY;
 
-            console.log(`%c[IDLE-REFRESH] Received ${payload.data.length} bytes, resetting xterm`, 'color: cyan; font-weight: bold');
-            LogFrontendDiagnostic(`[IDLE-REFRESH] Received ${payload.data.length}b, wasAtBottom=${wasAtBottom}`);
-
             // Reset and rewrite with full scrollback
             term.reset();
             term.write(payload.data);
@@ -893,23 +859,11 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // RAF BATCHING: Instead of writing immediately (which can overwhelm xterm.js
         // during fast output like `seq 1 10000`), we buffer data and flush on the
         // next animation frame. This reduces DOM pressure and helps prevent data loss.
-        let dataEventCount = 0;
-        let lastBufferLogTime = 0;
         const handleTerminalData = (payload) => {
             // Filter: only process events for this terminal's session
             if (payload?.sessionId !== sessionId) return;
 
             if (xtermRef.current && payload.data) {
-                dataEventCount++;
-
-                // DEBUG: Log escape sequences in incoming data (first 10 events only to avoid spam)
-                if (dataEventCount <= 10) {
-                    // eslint-disable-next-line no-control-regex
-                    const preview = payload.data.substring(0, 100).replace(/\x1b/g, '\\x1b').replace(/\r/g, '\\r').replace(/\n/g, '\\n');
-                    console.log(`%c[STREAM-DEBUG] Event #${dataEventCount}: ${payload.data.length} bytes, preview: ${preview}`, 'color: magenta');
-                    LogFrontendDiagnostic(`[STREAM-DEBUG] Event #${dataEventCount}: ${payload.data.length}b preview: ${preview}`);
-                }
-
                 // Buffer the data
                 writeBufferRef.current += payload.data;
                 frontendStatsRef.current.eventsReceived++;
@@ -922,22 +876,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                             const data = writeBufferRef.current;
                             writeBufferRef.current = '';
 
-                            // DEBUG: Log buffer state before and after write (throttled to 1/sec)
-                            const now = Date.now();
-                            if (now - lastBufferLogTime > 1000) {
-                                lastBufferLogTime = now;
-                                const bufBefore = xtermRef.current.buffer.active;
-                                console.log(`%c[BUFFER-DEBUG] BEFORE RAF write: baseY=${bufBefore.baseY} length=${bufBefore.length} cursorY=${bufBefore.cursorY} writing ${data.length}b`, 'color: orange');
-                                LogFrontendDiagnostic(`[BUFFER-DEBUG] BEFORE RAF: baseY=${bufBefore.baseY} length=${bufBefore.length} cursorY=${bufBefore.cursorY}`);
-
-                                xtermRef.current.write(data);
-
-                                const bufAfter = xtermRef.current.buffer.active;
-                                console.log(`%c[BUFFER-DEBUG] AFTER RAF write: baseY=${bufAfter.baseY} length=${bufAfter.length} cursorY=${bufAfter.cursorY}`, 'color: lime');
-                                LogFrontendDiagnostic(`[BUFFER-DEBUG] AFTER RAF: baseY=${bufAfter.baseY} length=${bufAfter.length} cursorY=${bufAfter.cursorY}`);
-                            } else {
-                                xtermRef.current.write(data);
-                            }
+                            xtermRef.current.write(data);
 
                             frontendStatsRef.current.rafFlushes++;
                             frontendStatsRef.current.bytesWritten += data.length;
@@ -1133,7 +1072,6 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                         // 3. Polling loop for display updates via SSH
                         await StartRemoteTmuxSession(sessionId, session.remoteHost, session.tmuxSession, session.projectPath || '', session.tool || 'shell', cols, rows);
                         logger.info('Remote polling session started');
-                        console.log('%c[LOAD] Remote SSH polling session started', 'color: cyan; font-weight: bold');
                         LogFrontendDiagnostic('[LOAD] Remote SSH polling session started');
                     } else {
                         // Local session - use local polling
@@ -1144,7 +1082,6 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                         // 3. Polling loop for display updates
                         await StartTmuxSession(sessionId, session.tmuxSession, cols, rows);
                         logger.info('Polling session started');
-                        console.log('%c[LOAD] Polling session started', 'color: cyan; font-weight: bold');
                         LogFrontendDiagnostic('[LOAD] Polling session started');
                     }
                 } else {
@@ -1206,6 +1143,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 clearTimeout(scrollbackRefreshTimer);
             }
             resizeObserver.disconnect();
+            scrollStateDisposable.dispose();
             scrollDisposable.dispose();
             dataDisposable.dispose();
             selectionDisposable.dispose();

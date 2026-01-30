@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -131,6 +132,15 @@ func stripDeviceAttributes(s string) string {
 	return deviceAttributesRegex.ReplaceAllString(s, "")
 }
 
+// stripOutputNoise removes common noise from terminal output including
+// TTS markers and device attribute responses. Use this instead of calling
+// stripTTSMarkers and stripDeviceAttributes separately.
+func stripOutputNoise(s string) string {
+	s = stripTTSMarkers(s)
+	s = stripDeviceAttributes(s)
+	return s
+}
+
 // Connection state constants for remote sessions
 const (
 	connStateConnected    = "connected"
@@ -194,6 +204,7 @@ type Terminal struct {
 	// After streaming output goes idle, capture full scrollback and reset xterm
 	idleRefreshTimer          *time.Timer
 	lastDataTime              time.Time
+	lastDataTimeAtomic        int64 // Unix millis - for lock-free reads in hot path
 	lastInputTime             time.Time
 	linesSinceLastRefresh     int
 	idleRefreshTimeoutMs      int // Default 500, 0 = disabled
@@ -436,8 +447,7 @@ func (t *Terminal) startTmuxSessionStreaming(tmuxSession string, cols, rows int)
 	// This is the current viewport that tmux sent on attach
 	if len(bufferedData) > 0 {
 		// Strip TTS markers and device attribute responses (e.g., [?1;2c)
-		viewport := stripTTSMarkers(string(bufferedData))
-		viewport = stripDeviceAttributes(viewport)
+		viewport := stripOutputNoise(string(bufferedData))
 		t.debugLog("[PTY-STREAM] Emitting %d bytes of buffered viewport", len(viewport))
 		if t.ctx != nil {
 			runtime.EventsEmit(t.ctx, "terminal:data",
@@ -1036,17 +1046,16 @@ func (t *Terminal) readLoopStream() {
 	var incompleteUTF8 []byte // Buffer for incomplete UTF-8 sequences
 
 	t.debugLog("[PTY-STREAM] Starting readLoopStream for session=%s", t.sessionID)
-	readCount := 0
-	totalBytes := 0
 
-	// DEBUG: Track escape sequence patterns
-	cursorHomeCount := 0
-	clearScreenCount := 0
-	cursorPosCount := 0
-	newlineCount := 0
+	// Debug instrumentation only enabled when AGENTDECK_DEBUG is set
+	debugMode := os.Getenv("AGENTDECK_DEBUG") != ""
+	var readCount, totalBytes int
+	var cursorHomeCount, clearScreenCount, cursorPosCount, newlineCount int
 
 	for {
-		readCount++
+		if debugMode {
+			readCount++
+		}
 		t.mu.Lock()
 		p := t.pty
 		closed := t.closed
@@ -1068,19 +1077,20 @@ func (t *Terminal) readLoopStream() {
 		}
 
 		if n > 0 && t.ctx != nil {
-			totalBytes += n
+			// Debug instrumentation: track escape sequence patterns
+			if debugMode {
+				totalBytes += n
+				chunk := string(buf[:n])
+				cursorHomeCount += strings.Count(chunk, "\x1b[H")
+				clearScreenCount += strings.Count(chunk, "\x1b[2J")
+				cursorPosCount += len(cursorPosRe.FindAllString(chunk, -1))
+				newlineCount += strings.Count(chunk, "\n")
 
-			// DEBUG: Count escape sequence patterns to understand what tmux is sending
-			chunk := string(buf[:n])
-			cursorHomeCount += strings.Count(chunk, "\x1b[H")
-			clearScreenCount += strings.Count(chunk, "\x1b[2J")
-			cursorPosCount += len(cursorPosRe.FindAllString(chunk, -1))
-			newlineCount += strings.Count(chunk, "\n")
-
-			// Log every 50 reads or when significant escape sequences detected
-			if readCount%50 == 0 || clearScreenCount > 0 {
-				t.debugLog("[PTY-STREAM-DEBUG] After %d reads, %d total bytes: cursorHome=%d clearScreen=%d cursorPos=%d newlines=%d",
-					readCount, totalBytes, cursorHomeCount, clearScreenCount, cursorPosCount, newlineCount)
+				// Log every 50 reads or when significant escape sequences detected
+				if readCount%50 == 0 || clearScreenCount > 0 {
+					t.debugLog("[PTY-STREAM-DEBUG] After %d reads, %d total bytes: cursorHome=%d clearScreen=%d cursorPos=%d newlines=%d",
+						readCount, totalBytes, cursorHomeCount, clearScreenCount, cursorPosCount, newlineCount)
+				}
 			}
 
 			// Combine with any previous incomplete UTF-8 sequence
@@ -1106,10 +1116,8 @@ func (t *Terminal) readLoopStream() {
 
 			// Strip TTS markers and device attributes, then emit
 			if len(data) > 0 {
-				output := stripTTSMarkers(string(data))
-				output = stripDeviceAttributes(output)
+				output := stripOutputNoise(string(data))
 				if len(output) > 0 {
-					t.debugLog("[PTY-STREAM] Emitting %d bytes via terminal:data", len(output))
 					runtime.EventsEmit(t.ctx, "terminal:data",
 						TerminalEvent{SessionID: t.sessionID, Data: output})
 
@@ -1124,34 +1132,71 @@ func (t *Terminal) readLoopStream() {
 	}
 }
 
-// resetIdleRefreshTimer resets the idle refresh timer after each data emission.
-// When the timer fires (after idleRefreshTimeoutMs of no output), it triggers
-// a full scrollback capture and reset.
+// resetIdleRefreshTimer records data arrival time for idle detection.
+// Uses atomic operations to avoid mutex lock on every PTY data chunk.
+// The timer checks if data is still arriving and reschedules if needed.
 func (t *Terminal) resetIdleRefreshTimer() {
+	// Atomic store - no lock needed for this hot path
+	atomic.StoreInt64(&t.lastDataTimeAtomic, time.Now().UnixMilli())
+
+	// Only start timer once (lazy initialization)
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	t.lastDataTime = time.Now()
-
-	if t.idleRefreshTimer != nil {
-		t.idleRefreshTimer.Stop()
+	if t.idleRefreshTimer != nil || t.idleRefreshTimeoutMs <= 0 {
+		t.mu.Unlock()
+		return
 	}
-
 	timeout := t.idleRefreshTimeoutMs
-	if timeout <= 0 {
-		return // Disabled
+	t.idleRefreshTimer = time.AfterFunc(time.Duration(timeout)*time.Millisecond, func() {
+		t.checkIdleRefresh()
+	})
+	t.mu.Unlock()
+}
+
+// checkIdleRefresh is called by the timer to check if we're truly idle.
+// If data arrived recently, reschedule; otherwise trigger refresh.
+func (t *Terminal) checkIdleRefresh() {
+	t.mu.Lock()
+	timeout := t.idleRefreshTimeoutMs
+	if timeout <= 0 || t.closed {
+		t.idleRefreshTimer = nil
+		t.mu.Unlock()
+		return
+	}
+	t.mu.Unlock()
+
+	// Check if data arrived recently (lock-free read)
+	lastData := time.UnixMilli(atomic.LoadInt64(&t.lastDataTimeAtomic))
+	elapsed := time.Since(lastData)
+
+	if elapsed < time.Duration(timeout)*time.Millisecond {
+		// Data still arriving - reschedule timer for remaining time
+		remaining := time.Duration(timeout)*time.Millisecond - elapsed
+		t.mu.Lock()
+		t.idleRefreshTimer = time.AfterFunc(remaining, func() {
+			t.checkIdleRefresh()
+		})
+		t.mu.Unlock()
+		return
 	}
 
-	t.idleRefreshTimer = time.AfterFunc(time.Duration(timeout)*time.Millisecond, func() {
-		t.triggerIdleRefresh()
-	})
+	// Truly idle - trigger refresh and clear timer
+	t.mu.Lock()
+	t.idleRefreshTimer = nil
+	t.mu.Unlock()
+
+	t.triggerIdleRefresh()
 }
 
 // triggerIdleRefresh captures full tmux scrollback and emits terminal:idle-refresh event.
 // This is the hybrid approach: PTY streaming for live output, periodic refresh for scrollback.
-// Guards: skips if alt-screen (vim/nano), below line threshold, or user typed recently.
+// Guards: skips if closed, alt-screen (vim/nano), below line threshold, or user typed recently.
 func (t *Terminal) triggerIdleRefresh() {
 	t.mu.Lock()
+	// Check if terminal was closed while timer was pending
+	if t.closed {
+		t.mu.Unlock()
+		return
+	}
 	session := t.tmuxSession
 	inAltScreen := t.lastAltScreen
 	lines := t.linesSinceLastRefresh
@@ -1263,33 +1308,18 @@ func (t *Terminal) startStatusPolling(tmuxSession string) {
 	}
 	t.debugLog("[STATUS-POLL] Starting with initialHistorySize=%d (skipping already-loaded scrollback)", initialHistorySize)
 
-	go t.pollStatusAndScrollbackLoopWithInitial(initialHistorySize)
+	go t.pollAltScreenStatusLoop(initialHistorySize)
 }
 
-// pollStatusAndScrollbackLoop continuously polls tmux for:
-// 1. Alt-screen status (for mouse handling)
-// 2. Scrollback size changes (for hydrating xterm.js scrollback)
-//
-// The scrollback hydration is necessary because PTY streaming mode receives
-// cursor-positioning escape sequences from tmux, which causes xterm.js to
-// overwrite screen positions rather than accumulate scrollback.
-func (t *Terminal) pollStatusAndScrollbackLoop() {
-	t.pollStatusAndScrollbackLoopWithInitial(0)
-}
-
-// pollStatusAndScrollbackLoopWithInitial is like pollStatusAndScrollbackLoop but
-// starts with a known history size. This prevents re-capturing scrollback that
-// was already loaded via terminal:history event at session start.
-func (t *Terminal) pollStatusAndScrollbackLoopWithInitial(initialHistorySize int) {
-	ticker := time.NewTicker(200 * time.Millisecond) // Faster polling for scrollback sync
+// pollAltScreenStatusLoop polls tmux for alt-screen status changes.
+// This is used in PTY streaming mode where we don't poll for display updates
+// but need to track when apps enter/exit alt-screen mode for mouse handling.
+// The _initialHistorySize parameter is kept for future scrollback hydration (Phase 3).
+func (t *Terminal) pollAltScreenStatusLoop(_initialHistorySize int) {
+	ticker := time.NewTicker(500 * time.Millisecond) // 500ms sufficient for alt-screen detection
 	defer ticker.Stop()
 
-	t.debugLog("[STATUS-POLL] Started for session=%s (with scrollback hydration, initialHistorySize=%d)", t.sessionID, initialHistorySize)
-
-	// Track last known history size to detect when scrollback grows
-	// Initialize to the size at session start to avoid re-capturing already-loaded content
-	lastHistorySize := initialHistorySize
-	lastHydratedLine := 0
+	t.debugLog("[STATUS-POLL] Started for session=%s", t.sessionID)
 
 	for {
 		select {
@@ -1297,44 +1327,33 @@ func (t *Terminal) pollStatusAndScrollbackLoopWithInitial(initialHistorySize int
 			t.debugLog("[STATUS-POLL] Stopped")
 			return
 		case <-ticker.C:
-			newHistorySize := t.pollStatusAndScrollback(&lastHistorySize, &lastHydratedLine)
-			if newHistorySize >= 0 {
-				lastHistorySize = newHistorySize
-			}
+			t.pollAltScreenStatus()
 		}
 	}
 }
 
-// pollStatusAndScrollback queries tmux for alt-screen status AND scrollback size.
-// When scrollback grows, captures new lines and emits them for frontend hydration.
-// Returns the new history size, or -1 if unchanged/error.
-func (t *Terminal) pollStatusAndScrollback(lastHistorySize *int, lastHydratedLine *int) int {
+// pollAltScreenStatus queries tmux for alt-screen status and emits changes to frontend.
+// This enables proper mouse handling when apps like vim/nano/less enter/exit alt-screen.
+func (t *Terminal) pollAltScreenStatus() {
 	t.mu.Lock()
 	session := t.tmuxSession
 	polling := t.tmuxPolling
 	t.mu.Unlock()
 
 	if !polling || session == "" {
-		return -1
+		return
 	}
 
-	// Query tmux for alt-screen status AND history size in one call
+	// Query tmux for alt-screen status
 	cmd := exec.Command(tmuxBinaryPath, "display-message", "-t", session,
-		"-p", "#{alternate_on}|#{history_size}")
+		"-p", "#{alternate_on}")
 	output, err := cmd.Output()
 	if err != nil {
 		t.debugLog("[STATUS-POLL] display-message error: %v", err)
-		return -1
+		return
 	}
 
-	parts := strings.Split(strings.TrimSpace(string(output)), "|")
-	if len(parts) != 2 {
-		return -1
-	}
-
-	inAltScreen := parts[0] == "1"
-	historySize := 0
-	fmt.Sscanf(parts[1], "%d", &historySize)
+	inAltScreen := strings.TrimSpace(string(output)) == "1"
 
 	// Handle alt-screen change
 	t.mu.Lock()
@@ -1351,27 +1370,6 @@ func (t *Terminal) pollStatusAndScrollback(lastHistorySize *int, lastHydratedLin
 			"inAltScreen": inAltScreen,
 		})
 	}
-
-	// Skip scrollback hydration if in alt-screen mode (vim, nano, etc.)
-	if inAltScreen {
-		return historySize
-	}
-
-	// SCROLLBACK HYDRATION DISABLED
-	// The term.write() approach can't properly inject historical content into xterm.js
-	// scrollback buffer - it writes at cursor position causing duplication.
-	// Initial history load works; user can resize window to trigger full refresh if needed.
-	// TODO: Investigate xterm.js buffer APIs or alternative approaches for live scrollback sync.
-	_ = historySize // Suppress unused warning
-
-	return historySize
-}
-
-// pollStatusOnly is kept for backwards compatibility (used by legacy code paths).
-func (t *Terminal) pollStatusOnly() {
-	lastHistorySize := 0
-	lastHydratedLine := 0
-	t.pollStatusAndScrollback(&lastHistorySize, &lastHydratedLine)
 }
 
 // stopTmuxPolling stops the polling goroutine.
