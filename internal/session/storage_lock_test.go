@@ -1,7 +1,6 @@
 package session
 
 import (
-	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -14,20 +13,46 @@ func TestFileLock_BasicLockUnlock(t *testing.T) {
 
 	lock := newFileLock(lockPath)
 
-	// Lock should succeed
-	handle, err := lock.Lock()
+	// First goroutine acquires lock
+	handle1, err := lock.Lock()
 	if err != nil {
-		t.Fatalf("Lock() failed: %v", err)
+		t.Fatalf("First Lock() failed: %v", err)
 	}
 
-	// Unlock should succeed
-	if err := handle.Unlock(); err != nil {
+	// Second goroutine should block on Lock() until first releases
+	done := make(chan bool)
+	go func() {
+		handle2, err := lock.Lock()
+		if err != nil {
+			t.Errorf("Second Lock() failed: %v", err)
+			return
+		}
+		defer handle2.Unlock()
+		done <- true
+	}()
+
+	// Give second goroutine time to block on lock
+	time.Sleep(50 * time.Millisecond)
+
+	// Second goroutine should still be blocked
+	select {
+	case <-done:
+		t.Fatal("Second lock acquired while first lock was held - mutual exclusion broken")
+	default:
+		// Expected: second lock is blocked
+	}
+
+	// Release first lock
+	if err := handle1.Unlock(); err != nil {
 		t.Fatalf("Unlock() failed: %v", err)
 	}
 
-	// Lock file should exist
-	if _, err := os.Stat(lockPath + ".lock"); os.IsNotExist(err) {
-		t.Error("Lock file was not created")
+	// Now second lock should acquire successfully
+	select {
+	case <-done:
+		// Expected: second lock acquired after first released
+	case <-time.After(1 * time.Second):
+		t.Fatal("Second lock didn't acquire after first lock released")
 	}
 }
 
@@ -126,42 +151,204 @@ func TestFileLock_ConcurrentSaves(t *testing.T) {
 }
 
 func TestStorage_WithFileLock(t *testing.T) {
-	// Test that NewStorageWithProfile properly initializes the file lock
+	// Test that multiple Storage instances targeting the same file
+	// don't corrupt each other (cross-instance safety via file locking)
 	tmpDir := t.TempDir()
-
-	// Set up a custom profile directory for testing
 	t.Setenv("AGENTDECK_DATA_DIR", tmpDir)
 
-	s, err := NewStorageWithProfile("test-lock")
+	// Create two Storage instances for the same profile
+	s1, err := NewStorageWithProfile("test-lock")
+	if err != nil {
+		t.Fatalf("NewStorageWithProfile s1 failed: %v", err)
+	}
+
+	s2, err := NewStorageWithProfile("test-lock")
+	if err != nil {
+		t.Fatalf("NewStorageWithProfile s2 failed: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	var errors []error
+	var errorsMu sync.Mutex
+
+	// Both instances write concurrently
+	for i := 0; i < 5; i++ {
+		wg.Add(2)
+
+		// Instance 1 writes
+		go func(idx int) {
+			defer wg.Done()
+			instances := []*Instance{
+				{ID: "s1-" + string(rune('A'+idx)), Title: "S1", Tool: "claude", Status: StatusIdle, CreatedAt: time.Now()},
+			}
+			if err := s1.SaveWithGroups(instances, nil); err != nil {
+				errorsMu.Lock()
+				errors = append(errors, err)
+				errorsMu.Unlock()
+			}
+		}(i)
+
+		// Instance 2 writes
+		go func(idx int) {
+			defer wg.Done()
+			instances := []*Instance{
+				{ID: "s2-" + string(rune('A'+idx)), Title: "S2", Tool: "claude", Status: StatusIdle, CreatedAt: time.Now()},
+			}
+			if err := s2.SaveWithGroups(instances, nil); err != nil {
+				errorsMu.Lock()
+				errors = append(errors, err)
+				errorsMu.Unlock()
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Check for errors
+	if len(errors) > 0 {
+		t.Errorf("Got %d errors during concurrent writes: %v", len(errors), errors)
+	}
+
+	// Final state should be valid (non-corrupted JSON, valid sessions)
+	final, _, err := s1.LoadWithGroups()
+	if err != nil {
+		t.Fatalf("Failed to load final state (file may be corrupted): %v", err)
+	}
+
+	// Should have at least one session from the last write
+	if len(final) == 0 {
+		t.Error("Final state has no sessions - concurrent writes from different instances corrupted the file")
+	}
+}
+
+// TestStorage_LockReleaseOnError verifies that locks are released even when save operations fail.
+// This prevents deadlocks when errors occur during storage operations.
+func TestStorage_LockReleaseOnError(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("AGENTDECK_DATA_DIR", tmpDir)
+
+	s, err := NewStorageWithProfile("test-error")
 	if err != nil {
 		t.Fatalf("NewStorageWithProfile failed: %v", err)
 	}
 
-	if s.fileLock == nil {
-		t.Error("Storage.fileLock should not be nil")
-	}
-
-	// Verify save/load works with the lock
+	// Create instances with duplicate IDs (will fail validation)
 	instances := []*Instance{
-		{
-			ID:        "lock-test-1",
-			Title:     "Lock Test",
-			Tool:      "claude",
-			Status:    StatusIdle,
-			CreatedAt: time.Now(),
-		},
+		{ID: "duplicate", Title: "First", Tool: "claude", Status: StatusIdle, CreatedAt: time.Now()},
+		{ID: "duplicate", Title: "Second", Tool: "claude", Status: StatusIdle, CreatedAt: time.Now()},
 	}
 
-	if err := s.SaveWithGroups(instances, nil); err != nil {
-		t.Fatalf("SaveWithGroups with lock failed: %v", err)
+	// Save should fail due to duplicate IDs
+	err = s.SaveWithGroups(instances, nil)
+	if err == nil {
+		t.Fatal("SaveWithGroups should have failed with duplicate IDs")
 	}
 
-	loaded, _, err := s.LoadWithGroups()
+	// Lock should be released despite the error
+	// Try to acquire lock again - should succeed immediately
+	handle, err := s.fileLock.Lock()
 	if err != nil {
-		t.Fatalf("LoadWithGroups with lock failed: %v", err)
+		t.Errorf("Lock should be released after error, but Lock() failed: %v", err)
+	}
+	defer handle.Unlock()
+
+	// If we got here without blocking, lock was properly released
+}
+
+// TestStorage_ConcurrentLoadsDuringWrite verifies that loads don't see partial writes.
+// Loads should either see the old state or the new state, never corrupted data.
+func TestStorage_ConcurrentLoadsDuringWrite(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("AGENTDECK_DATA_DIR", tmpDir)
+
+	s, err := NewStorageWithProfile("test-concurrent-load")
+	if err != nil {
+		t.Fatalf("NewStorageWithProfile failed: %v", err)
 	}
 
-	if len(loaded) != 1 || loaded[0].ID != "lock-test-1" {
-		t.Errorf("Loaded data mismatch: got %d instances", len(loaded))
+	// Save initial state
+	initial := []*Instance{
+		{ID: "initial", Title: "Initial", Tool: "claude", Status: StatusIdle, CreatedAt: time.Now()},
+	}
+	if err := s.SaveWithGroups(initial, nil); err != nil {
+		t.Fatalf("Initial save failed: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	errors := make(chan error, 100)
+
+	// Writer: continuously update storage
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 10; i++ {
+			instances := []*Instance{
+				{ID: "writer", Title: "Writer", Tool: "claude", Status: StatusRunning, CreatedAt: time.Now()},
+			}
+			if err := s.SaveWithGroups(instances, nil); err != nil {
+				errors <- err
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
+
+	// Readers: continuously load storage and validate data integrity
+	for r := 0; r < 3; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 20; i++ {
+				loaded, _, err := s.LoadWithGroups()
+				if err != nil {
+					errors <- err
+					return
+				}
+
+				// Verify data integrity: loaded state must be either valid "initial" or valid "writer"
+				if len(loaded) != 1 {
+					errors <- err
+					return
+				}
+
+				// Check that the instance has valid structure
+				inst := loaded[0]
+				if inst.ID == "" {
+					errors <- err
+					return
+				}
+				if inst.Title == "" {
+					errors <- err
+					return
+				}
+				if inst.Tool == "" {
+					errors <- err
+					return
+				}
+
+				// Must be exactly one of the two valid states
+				isInitialState := inst.ID == "initial" && inst.Title == "Initial" && inst.Status == StatusIdle
+				isWriterState := inst.ID == "writer" && inst.Title == "Writer" && inst.Status == StatusRunning
+
+				if !isInitialState && !isWriterState {
+					errors <- err
+					return
+				}
+
+				time.Sleep(2 * time.Millisecond)
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errors)
+
+	// Check for any errors
+	var errorList []error
+	for err := range errors {
+		errorList = append(errorList, err)
+	}
+
+	if len(errorList) > 0 {
+		t.Errorf("Got %d errors during concurrent read/write: %v", len(errorList), errorList)
 	}
 }
