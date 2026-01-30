@@ -60,7 +60,7 @@ console.log('[DEBUG] checkpoint reached', { state });
 
 ## Architecture Overview
 
-RevDen (Agent Deck Desktop) is a Wails v2 native app wrapping the Agent Deck TUI. It provides xterm.js-based terminal emulation with searchable scrollback, connecting to existing tmux sessions managed by Agent Deck.
+RevvySwarm (Agent Deck Desktop) is a Wails v2 native app wrapping the Agent Deck TUI. It provides xterm.js-based terminal emulation with searchable scrollback, connecting to existing tmux sessions managed by Agent Deck.
 
 ### Key Constraint
 

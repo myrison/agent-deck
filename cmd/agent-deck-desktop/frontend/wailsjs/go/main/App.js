@@ -6,6 +6,10 @@ export function AddQuickLaunchFavorite(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddQuickLaunchFavorite'](arg1, arg2, arg3);
 }
 
+export function AddSSHHost(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
+  return window['go']['main']['App']['AddSSHHost'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
+}
+
 export function AddScanPath(arg1) {
   return window['go']['main']['App']['AddScanPath'](arg1);
 }
@@ -120,6 +124,10 @@ export function GetSSHHostDisplayNames() {
 
 export function GetSSHHostStatus() {
   return window['go']['main']['App']['GetSSHHostStatus']();
+}
+
+export function GetSSHHosts() {
+  return window['go']['main']['App']['GetSSHHosts']();
 }
 
 export function GetSavedLayoutByID(arg1) {
@@ -242,6 +250,10 @@ export function RemoveQuickLaunchFavorite(arg1) {
   return window['go']['main']['App']['RemoveQuickLaunchFavorite'](arg1);
 }
 
+export function RemoveSSHHost(arg1) {
+  return window['go']['main']['App']['RemoveSSHHost'](arg1);
+}
+
 export function RemoveScanPath(arg1) {
   return window['go']['main']['App']['RemoveScanPath'](arg1);
 }
@@ -358,6 +370,10 @@ export function UpdateQuickLaunchShortcut(arg1, arg2) {
   return window['go']['main']['App']['UpdateQuickLaunchShortcut'](arg1, arg2);
 }
 
+export function UpdateSSHHost(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
+  return window['go']['main']['App']['UpdateSSHHost'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
+}
+
 export function UpdateSessionCustomLabel(arg1, arg2) {
   return window['go']['main']['App']['UpdateSessionCustomLabel'](arg1, arg2);
 }
@@ -368,6 +384,10 @@ export function UpdateSessionStatus(arg1, arg2) {
 
 export function ValidateMCPConfigPath(arg1) {
   return window['go']['main']['App']['ValidateMCPConfigPath'](arg1);
+}
+
+export function ValidateSSHHost(arg1, arg2) {
+  return window['go']['main']['App']['ValidateSSHHost'](arg1, arg2);
 }
 
 export function WriteTerminal(arg1, arg2) {

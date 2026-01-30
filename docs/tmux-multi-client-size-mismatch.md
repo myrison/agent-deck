@@ -2,13 +2,13 @@
 
 **Status:** Analysis Complete
 **Created:** 2026-01-29
-**Issue:** Dot fill pattern in Agent Deck TUI when both TUI and RevDen desktop app are attached to same session
+**Issue:** Dot fill pattern in Agent Deck TUI when both TUI and RevvySwarm desktop app are attached to same session
 
 ---
 
 ## Problem Statement
 
-When the Agent Deck TUI and RevDen desktop app are BOTH attached to the same tmux session simultaneously, the TUI displays tmux's filler dots (`.`) outside the active content area. This occurs because the two clients have different terminal dimensions, and tmux can only display one size at a time.
+When the Agent Deck TUI and RevvySwarm desktop app are BOTH attached to the same tmux session simultaneously, the TUI displays tmux's filler dots (`.`) outside the active content area. This occurs because the two clients have different terminal dimensions, and tmux can only display one size at a time.
 
 ### Visual Example
 

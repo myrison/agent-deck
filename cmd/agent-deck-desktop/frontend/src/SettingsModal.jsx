@@ -730,7 +730,7 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
                             <h3>Remote Machines</h3>
                         </div>
                         <div className="settings-input-description">
-                            SSH hosts for remote session discovery. RevDen must be installed on each machine.
+                            SSH hosts for remote session discovery. RevvySwarm must be installed on each machine.
                         </div>
 
                         {editingSSHHost ? (

@@ -342,7 +342,7 @@ Green checkmark emojis (✅) consistently render with the right half clipped/cut
 ### Reproduction Cases
 
 1. **Zero events reproduction:**
-   - Open RevDen desktop app
+   - Open RevvySwarm desktop app
    - Attach to Claude Code session
    - Open debug overlay (Cmd+Shift+D)
    - Reset stats

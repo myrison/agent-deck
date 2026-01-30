@@ -8,7 +8,7 @@
 
 ## Problem Statement
 
-When using the RevDen desktop app locally, users can paste images into Claude Code sessions using **Ctrl+V** (macOS). This works because:
+When using the RevvySwarm desktop app locally, users can paste images into Claude Code sessions using **Ctrl+V** (macOS). This works because:
 
 1. User presses Ctrl+V → desktop app passes keystroke to terminal
 2. Claude Code binary receives Ctrl+V

@@ -3,7 +3,7 @@
 ## Project Context
 
 **Repo:** `/Users/jason/Documents/Seafile/My Library/HyperCurrent/gitclone/agent-deck`
-**App:** RevDen (Agent Deck Desktop) - A Wails-based native app for managing AI coding agent sessions (Claude Code, Gemini CLI, etc.)
+**App:** RevvySwarm (Agent Deck Desktop) - A Wails-based native app for managing AI coding agent sessions (Claude Code, Gemini CLI, etc.)
 
 The desktop app connects to tmux sessions and renders terminal output via xterm.js. We've been struggling with rendering corruption during fast output bursts caused by a broken `DiffViewport()` algorithm that generates invalid ANSI sequences.
 

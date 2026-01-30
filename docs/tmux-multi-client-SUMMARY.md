@@ -1,6 +1,6 @@
 # tmux Multi-Client Size Mismatch - Executive Summary
 
-**Issue:** Dot fill pattern appears in Agent Deck TUI when both TUI and RevDen desktop app are attached to the same tmux session.
+**Issue:** Dot fill pattern appears in Agent Deck TUI when both TUI and RevvySwarm desktop app are attached to the same tmux session.
 
 **Root Cause:** tmux's `window-size latest` setting causes the window to resize to the LAST client's dimensions, making the other client's viewport incorrect.
 

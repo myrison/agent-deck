@@ -207,7 +207,7 @@ func verifyTmuxConfig(tmuxSession string) error {
 tmux show-option -g status
 # Should output: status off
 
-# If not, RevDen should set it per-session on attach
+# If not, RevvySwarm should set it per-session on attach
 ```
 
 #### 1.1 Modify StartTmuxSession() - Streaming Only
@@ -1103,7 +1103,7 @@ func (t *Terminal) shouldUsePTYStreaming() bool {
 | **Alternate Screen Buffer** | vim/htop use alternate screen; history shouldn't be prepended there | Detect `#{alternate_on}` via tmux; skip history in alt-screen mode |
 | **Partial ANSI Sequences** | PTY chunks can split `\x1b[` from `31m` | ~~Stateful ANSI parser~~ **Council Review #2:** Do NOT buffer ANSI - xterm.js handles split sequences natively |
 | **Partial UTF-8 Sequences** | Multi-byte chars can split at read boundaries | Buffer incomplete UTF-8; emit only complete runes |
-| **tmux Status Bar Leakage** | `attach-session` shows full tmux UI including status bar | RevDen hides tmux status via `set -g status off` (already configured) |
+| **tmux Status Bar Leakage** | `attach-session` shows full tmux UI including status bar | RevvySwarm hides tmux status via `set -g status off` (already configured) |
 | **Resize/Reflow Desync** | Resize can cause history/viewport mismatch | Trust SIGWINCH; add resize epochs (1.8) |
 | **Connection Drop Mid-Sequence** | SSH dies while `\x1b[38;2;255;` in progress | ~~Reset ANSI parser state~~ Let xterm.js handle it on reconnect |
 | **Blank Terminal on Connect** | (NEW - Review #2) Streaming-only means blank screen until output | **MANDATORY:** Emit initial viewport snapshot on connect (1.6) |
@@ -1567,7 +1567,7 @@ https://github.com/myrison/agent-deck/pull/99
 | App | Mode | Behavior |
 |-----|------|----------|
 | Production (RevvySwarm) | Polling + DiffViewport | Incomplete/corrupted output |
-| Dev (RevDen) | PTY Streaming | **All history shown correctly** ✅ |
+| Dev (RevvySwarm) | PTY Streaming | **All history shown correctly** ✅ |
 
 **Conclusion:** PTY streaming mode successfully fixes the DiffViewport corruption bug during fast output.
 

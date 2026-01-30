@@ -21,7 +21,7 @@ trap cleanup EXIT INT TERM
 echo "=== tmux Multi-Client Window Size Test ==="
 echo ""
 echo "This script demonstrates how different window-size settings affect"
-echo "multi-client tmux sessions (Agent Deck TUI + RevDen desktop app)."
+echo "multi-client tmux sessions (Agent Deck TUI + RevvySwarm desktop app)."
 echo ""
 
 # Create test session

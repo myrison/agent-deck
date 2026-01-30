@@ -1,11 +1,11 @@
 ---
 name: read-desktop-logs
-description: Read RevDen desktop app frontend console logs. Use when debugging desktop app UI issues.
+description: Read RevvySwarm desktop app frontend console logs. Use when debugging desktop app UI issues.
 ---
 
 # Read Desktop App Logs
 
-Reads frontend console logs from the RevDen (agent-deck) desktop app. All `console.log/debug/info/warn/error` calls are automatically captured to a log file.
+Reads frontend console logs from the RevvySwarm (agent-deck) desktop app. All `console.log/debug/info/warn/error` calls are automatically captured to a log file.
 
 ## Log File Location
 

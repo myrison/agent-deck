@@ -276,7 +276,7 @@ export default function ScanPathSetupModal({ onComplete, onSkip }) {
                         <div className="scan-setup-header">
                             <h2>Where are your projects?</h2>
                             <p className="scan-setup-description">
-                                Add directories where you keep your code projects. RevDen will scan
+                                Add directories where you keep your code projects. RevvySwarm will scan
                                 these paths to discover projects and show them in the command palette.
                             </p>
                         </div>
@@ -344,8 +344,8 @@ export default function ScanPathSetupModal({ onComplete, onSkip }) {
                         <div className="scan-setup-header">
                             <h2>Connect Remote Machines</h2>
                             <p className="scan-setup-description">
-                                Connect to other machines running RevDen to see and manage their sessions
-                                from here. RevDen must be installed on each remote machine.
+                                Connect to other machines running RevvySwarm to see and manage their sessions
+                                from here. RevvySwarm must be installed on each remote machine.
                             </p>
                         </div>
 
