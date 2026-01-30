@@ -96,10 +96,6 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
     const resizeEpochRef = useRef(0);
     const resizeGraceUntilRef = useRef(0);
 
-    // Cached scroll state for performance - updated only on scroll events
-    // Used by forceAltKeyWhenScrolled to avoid accessing buffer.active on every mouse event
-    const isScrolledUpRef = useRef(false);
-
     // Update terminal theme when app theme changes
     useEffect(() => {
         if (xtermRef.current) {
@@ -172,31 +168,38 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         // ============================================================
         // See docs/xterm-scroll-bug-investigation.md for full history.
         //
-        // SOLUTION (Attempt #31b): When user is scrolled up (viewing history),
-        // force altKey=true on mouse events. This triggers xterm.js's
-        // macOptionClickForcesSelection behavior, which:
+        // SOLUTION: When user is scrolled up (viewing history), force altKey=true
+        // on mouse events. This triggers xterm.js's macOptionClickForcesSelection
+        // behavior, which:
         // 1. Disables mouse reporting (no escape sequences sent to tmux)
         // 2. Enables local text selection in xterm.js
         // 3. Prevents the scroll-to-bottom behavior
         //
         // This is transparent to the user - they just click normally.
         //
-        // PERFORMANCE: We cache isScrolledUp state and update only on scroll
-        // events, avoiding buffer.active access on every mouse event (100+/sec).
+        // ARCHITECTURE: Query buffer.active directly on each mouse event rather
+        // than caching in a ref. This is O(1), atomic, and impossible to be stale.
+        // Previous cached approach had race conditions and required updates in
+        // many places (writes, resize, buffer switch). Direct check is simpler.
         // ============================================================
 
-        // Update cached scroll state (called on scroll events only)
-        const updateScrollState = () => {
-            const buffer = term.buffer.active;
-            isScrolledUpRef.current = buffer.viewportY < buffer.baseY;
-        };
+        // Track alt-screen exit time for grace period protection
+        // After Claude exits (alt-screen → normal), there's a brief window where
+        // the buffer state is transitional and clicks can cause cursor jumps
+        let altScreenExitTime = 0;
+        const ALT_SCREEN_EXIT_GRACE_MS = 500; // Protect clicks for 500ms after exit
 
-        // Listen for scroll events to update cached state
-        const scrollStateDisposable = term.onScroll(updateScrollState);
-
-        // Use cached state for mouse events (very fast - no buffer access)
+        // Direct buffer check on every mouse event (replaces cached ref)
         const forceAltKeyWhenScrolled = (e) => {
-            if (isScrolledUpRef.current) {
+            // Query buffer state directly - always fresh, no staleness possible
+            const buffer = term.buffer.active;
+            const isScrolledUp = buffer.viewportY < buffer.baseY;
+
+            // Also protect during grace period after alt-screen exit
+            // This prevents cursor jumps when Claude Code exits
+            const inGracePeriod = (Date.now() - altScreenExitTime) < ALT_SCREEN_EXIT_GRACE_MS;
+
+            if (isScrolledUp || inGracePeriod) {
                 // Force altKey to trigger macOptionClickForcesSelection behavior
                 Object.defineProperty(e, 'altKey', { get: () => true, configurable: true });
             }
@@ -243,6 +246,9 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             if (wasInAltScreen && !isInAltScreen) {
                 term.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l');
                 mouseModes.clear();
+                // Record exit time for grace period protection
+                // This prevents cursor jumps from clicks during buffer transition
+                altScreenExitTime = Date.now();
             }
         };
         const cancelAltScreen = EventsOn('terminal:altscreen', handleAltScreenChange);
@@ -1144,7 +1150,6 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
                 clearTimeout(scrollbackRefreshTimer);
             }
             resizeObserver.disconnect();
-            scrollStateDisposable.dispose();
             scrollDisposable.dispose();
             dataDisposable.dispose();
             selectionDisposable.dispose();
