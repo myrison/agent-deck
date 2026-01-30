@@ -746,11 +746,11 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
                                                 setSSHHostForm(prev => ({
                                                     ...prev,
                                                     groupName: val,
-                                                    hostId: prev.hostId || val.toLowerCase().replace(/[^a-z0-9]/g, '-'),
+                                                    // Only auto-derive hostId when creating new
+                                                    ...(editingSSHHost === 'new' && !prev.hostId ? { hostId: val.toLowerCase().replace(/[^a-z0-9]/g, '-') } : {}),
                                                 }));
                                             }}
                                             placeholder="My MacBook"
-                                            disabled={editingSSHHost !== 'new'}
                                         />
                                         {sshHostErrors.hostId && (
                                             <span className="settings-ssh-error">{sshHostErrors.hostId}</span>
@@ -788,15 +788,35 @@ export default function SettingsModal({ onClose, fontSize = DEFAULT_FONT_SIZE, o
                                             onChange={(e) => setSSHHostForm(prev => ({ ...prev, port: parseInt(e.target.value) || 22 }))}
                                         />
                                     </div>
-                                    <div className="settings-ssh-form-field settings-ssh-form-field-wide">
-                                        <label>SSH Key Path</label>
+                                </div>
+
+                                {/* SSH Key section */}
+                                <div className="settings-ssh-key-section">
+                                    <label className="settings-ssh-checkbox">
                                         <input
-                                            type="text"
-                                            value={sshHostForm.identityFile}
-                                            onChange={(e) => setSSHHostForm(prev => ({ ...prev, identityFile: e.target.value }))}
-                                            placeholder="~/.ssh/id_rsa"
+                                            type="checkbox"
+                                            checked={!sshHostForm.identityFile}
+                                            onChange={(e) => setSSHHostForm(prev => ({
+                                                ...prev,
+                                                identityFile: e.target.checked ? '' : '~/.ssh/id_rsa'
+                                            }))}
                                         />
-                                    </div>
+                                        Use default SSH keys
+                                        <span className="settings-ssh-key-hint">
+                                            SSH agent + ~/.ssh/id_ed25519, id_rsa, etc.
+                                        </span>
+                                    </label>
+                                    {sshHostForm.identityFile && (
+                                        <div className="settings-ssh-form-field settings-ssh-custom-key">
+                                            <label>Custom Key Path</label>
+                                            <input
+                                                type="text"
+                                                value={sshHostForm.identityFile}
+                                                onChange={(e) => setSSHHostForm(prev => ({ ...prev, identityFile: e.target.value }))}
+                                                placeholder="~/.ssh/id_rsa"
+                                            />
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="settings-ssh-form-checkboxes">
