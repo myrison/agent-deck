@@ -35,9 +35,10 @@ const BASE_TERMINAL_OPTIONS = {
     scrollback: 50000,
     allowProposedApi: true,
     // xterm.js v6 uses DOM renderer by default, with VS Code-based scrollbar
-    // TEST: Re-enabling smoothScrollDuration to test if scroll-to-bottom bug recurs
-    // Previous bug: click while scrolled up caused viewport snap to bottom
-    smoothScrollDuration: 125, // 125ms animation (xterm.js default is 0)
+    // smoothScrollDuration DISABLED - causes output swallowing during fast streaming
+    // When enabled, xterm.js batches/skips rendering during scroll animation
+    // which results in missing lines (e.g., items 2-3 missing between 1 and 4)
+    smoothScrollDuration: 0, // Disabled - instant scroll for reliable rendering
     fastScrollModifier: 'alt',
     // Window mode affects wrapping behavior
     windowsMode: false, // Unix-style wrapping (default)
