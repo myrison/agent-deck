@@ -723,6 +723,33 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         };
         const cancelResizeEpoch = EventsOn('terminal:resize-epoch', handleResizeEpoch);
 
+        // ============================================================
+        // IDLE REFRESH HANDLER (PTY streaming mode)
+        // ============================================================
+        // After 500ms of no output, the backend captures full tmux scrollback
+        // and sends it here. We reset xterm and rewrite with the full content
+        // to fix scrollback accumulation issues from cursor-positioning sequences.
+        // ============================================================
+        const handleIdleRefresh = (payload) => {
+            if (payload?.sessionId !== sessionId) return;
+            if (!xtermRef.current || !payload.data) return;
+
+            const term = xtermRef.current;
+            const wasAtBottom = term.buffer.active.viewportY >= term.buffer.active.baseY;
+
+            logger.info('[IDLE-REFRESH] Received', payload.data.length, 'bytes, resetting xterm');
+
+            // Reset and rewrite with full scrollback
+            term.reset();
+            term.write(payload.data);
+
+            // Restore scroll position - stay at bottom if user was following output
+            if (wasAtBottom) {
+                term.scrollToBottom();
+            }
+        };
+        const cancelIdleRefresh = EventsOn('terminal:idle-refresh', handleIdleRefresh);
+
         // Listen for data from backend (polling mode - history gaps and viewport diffs)
         // In polling mode, this receives:
         // 1. History gap lines (content that scrolled off viewport)
@@ -986,6 +1013,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             cancelHistory();
             cancelInitial();
             cancelResizeEpoch();
+            cancelIdleRefresh();
             cancelData();
             cancelExit();
             cancelConnLost();

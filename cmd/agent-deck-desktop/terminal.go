@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -176,6 +177,15 @@ type Terminal struct {
 
 	// Alt-screen state for status polling (PTY streaming mode)
 	lastAltScreen bool
+
+	// Idle refresh for scrollback accumulation (PTY streaming mode)
+	// After 500ms of no output, captures full tmux scrollback and sends to frontend
+	idleRefreshTimer          *time.Timer
+	lastDataTimeAtomic        int64 // Unix millis - atomic for lock-free hot path
+	lastInputTime             time.Time
+	linesSinceLastRefresh     int
+	idleRefreshTimeoutMs      int // Default 500, 0 = disabled
+	idleRefreshThresholdLines int // Default 50
 }
 
 // PipelineStats holds instrumentation counters for tracking data loss in the pipeline.
@@ -184,17 +194,17 @@ type PipelineStats struct {
 	mu sync.Mutex
 
 	// Counters for local polling
-	TmuxCaptureCount      int64 // Number of tmux capture-pane calls
-	TmuxLinesProduced     int64 // Total lines returned by capture-pane
-	HistoryGapLines       int64 // Lines fetched from history gap
-	ViewportDiffBytes     int64 // Bytes emitted from viewport diff
-	GoBackendLinesSent    int64 // Total lines sent via EventsEmit
-	GoBackendBytesSent    int64 // Total bytes sent via EventsEmit
+	TmuxCaptureCount   int64 // Number of tmux capture-pane calls
+	TmuxLinesProduced  int64 // Total lines returned by capture-pane
+	HistoryGapLines    int64 // Lines fetched from history gap
+	ViewportDiffBytes  int64 // Bytes emitted from viewport diff
+	GoBackendLinesSent int64 // Total lines sent via EventsEmit
+	GoBackendBytesSent int64 // Total bytes sent via EventsEmit
 
 	// Timing metrics
-	LastPollDurationMs    int64 // Duration of last poll cycle
-	TotalPollTimeMs       int64 // Total time spent polling
-	PollCount             int64 // Number of poll cycles completed
+	LastPollDurationMs int64 // Duration of last poll cycle
+	TotalPollTimeMs    int64 // Total time spent polling
+	PollCount          int64 // Number of poll cycles completed
 
 	// Error tracking
 	CaptureErrors int64 // Number of capture-pane errors
@@ -385,6 +395,11 @@ func (t *Terminal) startTmuxSessionStreaming(tmuxSession string, cols, rows int)
 	t.pty = pty
 	t.tmuxSession = tmuxSession
 	t.closed = false
+
+	// Initialize idle refresh for scrollback accumulation
+	t.idleRefreshTimeoutMs = 500     // 500ms of no output triggers refresh
+	t.idleRefreshThresholdLines = 50 // Need at least 50 lines of output
+	t.linesSinceLastRefresh = 0
 
 	// 7. Start PTY streaming read loop (output goes to frontend)
 	// tmux sends full viewport redraw on attach, may duplicate initial viewport (that's OK)
@@ -814,8 +829,8 @@ func (t *Terminal) attemptReconnection(hostID, tmuxSession string) {
 		// Emit reconnecting event with sessionId
 		if t.ctx != nil {
 			runtime.EventsEmit(t.ctx, "terminal:reconnecting", map[string]interface{}{
-				"sessionId": t.sessionID,
-				"attempt":   attempt,
+				"sessionId":   t.sessionID,
+				"attempt":     attempt,
 				"maxAttempts": maxReconnectAttempts,
 			})
 		}
@@ -962,6 +977,14 @@ func (t *Terminal) readLoopStream() {
 					t.debugLog("[PTY-STREAM] Emitting %d bytes via terminal:data", len(output))
 					runtime.EventsEmit(t.ctx, "terminal:data",
 						TerminalEvent{SessionID: t.sessionID, Data: output})
+
+					// Track output for idle refresh threshold
+					t.mu.Lock()
+					t.linesSinceLastRefresh += strings.Count(output, "\n")
+					t.mu.Unlock()
+
+					// Reset/start idle refresh timer
+					t.resetIdleRefreshTimer()
 				}
 			}
 		}
@@ -1088,6 +1111,12 @@ func (t *Terminal) stopTmuxPolling() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	// Stop idle refresh timer if running
+	if t.idleRefreshTimer != nil {
+		t.idleRefreshTimer.Stop()
+		t.idleRefreshTimer = nil
+	}
+
 	if t.tmuxPolling && t.tmuxStopChan != nil {
 		close(t.tmuxStopChan)
 		t.tmuxPolling = false
@@ -1101,6 +1130,106 @@ func (t *Terminal) stopTmuxPolling() {
 		t.reconnectAttempts = 0
 		t.reconnecting = false
 	}
+}
+
+// resetIdleRefreshTimer records data arrival time for idle detection.
+// Uses atomic operations to avoid mutex lock on every PTY data chunk.
+func (t *Terminal) resetIdleRefreshTimer() {
+	atomic.StoreInt64(&t.lastDataTimeAtomic, time.Now().UnixMilli())
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// Only start timer if not already running and timeout is enabled
+	if t.idleRefreshTimer != nil || t.idleRefreshTimeoutMs <= 0 {
+		return
+	}
+	timeout := t.idleRefreshTimeoutMs
+	t.idleRefreshTimer = time.AfterFunc(time.Duration(timeout)*time.Millisecond, func() {
+		t.checkIdleRefresh()
+	})
+}
+
+// checkIdleRefresh checks if enough idle time has passed to trigger a refresh.
+func (t *Terminal) checkIdleRefresh() {
+	t.mu.Lock()
+	timeout := t.idleRefreshTimeoutMs
+	if timeout <= 0 || t.closed {
+		t.idleRefreshTimer = nil
+		t.mu.Unlock()
+		return
+	}
+	t.mu.Unlock()
+
+	lastData := time.UnixMilli(atomic.LoadInt64(&t.lastDataTimeAtomic))
+	elapsed := time.Since(lastData)
+
+	if elapsed < time.Duration(timeout)*time.Millisecond {
+		// Not yet idle - reschedule for remaining time
+		remaining := time.Duration(timeout)*time.Millisecond - elapsed
+		t.mu.Lock()
+		t.idleRefreshTimer = time.AfterFunc(remaining, func() {
+			t.checkIdleRefresh()
+		})
+		t.mu.Unlock()
+		return
+	}
+
+	// Idle timeout reached - trigger refresh
+	t.mu.Lock()
+	t.idleRefreshTimer = nil
+	t.mu.Unlock()
+	t.triggerIdleRefresh()
+}
+
+// triggerIdleRefresh captures full tmux scrollback and emits to frontend.
+// Called after output goes idle for 500ms. Resets xterm and rewrites with
+// complete scrollback to fix accumulation issues from cursor-positioning sequences.
+func (t *Terminal) triggerIdleRefresh() {
+	t.mu.Lock()
+	if t.closed {
+		t.mu.Unlock()
+		return
+	}
+	session := t.tmuxSession
+	inAltScreen := t.lastAltScreen
+	lines := t.linesSinceLastRefresh
+	threshold := t.idleRefreshThresholdLines
+	lastInput := t.lastInputTime
+	ctx := t.ctx
+	sessionID := t.sessionID
+	t.mu.Unlock()
+
+	// Guards: skip if alt-screen, below threshold, or user typed recently
+	if session == "" || inAltScreen || lines < threshold {
+		return
+	}
+	if time.Since(lastInput) < 200*time.Millisecond {
+		return
+	}
+
+	// Capture full scrollback from tmux
+	cmd := exec.Command(tmuxBinaryPath, "capture-pane", "-t", session, "-p", "-e", "-S", "-", "-E", "-")
+	output, err := cmd.Output()
+	if err != nil {
+		t.debugLog("[IDLE-REFRESH] capture-pane error: %v", err)
+		return
+	}
+
+	content := sanitizeHistoryForXterm(string(output))
+	content = normalizeCRLF(content)
+
+	t.debugLog("[IDLE-REFRESH] Captured %d bytes, emitting terminal:idle-refresh", len(content))
+
+	if ctx != nil {
+		runtime.EventsEmit(ctx, "terminal:idle-refresh",
+			TerminalEvent{SessionID: sessionID, Data: content})
+	}
+
+	// Reset line counter
+	t.mu.Lock()
+	t.linesSinceLastRefresh = 0
+	t.mu.Unlock()
 }
 
 // pollTmuxLoop continuously polls tmux for display updates.
@@ -1379,6 +1508,7 @@ func (t *Terminal) AttachTmux(tmuxSession string, cols, rows int) error {
 // Write sends data to the PTY.
 func (t *Terminal) Write(data string) error {
 	t.mu.Lock()
+	t.lastInputTime = time.Now() // Track for idle refresh debounce
 	p := t.pty
 	t.mu.Unlock()
 
@@ -1700,4 +1830,3 @@ func (t *Terminal) recordPollStats(linesProduced, historyGapLines int, viewportD
 		t.pipelineStats.CaptureErrors++
 	}
 }
-
