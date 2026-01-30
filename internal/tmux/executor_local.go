@@ -209,10 +209,27 @@ func (e *LocalExecutor) DisablePipePane(session string) error {
 	return cmd.Run()
 }
 
+// disableStatusBar turns off the tmux status bar for a session to prevent
+// UI leakage when viewing sessions in Agent Deck.
+func (e *LocalExecutor) disableStatusBar(session string) {
+	// Check if status is already off
+	cmd := exec.Command("tmux", "show-option", "-t", session, "-v", "status")
+	output, _ := cmd.Output()
+	status := strings.TrimSpace(string(output))
+
+	if status != "off" {
+		// Force status off for this session (ignore errors, this is best-effort)
+		_ = exec.Command("tmux", "set-option", "-t", session, "status", "off").Run()
+	}
+}
+
 // Attach attaches to a tmux session with PTY support
 func (e *LocalExecutor) Attach(ctx context.Context, session string, stdin io.Reader, stdout, stderr io.Writer) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	// Disable tmux status bar to prevent UI leakage
+	e.disableStatusBar(session)
 
 	cmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", session)
 

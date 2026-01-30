@@ -309,10 +309,26 @@ func (e *SSHExecutor) DisablePipePane(session string) error {
 	return err
 }
 
+// disableStatusBar turns off the tmux status bar for a session to prevent
+// UI leakage when viewing sessions in Agent Deck.
+func (e *SSHExecutor) disableStatusBar(session string) {
+	// Check if status is already off
+	output, _ := e.runRemote(fmt.Sprintf("%s show-option -t %q -v status", e.tmuxCmd, session))
+	status := strings.TrimSpace(output)
+
+	if status != "off" {
+		// Force status off for this session
+		e.runRemoteIgnoreError(fmt.Sprintf("%s set-option -t %q status off", e.tmuxCmd, session))
+	}
+}
+
 // Attach attaches to a tmux session on the remote host with PTY support
 func (e *SSHExecutor) Attach(ctx context.Context, session string, stdin io.Reader, stdout, stderr io.Writer) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	// Disable tmux status bar to prevent UI leakage
+	e.disableStatusBar(session)
 
 	// Build SSH command for interactive attach
 	// ssh -t user@host tmux attach-session -t session

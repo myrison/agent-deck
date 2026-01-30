@@ -548,6 +548,12 @@ func (t *Terminal) startTmuxSessionPolling(tmuxSession string, cols, rows int) e
 
 	t.debugLog("[POLLING] Starting polling session for tmux=%s cols=%d rows=%d", tmuxSession, cols, rows)
 
+	// 0. Verify tmux config (status bar must be off to prevent leakage into session view)
+	if err := verifyTmuxConfig(tmuxSession); err != nil {
+		t.debugLog("[POLLING] verifyTmuxConfig error: %v", err)
+		// Non-fatal - continue anyway
+	}
+
 	// 1. Resize tmux window to match terminal dimensions
 	if cols > 0 && rows > 0 {
 		resizeCmd := exec.Command(tmuxBinaryPath, "resize-window", "-t", tmuxSession, "-x", itoa(cols), "-y", itoa(rows))
