@@ -95,9 +95,19 @@ const SessionList = forwardRef(function SessionList({
     useEffect(() => {
         const cancel = EventsOn('session:statusUpdate', (data) => {
             if (data?.sessionId && data?.status) {
-                setSessions(prev => prev.map(s =>
-                    s.id === data.sessionId ? { ...s, status: data.status } : s
-                ));
+                setSessions(prev => prev.map(s => {
+                    if (s.id !== data.sessionId) return s;
+                    // Update both status and waitingSince to keep them in sync.
+                    // The backend sends waitingSince as:
+                    // - null/undefined when status is "running" (session is active)
+                    // - ISO timestamp string when status is "waiting"/"idle"
+                    const updates = { status: data.status };
+                    if (data.waitingSince !== undefined) {
+                        // Convert null to empty string for consistency with backend API
+                        updates.waitingSince = data.waitingSince || '';
+                    }
+                    return { ...s, ...updates };
+                }));
             }
         });
         return cancel;

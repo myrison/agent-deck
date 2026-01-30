@@ -180,9 +180,13 @@ func (a *App) emitRunningStatus(sessionID string) {
 	if err := a.tmux.UpdateSessionStatus(sessionID, "running"); err != nil {
 		fmt.Printf("Warning: failed to update session status: %v\n", err)
 	}
-	wailsRuntime.EventsEmit(a.ctx, "session:statusUpdate", map[string]string{
-		"sessionId": sessionID,
-		"status":    "running",
+	// Include waitingSince as null/empty to signal the frontend should clear it.
+	// When a session becomes "running", its waitingSince timestamp is cleared
+	// because the session is no longer waiting for input.
+	wailsRuntime.EventsEmit(a.ctx, "session:statusUpdate", map[string]interface{}{
+		"sessionId":    sessionID,
+		"status":       "running",
+		"waitingSince": nil, // Clear waitingSince when running
 	})
 }
 
