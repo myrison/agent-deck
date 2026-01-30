@@ -121,7 +121,8 @@ func main() {
 
 	// In dev mode, start hidden to prevent focus-stealing on hot-reload.
 	// Click dock icon to reveal window.
-	startHidden := isDev
+	// NOTE: Temporarily disabled for testing - set to false to make window visible
+	startHidden := false
 
 	// Set app title based on mode and window number
 	appTitle := "RevvySwarm"
