@@ -52,11 +52,15 @@ type RemoteStorageSnapshot struct {
 // agentDeckSessionPattern matches agentdeck_<title>_<8-hex-chars> tmux session names
 var agentDeckSessionPattern = regexp.MustCompile(`^agentdeck_(.+)_([0-9a-f]{8})$`)
 
+// remoteSessionsJSONPath is the path to sessions.json on remote hosts.
+// Note: Uses 'default' profile. Multi-profile support would require profile detection.
+const remoteSessionsJSONPath = "~/.agent-deck/profiles/default/sessions.json"
+
 // FetchRemoteStorageSnapshot reads the remote's sessions.json to get group structure
 // Returns nil on errors (gracefully degrades to flat structure)
 func FetchRemoteStorageSnapshot(sshExec *tmux.SSHExecutor) *RemoteStorageSnapshot {
 	// Read remote sessions.json
-	output, err := sshExec.RunCommand("cat ~/.agent-deck/profiles/default/sessions.json 2>/dev/null || echo '{}'")
+	output, err := sshExec.RunCommand("cat " + remoteSessionsJSONPath + " 2>/dev/null || echo '{}'")
 	if err != nil {
 		log.Printf("[REMOTE-DISCOVERY] Failed to read remote sessions.json: %v", err)
 		return nil
@@ -624,7 +628,7 @@ func UpdateRemoteSessionCustomLabel(hostID, remoteTmuxName, customLabel string) 
 	}
 
 	// Read current remote sessions.json
-	output, err := sshExec.RunCommand("cat ~/.agent-deck/profiles/default/sessions.json 2>/dev/null || echo '{}'")
+	output, err := sshExec.RunCommand("cat " + remoteSessionsJSONPath + " 2>/dev/null || echo '{}'")
 	if err != nil {
 		return fmt.Errorf("failed to read remote sessions.json: %w", err)
 	}
@@ -666,8 +670,8 @@ func UpdateRemoteSessionCustomLabel(hostID, remoteTmuxName, customLabel string) 
 
 	// Write back to remote using atomic write pattern (temp file + rename)
 	// This matches the local storage safety pattern
-	tempFile := "~/.agent-deck/profiles/default/sessions.json.tmp"
-	targetFile := "~/.agent-deck/profiles/default/sessions.json"
+	tempFile := remoteSessionsJSONPath + ".tmp"
+	targetFile := remoteSessionsJSONPath
 
 	// Escape JSON for shell (use heredoc to avoid quoting issues)
 	writeCmd := fmt.Sprintf("cat > %s << 'AGENTDECK_EOF'\n%s\nAGENTDECK_EOF\n", tempFile, string(jsonData))
