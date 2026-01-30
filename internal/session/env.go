@@ -56,13 +56,15 @@ func (i *Instance) buildEnvSourceCommand() string {
 }
 
 // buildSourceCmd creates a shell command to source a file.
-// If ignoreMissing is true, wraps in a file existence check.
+// If ignoreMissing is true, wraps in a file existence check that always succeeds.
+// Uses POSIX-compliant "." instead of bash-specific "source".
 func buildSourceCmd(path string, ignoreMissing bool) string {
 	if ignoreMissing {
-		// Use [ -f file ] && source file pattern for safe sourcing
-		return fmt.Sprintf(`[ -f "%s" ] && source "%s"`, path, path)
+		// Use [ ! -f file ] || . file pattern: succeeds if file missing OR sources it
+		// This avoids breaking the && chain when file doesn't exist
+		return fmt.Sprintf(`[ ! -f "%s" ] || . "%s"`, path, path)
 	}
-	return fmt.Sprintf(`source "%s"`, path)
+	return fmt.Sprintf(`. "%s"`, path)
 }
 
 // resolveEnvFilePath resolves an env file path.

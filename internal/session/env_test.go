@@ -101,13 +101,13 @@ func TestBuildSourceCmd(t *testing.T) {
 			name:          "ignore missing",
 			path:          "/path/.env",
 			ignoreMissing: true,
-			wantContains:  []string{`[ -f "/path/.env" ]`, `source "/path/.env"`},
+			wantContains:  []string{`[ ! -f "/path/.env" ]`, `. "/path/.env"`},
 		},
 		{
 			name:          "strict mode",
 			path:          "/path/.env",
 			ignoreMissing: false,
-			wantContains:  []string{`source "/path/.env"`},
+			wantContains:  []string{`. "/path/.env"`},
 		},
 	}
 
@@ -207,8 +207,8 @@ func TestBuildEnvSourceCommand_GlobalEnvFiles(t *testing.T) {
 	if !strings.Contains(result, filepath.Join(tempDir, ".secrets")) {
 		t.Errorf("buildEnvSourceCommand() should contain expanded ~/.secrets path, got: %q", result)
 	}
-	// Should use safe [ -f file ] && source pattern
-	if !strings.Contains(result, `[ -f "`) {
+	// Should use safe [ ! -f file ] || . file pattern
+	if !strings.Contains(result, `[ ! -f "`) {
 		t.Errorf("buildEnvSourceCommand() should use safe sourcing pattern, got: %q", result)
 	}
 	// Should end with " && " for chaining with main command
@@ -276,9 +276,9 @@ func TestBuildEnvSourceCommand_InitScript_InlineCommand(t *testing.T) {
 	if !strings.Contains(result, `eval "$(direnv hook bash)"`) {
 		t.Errorf("buildEnvSourceCommand() should contain inline command, got: %q", result)
 	}
-	// Should NOT have source prefix for inline commands
-	if strings.Contains(result, `source "eval`) {
-		t.Errorf("buildEnvSourceCommand() should not wrap inline command in source, got: %q", result)
+	// Should NOT have dot command prefix for inline commands
+	if strings.Contains(result, `. "eval`) {
+		t.Errorf("buildEnvSourceCommand() should not wrap inline command in dot command, got: %q", result)
 	}
 }
 
@@ -415,13 +415,13 @@ func TestBuildEnvSourceCommand_StrictMode(t *testing.T) {
 
 	result := instance.buildEnvSourceCommand()
 
-	// In strict mode, should NOT use [ -f file ] && pattern
-	if strings.Contains(result, `[ -f "`) {
+	// In strict mode, should NOT use [ ! -f file ] || pattern
+	if strings.Contains(result, `[ ! -f "`) {
 		t.Errorf("In strict mode, should not use file existence check, got: %q", result)
 	}
-	// Should just have plain source command
-	if !strings.Contains(result, `source "`) {
-		t.Errorf("In strict mode, should use plain source command, got: %q", result)
+	// Should just have plain dot command (POSIX-compliant)
+	if !strings.Contains(result, `. "`) {
+		t.Errorf("In strict mode, should use plain dot command, got: %q", result)
 	}
 }
 
