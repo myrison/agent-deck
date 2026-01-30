@@ -3,7 +3,7 @@
  *
  * Covers two component-level bugs and one structural rendering concern:
  *
- * 1. "Get Started" button is disabled when no paths are added.
+ * 1. Step 1 "Next" button is disabled when no paths are added.
  *    Clicking it should NOT trigger any Wails backend calls.
  *
  * 2. Pressing Escape dismisses the modal by calling onSkip.
@@ -11,6 +11,10 @@
  * 3. Behavioral test (logic extraction pattern) verifying that both the
  *    selector view and terminal view code paths in App.jsx include the
  *    ScanPathSetupModal when showScanPathSetup is true.
+ *
+ * Note: The modal has a 2-step wizard flow:
+ *   - Step 1: Add project paths (Next button)
+ *   - Step 2: Add SSH hosts (Get Started button)
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -24,11 +28,19 @@ import userEvent from '@testing-library/user-event';
 const mockSetScanPaths = vi.fn();
 const mockSetSetupDismissed = vi.fn();
 const mockBrowseLocalDirectory = vi.fn();
+const mockGetSSHHosts = vi.fn();
+const mockAddSSHHost = vi.fn();
+const mockRemoveSSHHost = vi.fn();
+const mockTestSSHConnection = vi.fn();
 
 vi.mock('../../wailsjs/go/main/App', () => ({
     SetScanPaths: (...args) => mockSetScanPaths(...args),
     SetSetupDismissed: (...args) => mockSetSetupDismissed(...args),
     BrowseLocalDirectory: (...args) => mockBrowseLocalDirectory(...args),
+    GetSSHHosts: (...args) => mockGetSSHHosts(...args),
+    AddSSHHost: (...args) => mockAddSSHHost(...args),
+    RemoveSSHHost: (...args) => mockRemoveSSHHost(...args),
+    TestSSHConnection: (...args) => mockTestSSHConnection(...args),
 }));
 
 vi.mock('../logger', () => ({
@@ -46,6 +58,8 @@ import ScanPathSetupModal from '../ScanPathSetupModal';
 
 beforeEach(() => {
     vi.clearAllMocks();
+    // Default mock for GetSSHHosts - returns empty array
+    mockGetSSHHosts.mockResolvedValue([]);
 });
 
 // ====================================================================
@@ -53,8 +67,8 @@ beforeEach(() => {
 // ====================================================================
 
 describe('ScanPathSetupModal component', () => {
-    describe('Get Started button with no paths', () => {
-        it('renders the button as disabled when no paths are added', () => {
+    describe('Step 1: Navigation', () => {
+        it('renders the Next button on step 1', () => {
             render(
                 <ScanPathSetupModal
                     onComplete={vi.fn()}
@@ -62,11 +76,11 @@ describe('ScanPathSetupModal component', () => {
                 />
             );
 
-            const btn = screen.getByRole('button', { name: /get started/i });
-            expect(btn).toBeDisabled();
+            const btn = screen.getByRole('button', { name: /^next$/i });
+            expect(btn).toBeInTheDocument();
         });
 
-        it('clicking disabled Get Started does not call any Wails functions', async () => {
+        it('clicking Next without paths advances to step 2 without saving', async () => {
             const user = userEvent.setup();
             const onComplete = vi.fn();
 
@@ -77,12 +91,15 @@ describe('ScanPathSetupModal component', () => {
                 />
             );
 
-            const btn = screen.getByRole('button', { name: /get started/i });
+            const btn = screen.getByRole('button', { name: /^next$/i });
             await user.click(btn);
 
+            // Should not save paths or complete yet - just advance to step 2
             expect(mockSetScanPaths).not.toHaveBeenCalled();
-            expect(mockSetSetupDismissed).not.toHaveBeenCalled();
             expect(onComplete).not.toHaveBeenCalled();
+
+            // Should now be on step 2 with "Get Started" button visible
+            expect(screen.getByRole('button', { name: /get started/i })).toBeInTheDocument();
         });
     });
 

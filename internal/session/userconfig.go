@@ -1658,8 +1658,11 @@ func ValidateSSHHostID(hostID string) string {
 	}
 	// TOML keys must be alphanumeric with underscores/hyphens
 	for _, c := range hostID {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '_' || c == '-') {
+		isLower := c >= 'a' && c <= 'z'
+		isUpper := c >= 'A' && c <= 'Z'
+		isDigit := c >= '0' && c <= '9'
+		isAllowed := c == '_' || c == '-'
+		if !isLower && !isUpper && !isDigit && !isAllowed {
 			return "Host ID can only contain letters, numbers, underscores, and hyphens"
 		}
 	}
