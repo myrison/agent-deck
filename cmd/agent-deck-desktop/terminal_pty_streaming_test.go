@@ -462,6 +462,19 @@ func TestStripDeviceAttributes_PreservesOtherEscapes(t *testing.T) {
 	assert.Equal(t, input, result, "should preserve color escape codes")
 }
 
+// TestStripDeviceAttributes_DAOnly verifies input containing only DA sequences returns empty
+func TestStripDeviceAttributes_DAOnly(t *testing.T) {
+	// Input is ONLY the DA sequence - should return empty string
+	input := "\x1b[?1;2c"
+	result := stripDeviceAttributes(input)
+	assert.Equal(t, "", result, "DA-only input should return empty string")
+
+	// Multiple DA sequences only
+	input = "\x1b[?1;2c\x1b[>0;276;0c"
+	result = stripDeviceAttributes(input)
+	assert.Equal(t, "", result, "multiple DA sequences only should return empty string")
+}
+
 // ============================================================
 // sanitizeHistoryForXterm() Tests
 // ============================================================
