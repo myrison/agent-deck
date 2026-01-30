@@ -208,7 +208,7 @@ type PreviewSettings struct {
 	ShowOutput *bool `toml:"show_output"`
 
 	// ShowAnalytics shows session analytics panel for Claude sessions
-	// Default: true (pointer to distinguish "not set" from "explicitly false")
+	// Default: false (pointer to distinguish "not set" from "explicitly false")
 	ShowAnalytics *bool `toml:"show_analytics"`
 
 	// Analytics configures which sections to show in the analytics panel
@@ -266,10 +266,10 @@ type InstanceSettings struct {
 	AllowMultiple bool `toml:"allow_multiple"`
 }
 
-// GetShowAnalytics returns whether to show analytics, defaulting to true
+// GetShowAnalytics returns whether to show analytics, defaulting to false
 func (p *PreviewSettings) GetShowAnalytics() bool {
 	if p.ShowAnalytics == nil {
-		return true // Default: analytics ON
+		return false // Default: analytics OFF (opt-in)
 	}
 	return *p.ShowAnalytics
 }
@@ -332,7 +332,7 @@ func (c *UserConfig) GetShowOutput() bool {
 	return c.Preview.GetShowOutput()
 }
 
-// GetShowAnalytics returns whether to show analytics panel, defaulting to true
+// GetShowAnalytics returns whether to show analytics panel, defaulting to false
 func (c *UserConfig) GetShowAnalytics() bool {
 	return c.Preview.GetShowAnalytics()
 }
