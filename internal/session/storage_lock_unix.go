@@ -11,6 +11,9 @@ import (
 // fileLock provides cross-process file locking using flock (Unix only).
 // This prevents race conditions when multiple agent-deck processes
 // (e.g., parallel spawn-worker.sh calls) read/modify/write sessions.json.
+//
+// LOCK ORDERING: This lock MUST be acquired BEFORE the Storage.mu mutex.
+// See Storage struct documentation in storage.go for detailed lock ordering rules.
 type fileLock struct {
 	path string
 }

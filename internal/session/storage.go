@@ -120,6 +120,36 @@ type GroupData struct {
 // Storage handles persistence of session data
 // Thread-safe with mutex protection for concurrent access within a process,
 // and file locking for cross-process safety (multiple agent-deck instances).
+//
+// ═══════════════════════════════════════════════════════════════════
+// LOCK ORDERING RULES (CRITICAL - PREVENTS DEADLOCKS)
+// ═══════════════════════════════════════════════════════════════════
+//
+// ALL methods that acquire locks MUST follow this strict ordering:
+//
+//   1. fileLock.Lock()  (cross-process file lock - acquired FIRST)
+//   2. s.mu.Lock()      (in-process mutex - acquired SECOND)
+//
+// This ordering is enforced in:
+//   - SaveWithGroups()
+//   - SaveStorageData()
+//   - LoadWithGroups()
+//   - LoadStorageData()
+//   - GetUpdatedAt()
+//
+// WHY THIS ORDER MATTERS:
+// - If process A holds fileLock and waits for mutex, while process B
+//   holds mutex and waits for fileLock, both processes deadlock forever.
+// - The codebase has a history of 15+ race condition fixes; maintaining
+//   consistent lock ordering is critical for multi-process safety.
+// - Recent deadlock fix (PR #99) confirmed this is an active threat.
+//
+// MAINTENANCE GUIDELINES:
+// - NEVER acquire mutex before fileLock
+// - NEVER re-enter locked methods while holding locks
+// - ALWAYS use defer to ensure unlock on all return paths
+// - When adding new methods, follow the same pattern shown in SaveWithGroups()
+// ═══════════════════════════════════════════════════════════════════
 type Storage struct {
 	path     string
 	profile  string     // The profile this storage is for
@@ -215,7 +245,11 @@ func (s *Storage) Save(instances []*Instance) error {
 // - fsync for durability
 // - Data validation
 func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) error {
-	// Acquire cross-process lock first (prevents race conditions between processes)
+	// ═══════════════════════════════════════════════════════════════════
+	// LOCK ORDER: Step 1 - Acquire cross-process file lock FIRST
+	// ═══════════════════════════════════════════════════════════════════
+	// This MUST be acquired before the mutex to prevent deadlocks.
+	// See Storage struct documentation for detailed lock ordering rules.
 	// Skip if fileLock is nil (e.g., in tests that create Storage directly)
 	if s.fileLock != nil {
 		handle, err := s.fileLock.Lock()
@@ -225,6 +259,9 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 		defer func() { _ = handle.Unlock() }()
 	}
 
+	// ═══════════════════════════════════════════════════════════════════
+	// LOCK ORDER: Step 2 - Acquire in-process mutex SECOND
+	// ═══════════════════════════════════════════════════════════════════
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
