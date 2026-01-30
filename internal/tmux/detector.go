@@ -1,8 +1,20 @@
 package tmux
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
 )
+
+// contextPercentPattern matches Claude Code's context usage percentage in the status bar.
+// Examples:
+//   - "88% of auto-compact limit"
+//   - "88% (of auto-compact limit)"
+//   - "65% of auto-compact"
+//
+// The pattern captures the percentage (1-3 digits) followed by "%" and then
+// optionally "(of" or just "of" followed by "auto-compact" (with optional hyphen).
+var contextPercentPattern = regexp.MustCompile(`(\d{1,3})%\s*(?:\(of\s+|of\s+)?auto-?compact`)
 
 // SessionState represents the detected state of a session
 type SessionState string
@@ -343,6 +355,58 @@ func (d *PromptDetector) hasShellPrompt(content string) bool {
 	}
 
 	return false
+}
+
+// =============================================================================
+// Context Percentage Extraction
+// =============================================================================
+
+// ExtractContextPercent parses Claude Code's status bar for the context usage percentage.
+// Returns a pointer to the percentage (0-100) if found, or nil if not found.
+//
+// This is used to display a context meter in the desktop app showing how much
+// of the auto-compact context limit has been used.
+//
+// The function looks for patterns like:
+//   - "88% of auto-compact limit"
+//   - "88% (of auto-compact limit)"
+//
+// These appear in Claude Code's status bar at the bottom of the terminal.
+func ExtractContextPercent(content string) *int {
+	if content == "" {
+		return nil
+	}
+
+	// The status bar is typically in the last few lines
+	// Get last 8 lines to ensure we capture it
+	lines := strings.Split(content, "\n")
+	start := len(lines) - 8
+	if start < 0 {
+		start = 0
+	}
+	lastLines := strings.Join(lines[start:], "\n")
+
+	// Strip ANSI codes from the content for cleaner matching
+	cleanContent := StripANSI(lastLines)
+
+	// Look for the context percentage pattern
+	matches := contextPercentPattern.FindStringSubmatch(cleanContent)
+	if len(matches) < 2 {
+		return nil
+	}
+
+	// Parse the percentage
+	pct, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+
+	// Validate range (0-100%)
+	if pct < 0 || pct > 100 {
+		return nil
+	}
+
+	return &pct
 }
 
 // =============================================================================

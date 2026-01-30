@@ -500,7 +500,7 @@ func (tm *TmuxManager) convertInstancesToSessionInfos(instances []*session.Insta
 	}
 
 	// Phase 2: Detect statuses in parallel (bounded concurrency)
-	detectedStatuses := tm.detectStatusesParallel(sessionsToDetect)
+	detectedResults := tm.detectStatusesParallel(sessionsToDetect)
 
 	// Phase 3: Build result with detected statuses
 	result := make([]SessionInfo, 0, len(instances))
@@ -520,12 +520,12 @@ func (tm *TmuxManager) convertInstancesToSessionInfos(instances []*session.Insta
 			status = "exited"
 		} else if !isRemote && exists {
 			// Use pre-detected status from parallel detection
-			if detectedStatus, ok := detectedStatuses[inst.TmuxSession]; ok {
-				if detectedStatus != string(inst.Status) {
-					status = detectedStatus
-					updates[inst.ID] = session.FieldUpdate{Status: &detectedStatus}
+			if detected, ok := detectedResults[inst.TmuxSession]; ok {
+				if detected.status != string(inst.Status) {
+					status = detected.status
+					updates[inst.ID] = session.FieldUpdate{Status: &detected.status}
 				} else {
-					status = detectedStatus
+					status = detected.status
 				}
 			}
 		}
@@ -614,10 +614,17 @@ type sessionToDetect struct {
 	instance    *session.InstanceData // For file-based activity detection
 }
 
+// detectionResult holds the result of status detection for a session.
+type detectionResult struct {
+	status     string
+	contextPct *int // Claude context usage percentage (nil if not available/applicable)
+}
+
 // detectStatusesParallel detects status for multiple sessions in parallel.
 // Uses a bounded worker pool to limit concurrent tmux subprocess spawning.
 // Tries file-based detection first (for Claude/Gemini), falling back to visual detection.
-func (tm *TmuxManager) detectStatusesParallel(sessions []sessionToDetect) map[string]string {
+// Also extracts context percentage for Claude sessions.
+func (tm *TmuxManager) detectStatusesParallel(sessions []sessionToDetect) map[string]detectionResult {
 	if len(sessions) == 0 {
 		return nil
 	}
@@ -627,7 +634,7 @@ func (tm *TmuxManager) detectStatusesParallel(sessions []sessionToDetect) map[st
 	dsm := NewDesktopSettingsManager()
 	fileBasedEnabled, _ := dsm.GetFileBasedActivityDetection()
 
-	results := make(map[string]string)
+	results := make(map[string]detectionResult)
 	resultsMu := sync.Mutex{}
 
 	// Use a semaphore (buffered channel) to limit concurrency
@@ -643,11 +650,19 @@ func (tm *TmuxManager) detectStatusesParallel(sessions []sessionToDetect) map[st
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
+			var result detectionResult
+
 			// Try file-based detection first (for Claude/Gemini)
 			if s.instance != nil {
 				if status, ok := tm.detectSessionStatusViaFile(s.instance, fileEnabled); ok {
+					result.status = status
+					// For Claude sessions, we still need pane content for context percentage
+					// even if file-based status detection succeeded
+					if s.tool == "claude" {
+						result.contextPct = tm.extractContextPctFromPane(s.tmuxSession)
+					}
 					resultsMu.Lock()
-					results[s.tmuxSession] = status
+					results[s.tmuxSession] = result
 					resultsMu.Unlock()
 					return
 				}
@@ -656,8 +671,13 @@ func (tm *TmuxManager) detectStatusesParallel(sessions []sessionToDetect) map[st
 			// Fall back to visual detection (terminal output parsing)
 			status, ok := tm.detectSessionStatus(s.tmuxSession, s.tool)
 			if ok {
+				result.status = status
+				// For Claude sessions, extract context percentage from pane content
+				if s.tool == "claude" {
+					result.contextPct = tm.extractContextPctFromPane(s.tmuxSession)
+				}
 				resultsMu.Lock()
-				results[s.tmuxSession] = status
+				results[s.tmuxSession] = result
 				resultsMu.Unlock()
 			}
 		}(sess, fileBasedEnabled)
@@ -665,6 +685,18 @@ func (tm *TmuxManager) detectStatusesParallel(sessions []sessionToDetect) map[st
 
 	wg.Wait()
 	return results
+}
+
+// extractContextPctFromPane captures tmux pane content and extracts Claude's context percentage.
+// Returns nil if not found or on error.
+func (tm *TmuxManager) extractContextPctFromPane(tmuxSession string) *int {
+	// Capture pane content (last 50 lines should include status bar)
+	cmd := exec.Command("tmux", "capture-pane", "-t", tmuxSession, "-p", "-S", "-50")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	return tmux.ExtractContextPercent(string(output))
 }
 
 // ListSessions returns all Agent Deck sessions from sessions.json.
@@ -1480,6 +1512,7 @@ type StatusUpdate struct {
 	ID           string    `json:"id"`
 	Status       string    `json:"status"`
 	WaitingSince time.Time `json:"waitingSince,omitempty"`
+	ContextPct   *int      `json:"contextPct,omitempty"` // Claude context usage percentage (0-100), nil if not available
 }
 
 // RefreshSessionStatuses detects the current status for the specified session IDs.
@@ -1530,7 +1563,7 @@ func (tm *TmuxManager) RefreshSessionStatuses(sessionIDs []string) ([]StatusUpda
 	}
 
 	// Phase 2: Detect statuses in parallel (bounded concurrency)
-	detectedStatuses := tm.detectStatusesParallel(sessionsToDetect)
+	detectedResults := tm.detectStatusesParallel(sessionsToDetect)
 
 	// Phase 3: Build result with detected statuses
 	result := make([]StatusUpdate, 0, len(sessionIDs))
@@ -1548,19 +1581,22 @@ func (tm *TmuxManager) RefreshSessionStatuses(sessionIDs []string) ([]StatusUpda
 		// Determine effective status
 		status := string(inst.Status)
 		waitingSince := inst.WaitingSince
+		var contextPct *int
 
 		if !isRemote && !exists {
 			// Local session without running tmux is "exited"
 			status = "exited"
 		} else if !isRemote && exists {
 			// Use pre-detected status from parallel detection
-			if detectedStatus, ok := detectedStatuses[inst.TmuxSession]; ok {
-				if detectedStatus != string(inst.Status) {
-					status = detectedStatus
-					updates[inst.ID] = session.FieldUpdate{Status: &detectedStatus}
+			if detected, ok := detectedResults[inst.TmuxSession]; ok {
+				if detected.status != string(inst.Status) {
+					status = detected.status
+					updates[inst.ID] = session.FieldUpdate{Status: &detected.status}
 				} else {
-					status = detectedStatus
+					status = detected.status
 				}
+				// Pass through context percentage for Claude sessions
+				contextPct = detected.contextPct
 			}
 		}
 		// For remote sessions, keep stored status (can't capture pane remotely)
@@ -1572,6 +1608,7 @@ func (tm *TmuxManager) RefreshSessionStatuses(sessionIDs []string) ([]StatusUpda
 			ID:           inst.ID,
 			Status:       status,
 			WaitingSince: waitingSince,
+			ContextPct:   contextPct,
 		})
 	}
 

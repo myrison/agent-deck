@@ -710,6 +710,29 @@ func (a *App) SetFileBasedActivityDetection(enabled bool) error {
 	return a.desktopSettings.SetFileBasedActivityDetection(enabled)
 }
 
+// GetShowContextMeter returns whether the context meter is enabled on Claude tabs.
+// The context meter shows a thin progress bar below each Claude tab indicating
+// auto-compact usage percentage. Enabled by default.
+func (a *App) GetShowContextMeter() bool {
+	enabled, err := a.desktopSettings.GetShowContextMeter()
+	if err != nil {
+		return true // Default to enabled
+	}
+	return enabled
+}
+
+// SetShowContextMeter enables or disables the context meter on Claude tabs.
+// Emits a 'settings:contextMeter' event so the UI updates immediately.
+func (a *App) SetShowContextMeter(enabled bool) error {
+	err := a.desktopSettings.SetShowContextMeter(enabled)
+	if err != nil {
+		return err
+	}
+	// Emit event so tabs update without requiring refresh
+	wailsRuntime.EventsEmit(a.ctx, "settings:contextMeter", enabled)
+	return nil
+}
+
 // ==================== SSH Remote Session Methods ====================
 
 // TestSSHConnection tests if a remote host is reachable.

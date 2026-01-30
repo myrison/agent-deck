@@ -29,6 +29,7 @@ export default function UnifiedTopBar({
     onTabLabelUpdated,
     onSessionDeleted,
     showActivityRibbon = true,
+    showContextMeter = true,
 }) {
     const [favorites, setFavorites] = useState([]);
     const [contextMenu, setContextMenu] = useState(null);
@@ -379,6 +380,7 @@ export default function UnifiedTopBar({
             onDragOver={(e) => handleTabDragOver(e, tab)}
             onDrop={handleTabDrop}
             showActivityRibbon={showActivityRibbon}
+            showContextMeter={showContextMeter}
         />
     );
 

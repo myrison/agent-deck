@@ -23,7 +23,7 @@ import HostPicker, { LOCAL_HOST_ID } from './HostPicker';
 import DeleteSessionDialog from './DeleteSessionDialog';
 import Toast from './Toast';
 import { BranchIcon } from './ToolIcon';
-import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames, DeleteSession, OpenNewWindow, GetOpenTabState, SaveOpenTabState, HasScanPaths, GetSetupDismissed, GetShowActivityRibbon, RefreshSessionStatuses } from '../wailsjs/go/main/App';
+import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames, DeleteSession, OpenNewWindow, GetOpenTabState, SaveOpenTabState, HasScanPaths, GetSetupDismissed, GetShowActivityRibbon, GetShowContextMeter, RefreshSessionStatuses } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE } from './constants/terminal';
 import { shouldInterceptShortcut, hasAppModifier } from './utils/platform';
@@ -110,6 +110,7 @@ function App() {
     const [fontSize, setFontSizeState] = useState(DEFAULT_FONT_SIZE);
     const [scrollSpeed, setScrollSpeedState] = useState(100); // Default 100%
     const [showActivityRibbon, setShowActivityRibbon] = useState(true); // Activity ribbon on tabs (default enabled)
+    const [showContextMeter, setShowContextMeter] = useState(true); // Context meter on Claude tabs (default enabled)
     // Move mode - when true, shows pane numbers for session swap
     const [moveMode, setMoveMode] = useState(false);
     // Saved layouts
@@ -266,6 +267,18 @@ function App() {
             }
         };
         loadActivityRibbon();
+
+        // Load context meter preference
+        const loadContextMeter = async () => {
+            try {
+                const enabled = await GetShowContextMeter();
+                setShowContextMeter(enabled);
+                logger.info('Loaded context meter setting', { enabled });
+            } catch (err) {
+                logger.error('Failed to load context meter setting:', err);
+            }
+        };
+        loadContextMeter();
 
         // Load saved layouts
         const loadSavedLayouts = async () => {
@@ -427,6 +440,16 @@ function App() {
         return () => EventsOff('settings:activityRibbon', handler);
     }, []);
 
+    // Listen for context meter setting changes from Settings modal
+    useEffect(() => {
+        const handler = (enabled) => {
+            logger.info('Context meter setting changed', { enabled });
+            setShowContextMeter(enabled);
+        };
+        EventsOn('settings:contextMeter', handler);
+        return () => EventsOff('settings:contextMeter', handler);
+    }, []);
+
     // Ref to track current openTabs without causing useEffect re-runs
     const openTabsRef = useRef(openTabs);
     useEffect(() => {
@@ -479,7 +502,7 @@ function App() {
             isPolling = true;
             try {
                 const updates = await RefreshSessionStatuses(Array.from(sessionIds));
-                logger.info('Got status updates', { count: updates?.length || 0, updates: updates?.map(u => ({ id: u.id?.slice(-8), status: u.status, waitingSince: u.waitingSince })) });
+                logger.info('Got status updates', { count: updates?.length || 0, updates: updates?.map(u => ({ id: u.id?.slice(-8), status: u.status, waitingSince: u.waitingSince, contextPct: u.contextPct })) });
                 if (updates && updates.length > 0) {
                     // Update session state with new statuses
                     setSessions(prevSessions => {
@@ -487,9 +510,9 @@ function App() {
                         let hasChanges = false;
                         const newSessions = prevSessions.map(session => {
                             const update = updateMap.get(session.id);
-                            if (update && (session.status !== update.status || session.waitingSince !== update.waitingSince)) {
+                            if (update && (session.status !== update.status || session.waitingSince !== update.waitingSince || session.contextPct !== update.contextPct)) {
                                 hasChanges = true;
-                                return { ...session, status: update.status, waitingSince: update.waitingSince };
+                                return { ...session, status: update.status, waitingSince: update.waitingSince, contextPct: update.contextPct };
                             }
                             return session;
                         });
@@ -2153,6 +2176,7 @@ function App() {
                         onTabLabelUpdated={handleTabLabelUpdated}
                         onSessionDeleted={handleSessionDeleted}
                         showActivityRibbon={showActivityRibbon}
+                        showContextMeter={showContextMeter}
                     />
                 )}
                 <SessionSelector
@@ -2317,6 +2341,7 @@ function App() {
                     onTabLabelUpdated={handleTabLabelUpdated}
                     onSessionDeleted={handleSessionDeleted}
                     showActivityRibbon={showActivityRibbon}
+                    showContextMeter={showContextMeter}
                 />
             )}
             <div className="terminal-header">
