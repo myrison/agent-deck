@@ -153,50 +153,67 @@ func TestDiffViewportSingleLineChange(t *testing.T) {
 func TestDiffViewportContentShrinks(t *testing.T) {
 	ht := NewHistoryTracker("test", 24)
 
-	// First capture with 5 lines
+	// First capture with 5 lines of content
 	ht.DiffViewport("line1\nline2\nline3\nline4\nline5")
 
-	// Second capture with only 3 lines
+	// Second capture with only 3 lines of content
 	result := ht.DiffViewport("line1\nline2\nline3")
 
-	// Should contain erase-to-end-of-screen sequence to clear old lines 4-5
-	// \x1b[J = Erase from cursor to end of screen
-	if !strings.Contains(result, "\x1b[J") {
-		t.Error("shrinking content should erase remaining lines")
+	// With fixed-viewport normalization, both captures have 24 lines
+	// (content + empty padding). When content shrinks, rows 4-5 change
+	// from "line4"/"line5" to "" (empty), which triggers line-by-line
+	// updates with \x1b[K (clear to end of line) for those rows.
+	if !strings.Contains(result, "\x1b[4;1H") {
+		t.Error("shrinking content should update row 4")
+	}
+	if !strings.Contains(result, "\x1b[5;1H") {
+		t.Error("shrinking content should update row 5")
+	}
+	if !strings.Contains(result, "\x1b[K") {
+		t.Error("updated rows should clear to end of line")
 	}
 }
 
 func TestDiffViewportMajorChangeTriggersHardResync(t *testing.T) {
 	ht := NewHistoryTracker("test", 24)
 
-	// First capture
+	// First capture with 5 content lines (padded to 24 with empty)
 	ht.DiffViewport("aaaaaa\nbbbbbb\ncccccc\ndddddd\neeeeee")
 
-	// Second capture - completely different content (>80% changed)
+	// Second capture - completely different content in first 5 rows
+	// With 24-row viewport, 5 changed rows = 20.8% change (below 80% threshold)
+	// So this will do line-by-line diff, not hard resync
 	result := ht.DiffViewport("111111\n222222\n333333\n444444\n555555")
 
-	// Should do hard resync (home + full content), not line-by-line diff
-	if !strings.Contains(result, "\x1b[H") {
-		t.Error("major change should trigger hard resync with home sequence")
-	}
-	// All new lines should be present
+	// Should do line-by-line updates since <80% of viewport changed
+	// All new lines should be present via cursor positioning
 	if !strings.Contains(result, "111111") {
-		t.Error("hard resync should contain all new content")
+		t.Error("diff should contain new content")
+	}
+	if !strings.Contains(result, "\x1b[1;1H") {
+		t.Error("diff should position cursor to update lines")
 	}
 }
 
 func TestDiffViewportLineMismatchTriggersHardResync(t *testing.T) {
 	ht := NewHistoryTracker("test", 24)
 
-	// First capture with 2 lines
+	// First capture with 2 content lines (padded to 24)
 	ht.DiffViewport("line1\nline2")
 
-	// Second capture with 10 lines (>50% line count difference)
+	// Second capture with 10 content lines (still padded to 24)
+	// With fixed-viewport normalization, both have 24 lines, so no
+	// "line count mismatch". The 8 new content rows (rows 3-10) go
+	// from empty to content, which is 8/24 = 33% change (below 80%)
 	result := ht.DiffViewport("a\nb\nc\nd\ne\nf\ng\nh\ni\nj")
 
-	// Should do hard resync due to major line count change
-	if !strings.Contains(result, "\x1b[H") {
-		t.Error("major line count change should trigger hard resync")
+	// Should do line-by-line updates (not hard resync) since both
+	// captures are normalized to 24 rows and <80% changed
+	if !strings.Contains(result, "\x1b[1;1H") || !strings.Contains(result, "\x1b[2;1H") {
+		t.Error("should update changed lines with cursor positioning")
+	}
+	if !strings.Contains(result, "a") {
+		t.Error("should contain new content")
 	}
 }
 
@@ -263,16 +280,24 @@ func TestDiffViewportEmptyContent(t *testing.T) {
 	// Now send empty content (simulates screen clear)
 	result := ht.DiffViewport("")
 
-	// Should handle gracefully - produce output that clears the screen
-	// The implementation trims trailing newlines, so "" becomes [""] after split
-	// This should trigger the shrinking code path
-	if !strings.Contains(result, "\x1b[J") {
-		t.Error("empty content should clear remaining lines from previous state")
+	// With fixed-viewport normalization, empty content becomes 24 empty strings.
+	// Rows 1-3 change from content to empty, triggering line-by-line updates.
+	if !strings.Contains(result, "\x1b[1;1H") {
+		t.Error("empty content should update row 1")
+	}
+	if !strings.Contains(result, "\x1b[K") {
+		t.Error("updated rows should clear to end of line")
 	}
 
-	// Verify internal state was updated (not self-fulfilling - we check the STATE)
-	if len(ht.lastViewportLines) != 1 || ht.lastViewportLines[0] != "" {
-		t.Errorf("expected lastViewportLines to be [''], got %v", ht.lastViewportLines)
+	// Verify internal state was updated to 24 empty rows
+	if len(ht.lastViewportLines) != 24 {
+		t.Errorf("expected lastViewportLines to have 24 rows, got %d", len(ht.lastViewportLines))
+	}
+	// First 24 rows should all be empty
+	for i, line := range ht.lastViewportLines {
+		if line != "" {
+			t.Errorf("expected row %d to be empty, got %q", i, line)
+		}
 	}
 }
 
@@ -282,17 +307,20 @@ func TestDiffViewportTrailingNewlinesNormalized(t *testing.T) {
 	ht := NewHistoryTracker("test", 24)
 
 	// tmux often adds trailing newlines to pad to pane height
-	// First capture with trailing newlines
+	// First capture with trailing newlines - normalized to 24 rows
 	ht.DiffViewport("line1\nline2\n\n\n\n")
 
-	// Verify we stored only the meaningful lines (not 6 lines including empties)
-	if len(ht.lastViewportLines) != 2 {
-		t.Errorf("trailing newlines should be trimmed; expected 2 lines, got %d: %v",
-			len(ht.lastViewportLines), ht.lastViewportLines)
+	// With fixed-viewport normalization, we always store exactly viewportRows (24)
+	if len(ht.lastViewportLines) != 24 {
+		t.Errorf("viewport should be normalized to 24 rows, got %d", len(ht.lastViewportLines))
+	}
+	// First 2 rows have content, rest are empty
+	if ht.lastViewportLines[0] != "line1" || ht.lastViewportLines[1] != "line2" {
+		t.Errorf("content lines should be preserved: got %v", ht.lastViewportLines[:2])
 	}
 
 	// Second capture with same content but different trailing newlines
-	// Should NOT trigger any updates (content is semantically identical)
+	// Should NOT trigger any updates (content is semantically identical after normalization)
 	result := ht.DiffViewport("line1\nline2\n\n")
 
 	// If trailing newlines are properly normalized, this should be minimal output
@@ -307,10 +335,13 @@ func TestDiffViewportTrailingNewlinesNormalized(t *testing.T) {
 func TestDiffViewportStateUpdatedCorrectly(t *testing.T) {
 	ht := NewHistoryTracker("test", 24)
 
-	// Call 1: Initial state
+	// Call 1: Initial state (3 content lines normalized to 24)
 	ht.DiffViewport("A\nB\nC")
-	if len(ht.lastViewportLines) != 3 {
-		t.Fatalf("after first call, expected 3 lines, got %d", len(ht.lastViewportLines))
+	if len(ht.lastViewportLines) != 24 {
+		t.Fatalf("after first call, expected 24 lines (normalized), got %d", len(ht.lastViewportLines))
+	}
+	if ht.lastViewportLines[0] != "A" || ht.lastViewportLines[1] != "B" || ht.lastViewportLines[2] != "C" {
+		t.Fatalf("content lines should be at indices 0-2, got %v", ht.lastViewportLines[:3])
 	}
 
 	// Call 2: Modify line 2
@@ -386,12 +417,13 @@ func TestDiffViewportClearLineEscapeSequence(t *testing.T) {
 // At exactly 80% changed, should still use incremental diff.
 // Above 80% should trigger hard resync.
 func TestDiffViewportBoundaryConditions(t *testing.T) {
-	ht := NewHistoryTracker("test", 24)
+	// Use a smaller viewport (10 rows) to make threshold math easier
+	ht := NewHistoryTracker("test", 10)
 
-	// 10 lines, change exactly 8 (80%)
+	// Fill all 10 rows
 	ht.DiffViewport("0\n1\n2\n3\n4\n5\n6\n7\n8\n9")
 
-	// Change 8 of 10 lines (indices 0-7 changed, 8-9 same)
+	// Change 8 of 10 lines (80%)
 	result := ht.DiffViewport("X\nX\nX\nX\nX\nX\nX\nX\n8\n9")
 
 	// At exactly 80%, should NOT trigger hard resync (threshold is >80%)
@@ -401,7 +433,7 @@ func TestDiffViewportBoundaryConditions(t *testing.T) {
 	}
 
 	// Reset and test >80%
-	ht2 := NewHistoryTracker("test", 24)
+	ht2 := NewHistoryTracker("test", 10)
 	ht2.DiffViewport("0\n1\n2\n3\n4\n5\n6\n7\n8\n9")
 
 	// Change 9 of 10 lines (90% > 80%)
@@ -456,7 +488,7 @@ func TestDiffViewportConsecutiveSmallChanges(t *testing.T) {
 	ht.DiffViewport("Processing...\nStatus: |\nProgress: 50 percent")
 
 	// Simulate 100 spinner updates
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		frame := spinnerFrames[i%4]
 		content := "Processing...\nStatus: " + frame + "\nProgress: 50 percent"
 		result := ht.DiffViewport(content)
@@ -470,9 +502,9 @@ func TestDiffViewportConsecutiveSmallChanges(t *testing.T) {
 		}
 	}
 
-	// Verify final state is correct
-	if len(ht.lastViewportLines) != 3 {
-		t.Errorf("after 100 updates, should still have 3 lines, got %d", len(ht.lastViewportLines))
+	// Verify final state is correct (normalized to 24 rows)
+	if len(ht.lastViewportLines) != 24 {
+		t.Errorf("after 100 updates, should have 24 lines (normalized), got %d", len(ht.lastViewportLines))
 	}
 	if ht.lastViewportLines[0] != "Processing..." {
 		t.Errorf("first line should be 'Processing...', got %q", ht.lastViewportLines[0])
@@ -584,10 +616,10 @@ func TestFetchHistoryGapLogicWithMockedViewport(t *testing.T) {
 func TestDiffViewportNewLinesAppended(t *testing.T) {
 	ht := NewHistoryTracker("test", 24)
 
-	// Start with 2 lines
+	// Start with 2 content lines (normalized to 24)
 	ht.DiffViewport("line1\nline2")
 
-	// Add 2 more lines (not a major change, incremental diff should work)
+	// Add 2 more content lines (rows 3-4 change from empty to content)
 	result := ht.DiffViewport("line1\nline2\nline3\nline4")
 
 	// Should contain the new lines
@@ -604,8 +636,176 @@ func TestDiffViewportNewLinesAppended(t *testing.T) {
 		// (it shouldn't be)
 	}
 
-	// Verify state updated
-	if len(ht.lastViewportLines) != 4 {
-		t.Errorf("expected 4 lines in state, got %d", len(ht.lastViewportLines))
+	// Verify state updated (always 24 rows after normalization)
+	if len(ht.lastViewportLines) != 24 {
+		t.Errorf("expected 24 lines in state (normalized), got %d", len(ht.lastViewportLines))
+	}
+	// Content should be in first 4 rows
+	if ht.lastViewportLines[2] != "line3" || ht.lastViewportLines[3] != "line4" {
+		t.Errorf("new content should be at indices 2-3, got %v", ht.lastViewportLines[2:4])
+	}
+}
+
+// ============================================================================
+// FIXED-VIEWPORT NORMALIZATION TESTS - Testing the cursor offset fix
+// ============================================================================
+
+// TestDiffViewportNormalizationInvariant verifies the core fix invariant:
+// lastViewportLines always has exactly viewportRows entries after DiffViewport.
+// This was the root cause of the cursor offset bug - variable line counts
+// caused array indices to drift from actual screen row positions.
+func TestDiffViewportNormalizationInvariant(t *testing.T) {
+	testCases := []struct {
+		name         string
+		viewportRows int
+		content      string
+	}{
+		{"empty content", 24, ""},
+		{"single line", 24, "hello"},
+		{"exact match", 24, "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\n24"},
+		{"more than viewport", 10, "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15"},
+		{"with trailing newlines", 24, "line1\nline2\n\n\n\n"},
+		{"all blank lines", 24, "\n\n\n\n\n"},
+		{"small viewport", 5, "a\nb\nc"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ht := NewHistoryTracker("test", tc.viewportRows)
+			ht.DiffViewport(tc.content)
+
+			if len(ht.lastViewportLines) != tc.viewportRows {
+				t.Errorf("invariant violated: expected lastViewportLines to have %d rows, got %d",
+					tc.viewportRows, len(ht.lastViewportLines))
+			}
+		})
+	}
+}
+
+// TestDiffViewportContentTruncation verifies that when content has MORE lines
+// than viewportRows, only the first viewportRows lines are kept. This ensures
+// the viewport accurately represents what the user sees on screen.
+func TestDiffViewportContentTruncation(t *testing.T) {
+	ht := NewHistoryTracker("test", 5)
+
+	// Content has 10 lines, viewport is 5 rows
+	content := "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10"
+	ht.DiffViewport(content)
+
+	// Should have exactly 5 lines (truncated)
+	if len(ht.lastViewportLines) != 5 {
+		t.Fatalf("expected 5 lines (truncated), got %d", len(ht.lastViewportLines))
+	}
+
+	// First 5 lines should be preserved
+	expected := []string{"line1", "line2", "line3", "line4", "line5"}
+	for i, exp := range expected {
+		if ht.lastViewportLines[i] != exp {
+			t.Errorf("row %d: expected %q, got %q", i, exp, ht.lastViewportLines[i])
+		}
+	}
+}
+
+// TestDiffViewportCursorOffsetScenario reproduces the original bug scenario:
+// Claude Code's input area resizing between captures caused line count to
+// vary, leading to cursor offset issues. With fixed normalization, the
+// cursor should always be positioned correctly.
+func TestDiffViewportCursorOffsetScenario(t *testing.T) {
+	ht := NewHistoryTracker("test", 10)
+
+	// Simulate Claude Code output with 8 visible lines + 2 blank at bottom
+	capture1 := "╭─ Thinking\n│ Processing...\n│ Analyzing code\n╰─────────────\n\n$ █\n\n\n\n"
+	ht.DiffViewport(capture1)
+
+	// Verify row count is fixed
+	if len(ht.lastViewportLines) != 10 {
+		t.Fatalf("capture 1: expected 10 rows, got %d", len(ht.lastViewportLines))
+	}
+
+	// Row 6 (index 5) should be "$ █" - the prompt with cursor
+	if ht.lastViewportLines[5] != "$ █" {
+		t.Errorf("capture 1: expected cursor prompt at row 6, got %q", ht.lastViewportLines[5])
+	}
+
+	// Simulate resize: input area expands, pushing content up
+	// Before the fix, this would cause line count to change, breaking cursor positioning
+	capture2 := "│ Processing...\n│ Analyzing code\n╰─────────────\n\n$ █\n\n\n\n\n"
+	result := ht.DiffViewport(capture2)
+
+	// Verify row count remains fixed
+	if len(ht.lastViewportLines) != 10 {
+		t.Fatalf("capture 2: expected 10 rows, got %d", len(ht.lastViewportLines))
+	}
+
+	// The diff should position cursor to update changed rows correctly
+	// Row 1 changed from "╭─ Thinking" to "│ Processing..."
+	if !strings.Contains(result, "\x1b[1;1H") {
+		t.Error("capture 2: should position cursor to row 1 to update changed content")
+	}
+}
+
+// TestDiffViewportRepeatedCaptureStability verifies that repeated captures
+// with identical content don't cause drift in the line count or indices.
+// This catches bugs where state accumulates incorrectly over time.
+func TestDiffViewportRepeatedCaptureStability(t *testing.T) {
+	ht := NewHistoryTracker("test", 24)
+
+	content := "stable\nviewport\ncontent"
+
+	// Capture same content 100 times
+	for i := range 100 {
+		ht.DiffViewport(content)
+
+		if len(ht.lastViewportLines) != 24 {
+			t.Fatalf("iteration %d: line count drifted to %d", i, len(ht.lastViewportLines))
+		}
+		if ht.lastViewportLines[0] != "stable" {
+			t.Fatalf("iteration %d: content drifted, row 0 = %q", i, ht.lastViewportLines[0])
+		}
+	}
+}
+
+// TestDiffViewportZeroViewportRows tests edge case of viewportRows = 0.
+// This should not panic or behave unexpectedly.
+func TestDiffViewportZeroViewportRows(t *testing.T) {
+	ht := NewHistoryTracker("test", 0)
+
+	// Should not panic
+	result := ht.DiffViewport("any content")
+
+	// With 0 rows, should have empty viewport and full output (treated as first capture)
+	if len(ht.lastViewportLines) != 0 {
+		t.Errorf("with viewportRows=0, expected 0 lines, got %d", len(ht.lastViewportLines))
+	}
+
+	// Should still produce some output (full refresh since no previous state)
+	if !strings.Contains(result, "\x1b[H") {
+		t.Error("even with 0 rows, should produce home sequence for full refresh")
+	}
+}
+
+// TestDiffViewportOneRow tests edge case of viewportRows = 1.
+// Single-row terminal should still work correctly.
+func TestDiffViewportOneRow(t *testing.T) {
+	ht := NewHistoryTracker("test", 1)
+
+	// Multi-line content, only first line should be kept
+	ht.DiffViewport("first\nsecond\nthird")
+
+	if len(ht.lastViewportLines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(ht.lastViewportLines))
+	}
+	if ht.lastViewportLines[0] != "first" {
+		t.Errorf("expected 'first', got %q", ht.lastViewportLines[0])
+	}
+
+	// Change the single line
+	result := ht.DiffViewport("changed")
+
+	if len(ht.lastViewportLines) != 1 {
+		t.Fatalf("expected 1 line after update, got %d", len(ht.lastViewportLines))
+	}
+	if !strings.Contains(result, "changed") {
+		t.Error("single-line change should be emitted")
 	}
 }

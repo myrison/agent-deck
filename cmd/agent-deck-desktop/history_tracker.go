@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // HistoryTracker maintains scrollback state to prevent data loss during tmux polling.
@@ -16,6 +17,7 @@ import (
 // xterm.js from building up a proper scrollback buffer. By polling tmux instead,
 // we get the rendered content and can track history properly.
 type HistoryTracker struct {
+	mu                sync.Mutex
 	tmuxSession       string
 	lastHistoryIndex  int      // Last line index read from tmux history
 	lastViewportLines []string // Last viewport state for diffing
@@ -65,7 +67,11 @@ func (ht *HistoryTracker) GetTmuxInfo() (historySize int, inAltScreen bool, err 
 // to xterm.js for proper scrollback accumulation, since DiffViewport uses cursor
 // positioning which doesn't add to xterm's scrollback buffer.
 func (ht *HistoryTracker) FetchHistoryGap(currentHistorySize int) (string, error) {
-	if currentHistorySize <= ht.lastHistoryIndex {
+	ht.mu.Lock()
+	lastIdx := ht.lastHistoryIndex
+	ht.mu.Unlock()
+
+	if currentHistorySize <= lastIdx {
 		return "", nil // No new history
 	}
 
@@ -76,7 +82,7 @@ func (ht *HistoryTracker) FetchHistoryGap(currentHistorySize int) (string, error
 	// Gap = 10 new lines that scrolled off viewport into history
 	// We need to fetch lines -60 through -(lastHistoryIndex+1) = -51
 
-	gapSize := currentHistorySize - ht.lastHistoryIndex
+	gapSize := currentHistorySize - lastIdx
 	if gapSize <= 0 {
 		return "", nil
 	}
@@ -85,11 +91,11 @@ func (ht *HistoryTracker) FetchHistoryGap(currentHistorySize int) (string, error
 	// -S = start offset (furthest back in history)
 	// -E = end offset (closest to viewport)
 	// Negative offsets: -1 is the line just above viewport, -2 is two lines up, etc.
-	startOffset := -currentHistorySize      // Start at oldest unfetched line
-	endOffset := -(ht.lastHistoryIndex + 1) // End just after last fetched line
+	startOffset := -currentHistorySize // Start at oldest unfetched line
+	endOffset := -(lastIdx + 1)        // End just after last fetched line
 
 	// Clamp to valid range (don't go beyond what's in history)
-	if ht.lastHistoryIndex == 0 {
+	if lastIdx == 0 {
 		// First fetch - get all history lines above viewport
 		endOffset = -1
 	}
@@ -109,7 +115,9 @@ func (ht *HistoryTracker) FetchHistoryGap(currentHistorySize int) (string, error
 	}
 
 	// Update our index to mark these lines as read
+	ht.mu.Lock()
 	ht.lastHistoryIndex = currentHistorySize
+	ht.mu.Unlock()
 
 	// Convert LF to CRLF for xterm.js
 	content := string(out)
@@ -133,9 +141,22 @@ func (ht *HistoryTracker) FetchHistoryGap(currentHistorySize int) (string, error
 // minimal ANSI escape sequence to update xterm.js in-place.
 // This handles spinners, progress bars, and other in-place updates efficiently.
 func (ht *HistoryTracker) DiffViewport(currentContent string) string {
-	// Split into lines, trimming trailing empty lines (tmux pads to pane height)
-	currentContent = strings.TrimRight(currentContent, "\n")
-	newLines := strings.Split(currentContent, "\n")
+	// Split into lines - do NOT trim trailing newlines!
+	// We must preserve exact row positions so array index i = screen row i+1.
+	// Trimming trailing blank lines causes cursor offset bugs when Claude Code's
+	// input area resizes and shifts content up/down between captures.
+	rawLines := strings.Split(strings.TrimSuffix(currentContent, "\n"), "\n")
+
+	ht.mu.Lock()
+	defer ht.mu.Unlock()
+
+	// Normalize to viewport height: ensure exactly viewportRows lines
+	// This guarantees array index always corresponds to screen row
+	newLines := make([]string, ht.viewportRows)
+	for i := 0; i < ht.viewportRows && i < len(rawLines); i++ {
+		newLines[i] = rawLines[i]
+	}
+	// Remaining entries are empty strings (blank rows at bottom)
 
 	// If no previous state, this is first capture - do full write
 	if len(ht.lastViewportLines) == 0 {
@@ -246,17 +267,23 @@ func (ht *HistoryTracker) buildFullViewportOutput(lines []string) string {
 
 // Reset clears state (call on resize, session change, or alt-screen exit).
 func (ht *HistoryTracker) Reset() {
+	ht.mu.Lock()
+	defer ht.mu.Unlock()
 	ht.lastHistoryIndex = 0
 	ht.lastViewportLines = []string{}
 }
 
 // SetViewportRows updates the expected viewport height (call on resize).
 func (ht *HistoryTracker) SetViewportRows(rows int) {
+	ht.mu.Lock()
+	defer ht.mu.Unlock()
 	ht.viewportRows = rows
 }
 
 // SetAltScreen updates alt-screen state and resets viewport tracking if exiting.
 func (ht *HistoryTracker) SetAltScreen(inAltScreen bool) {
+	ht.mu.Lock()
+	defer ht.mu.Unlock()
 	if ht.inAltScreen && !inAltScreen {
 		// Exiting alt-screen - screen content is completely different now
 		ht.lastViewportLines = []string{}

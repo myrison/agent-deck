@@ -88,6 +88,8 @@ export function GetSetupDismissed():Promise<boolean>;
 
 export function GetShowActivityRibbon():Promise<boolean>;
 
+export function GetShowContextMeter():Promise<boolean>;
+
 export function GetSoftNewlineMode():Promise<string>;
 
 export function GetTerminalSettings():Promise<Record<string, any>>;
@@ -136,6 +138,8 @@ export function ResetGroupSettings():Promise<void>;
 
 export function ResetPipelineStats(arg1:string):Promise<void>;
 
+export function ResetTerminalViewport(arg1:string):Promise<void>;
+
 export function ResizeTerminal(arg1:string,arg2:number,arg3:number):Promise<void>;
 
 export function SaveLaunchConfig(arg1:string,arg2:string,arg3:string,arg4:string,arg5:boolean,arg6:string,arg7:Array<string>,arg8:boolean):Promise<void>;
@@ -171,6 +175,8 @@ export function SetScrollbackSize(arg1:number):Promise<void>;
 export function SetSetupDismissed(arg1:boolean):Promise<void>;
 
 export function SetShowActivityRibbon(arg1:boolean):Promise<void>;
+
+export function SetShowContextMeter(arg1:boolean):Promise<void>;
 
 export function SetSoftNewlineMode(arg1:string):Promise<void>;
 
