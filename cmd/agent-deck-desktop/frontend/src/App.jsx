@@ -23,7 +23,7 @@ import HostPicker, { LOCAL_HOST_ID } from './HostPicker';
 import DeleteSessionDialog from './DeleteSessionDialog';
 import Toast from './Toast';
 import { BranchIcon } from './ToolIcon';
-import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames, DeleteSession, OpenNewWindow, GetOpenTabState, SaveOpenTabState, HasScanPaths, GetSetupDismissed, GetShowActivityRibbon, GetShowContextMeter, RefreshSessionStatuses, ResetTerminalViewport } from '../wailsjs/go/main/App';
+import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames, DeleteSession, OpenNewWindow, GetOpenTabState, SaveOpenTabState, HasScanPaths, GetSetupDismissed, GetShowActivityRibbon, GetShowContextMeter, RefreshSessionStatuses, ResetTerminalViewport, TriggerManualTerminalRefresh } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE } from './constants/terminal';
 import { shouldInterceptShortcut, hasAppModifier } from './utils/platform';
@@ -1610,6 +1610,19 @@ function App() {
         setShowSettings(true);
     }, []);
 
+    // Focus the active terminal pane (used after modal close)
+    const focusActiveTerminal = useCallback(() => {
+        // Small delay to ensure modal is fully unmounted
+        setTimeout(() => {
+            const paneId = activeTab?.activePaneId;
+            const terminal = searchRefs.current?.[paneId]?.terminal;
+            if (terminal) {
+                terminal.focus();
+                logger.debug('[FOCUS] Restored focus to terminal', { paneId });
+            }
+        }, 50);
+    }, [activeTab?.activePaneId]);
+
     // Handle saving custom label for current session
     const handleSaveSessionCustomLabel = useCallback(async (newLabel) => {
         if (!selectedSession) return;
@@ -1623,7 +1636,8 @@ function App() {
             logger.error('Failed to save session custom label:', err);
         }
         setShowLabelDialog(false);
-    }, [selectedSession, handleTabLabelUpdated]);
+        focusActiveTerminal();
+    }, [selectedSession, focusActiveTerminal, handleTabLabelUpdated]);
 
     // Handle tab label updated from context menu
     const handleTabLabelUpdated = useCallback((sessionId, newLabel) => {
@@ -2002,12 +2016,29 @@ function App() {
             e.preventDefault();
             handleBackToSelector();
         }
-        // Cmd+R to add/edit custom label (only in terminal view with a session)
+        // Cmd+R: Hard refresh to fix visual artifacts
         // On macOS, Ctrl+R passes through to terminal (reverse-search in bash)
         if (appMod && e.key === 'r' && inTerminal && selectedSession) {
             e.preventDefault();
-            logger.info('Cmd+R pressed - opening label dialog');
+
+            logger.info('[SHORTCUT] Cmd+R pressed - triggering manual refresh');
+
+            TriggerManualTerminalRefresh(selectedSession.id)
+                .then(() => {
+                    logger.info('[SHORTCUT] Manual refresh triggered successfully');
+                })
+                .catch((err) => {
+                    logger.error('[SHORTCUT] Manual refresh failed:', err);
+                });
+
+            return;
+        }
+        // Cmd+L: Add/edit custom label for the session
+        if (appMod && e.key === 'l' && inTerminal && selectedSession) {
+            e.preventDefault();
+            logger.info('[SHORTCUT] Cmd+L pressed - opening label dialog');
             setShowLabelDialog(true);
+            return;
         }
         // Shift+5 (%) to cycle session status filter (only in selector view)
         // Skip when typing in input fields
@@ -2583,7 +2614,10 @@ function App() {
                     title={selectedSession.customLabel ? 'Edit Custom Label' : 'Add Custom Label'}
                     placeholder="Enter label..."
                     onSave={handleSaveSessionCustomLabel}
-                    onCancel={() => setShowLabelDialog(false)}
+                    onCancel={() => {
+                        setShowLabelDialog(false);
+                        focusActiveTerminal();
+                    }}
                 />
             )}
             {showDeleteDialog && selectedSession && (

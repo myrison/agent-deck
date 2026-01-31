@@ -382,6 +382,10 @@ export function ToggleGroupExpanded(arg1, arg2) {
   return window['go']['main']['App']['ToggleGroupExpanded'](arg1, arg2);
 }
 
+export function TriggerManualTerminalRefresh(arg1) {
+  return window['go']['main']['App']['TriggerManualTerminalRefresh'](arg1);
+}
+
 export function UpdateQuickLaunchFavoriteName(arg1, arg2) {
   return window['go']['main']['App']['UpdateQuickLaunchFavoriteName'](arg1, arg2);
 }

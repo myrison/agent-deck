@@ -858,6 +858,35 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
         };
         const cancelIdleRefresh = EventsOn('terminal:idle-refresh', handleIdleRefresh);
 
+        // ============================================================
+        // MANUAL REFRESH HANDLER (Cmd+Option+R shortcut)
+        // ============================================================
+        // Handle manual refresh request from App (Cmd+Option+R shortcut)
+        // Performs "hard resync" by resetting xterm and reloading from tmux
+        // Follows the same pattern as idle refresh (term.reset + term.write)
+        // ============================================================
+        const handleManualRefresh = (payload) => {
+            if (payload?.sessionId !== sessionId) return;
+            if (!xtermRef.current || !payload.data) return;
+
+            const term = xtermRef.current;
+            const wasAtBottom = term.buffer.active.viewportY >= term.buffer.active.baseY;
+
+            logger.info('[MANUAL-REFRESH] Resetting xterm and reloading from tmux');
+
+            // Reset and rewrite with full scrollback (same as idle refresh)
+            term.reset();
+            term.write(payload.data);
+
+            // Restore scroll position
+            if (wasAtBottom) {
+                term.scrollToBottom();
+            }
+
+            logger.info('[MANUAL-REFRESH] Complete');
+        };
+        const cancelManualRefresh = EventsOn('terminal:manual-refresh', handleManualRefresh);
+
         // Listen for data from backend (polling mode - history gaps and viewport diffs)
         // In polling mode, this receives:
         // 1. History gap lines (content that scrolled off viewport)
@@ -1123,6 +1152,7 @@ export default function Terminal({ searchRef, session, paneId, onFocus, fontSize
             cancelResizeEpoch();
             cancelScrollbackHydrate();
             cancelIdleRefresh();
+            cancelManualRefresh();
             cancelData();
             cancelExit();
             cancelConnLost();

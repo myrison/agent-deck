@@ -143,6 +143,16 @@ func (a *App) ResetTerminalViewport(sessionID string) {
 	}
 }
 
+// TriggerManualTerminalRefresh forces a full refresh of the terminal display
+// Used by Cmd+Option+R shortcut to fix visual artifacts
+func (a *App) TriggerManualTerminalRefresh(sessionID string) error {
+	t := a.terminals.Get(sessionID)
+	if t == nil {
+		return fmt.Errorf("terminal %s not found", sessionID)
+	}
+	return t.TriggerManualRefresh()
+}
+
 // ListSessions returns all Agent Deck sessions.
 func (a *App) ListSessions() ([]SessionInfo, error) {
 	return a.tmux.ListSessions()
