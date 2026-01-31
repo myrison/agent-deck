@@ -1174,17 +1174,17 @@ func TestDetectSessionStatusReturnsErrorForSSHConnectionFailures(t *testing.T) {
 	}
 }
 
-// TestDetectSessionStatusErrorTakesPriorityOverPrompt verifies that when a
-// pane contains both an error message and a prompt (e.g., shell returned to
-// prompt after SSH failure), the error status takes priority. This ensures
-// users see the error state rather than "waiting".
-func TestDetectSessionStatusErrorTakesPriorityOverPrompt(t *testing.T) {
+// TestDetectSessionStatusPromptIndicatesRecovery verifies that when a
+// pane contains an old error message in scrollback but shows a current prompt
+// (e.g., session recovered after SSH failure), the prompt status takes priority.
+// This ensures users see the healthy "waiting" state rather than false "error".
+func TestDetectSessionStatusPromptIndicatesRecovery(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
 	tm, _ := NewTmuxManager()
-	sessionName := "test_error_priority"
+	sessionName := "test_prompt_recovery"
 	tmpDir := t.TempDir()
 
 	cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
@@ -1194,7 +1194,7 @@ func TestDetectSessionStatusErrorTakesPriorityOverPrompt(t *testing.T) {
 	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
 
 	// Content that has BOTH an error message AND a Claude prompt
-	// The error check should run first and return "error"
+	// The prompt check should run first and return "waiting" (session recovered)
 	mixedContent := `ssh: connect to host server port 22: Connection refused
 RevvySwarm: SSH connection failed
 
@@ -1215,8 +1215,167 @@ $ claude
 	if !ok {
 		t.Fatal("detectSessionStatus failed to capture pane content")
 	}
+	if status != "waiting" {
+		t.Errorf("Prompt status should indicate session recovered, got %q", status)
+	}
+}
+
+// TestDetectSessionStatusIgnoresScrollbackErrors verifies that old errors in
+// scrollback history don't trigger false positive "error" status when a current
+// prompt is present. This prevents the "SSH discussion bug" where Claude discussing
+// troubleshooting causes the session to show ERROR status.
+func TestDetectSessionStatusIgnoresScrollbackErrors(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm, _ := NewTmuxManager()
+	sessionName := "test_scrollback_errors"
+	tmpDir := t.TempDir()
+
+	cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test tmux session: %v", err)
+	}
+	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+	// Simulate 30+ lines of scrollback with old SSH error, followed by current prompt
+	// Error is in line 3-4, prompt is at bottom (line 32+)
+	scrollbackContent := `$ ssh user@server
+ssh: connect to host server port 22: Connection refused
+RevvySwarm: SSH connection failed
+
+Previous output line 1
+Previous output line 2
+Previous output line 3
+Previous output line 4
+Previous output line 5
+Previous output line 6
+Previous output line 7
+Previous output line 8
+Previous output line 9
+Previous output line 10
+Previous output line 11
+Previous output line 12
+Previous output line 13
+Previous output line 14
+Previous output line 15
+Previous output line 16
+Previous output line 17
+Previous output line 18
+Previous output line 19
+Previous output line 20
+
+$ claude
+╭─────────────────────────────────────────────────────╮
+│ How can I help you today?                           │
+╰─────────────────────────────────────────────────────╯
+>`
+
+	sendCmd := exec.Command(tmuxBinaryPath, "send-keys", "-t", sessionName, "-l", scrollbackContent)
+	if err := sendCmd.Run(); err != nil {
+		t.Fatalf("Failed to send content to tmux: %v", err)
+	}
+
+	exec.Command("sleep", "0.1").Run()
+
+	status, ok := tm.detectSessionStatus(sessionName, "claude")
+	if !ok {
+		t.Fatal("detectSessionStatus failed to capture pane content")
+	}
+	if status != "waiting" {
+		t.Errorf("Should ignore scrollback errors when prompt present, got %q", status)
+	}
+}
+
+// TestDetectSessionStatusDetectsRecentSSHFailure verifies that real SSH failures
+// appearing in the last 10 lines (no prompt) correctly trigger "error" status.
+// This ensures we still catch genuine connection failures.
+func TestDetectSessionStatusDetectsRecentSSHFailure(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm, _ := NewTmuxManager()
+	sessionName := "test_recent_ssh_failure"
+	tmpDir := t.TempDir()
+
+	cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test tmux session: %v", err)
+	}
+	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+	// Recent SSH failure in last 5 lines, no prompt (session stuck)
+	recentFailure := `Connecting to remote session...
+$ ssh user@server
+ssh: connect to host server port 22: Connection refused
+RevvySwarm: SSH connection failed
+$`
+
+	sendCmd := exec.Command(tmuxBinaryPath, "send-keys", "-t", sessionName, "-l", recentFailure)
+	if err := sendCmd.Run(); err != nil {
+		t.Fatalf("Failed to send content to tmux: %v", err)
+	}
+
+	exec.Command("sleep", "0.1").Run()
+
+	status, ok := tm.detectSessionStatus(sessionName, "claude")
+	if !ok {
+		t.Fatal("detectSessionStatus failed to capture pane content")
+	}
 	if status != "error" {
-		t.Errorf("Error status should take priority over prompt detection, got %q", status)
+		t.Errorf("Should detect recent SSH failure, got %q", status)
+	}
+}
+
+// TestDetectSessionStatusIgnoresDiscussedErrors verifies that Claude's responses
+// discussing error troubleshooting (containing error keywords) don't trigger false
+// positive "error" status when a prompt is present asking for user input.
+func TestDetectSessionStatusIgnoresDiscussedErrors(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm, _ := NewTmuxManager()
+	sessionName := "test_discussed_errors"
+	tmpDir := t.TempDir()
+
+	cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test tmux session: %v", err)
+	}
+	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+	// Claude's response discussing "permission denied" troubleshooting
+	// followed by prompt asking for user input
+	discussionContent := `The "permission denied (publickey)" error indicates SSH key authentication
+failed. Here are common solutions:
+
+1. Check if your SSH key exists: ls -la ~/.ssh/
+2. Verify the key is added to ssh-agent: ssh-add -l
+3. Ensure the public key is in the server's authorized_keys
+
+Would you like me to help you debug this further?
+
+╭─────────────────────────────────────────────────────╮
+│ How can I help you today?                           │
+╰─────────────────────────────────────────────────────╯
+>`
+
+	sendCmd := exec.Command(tmuxBinaryPath, "send-keys", "-t", sessionName, "-l", discussionContent)
+	if err := sendCmd.Run(); err != nil {
+		t.Fatalf("Failed to send content to tmux: %v", err)
+	}
+
+	exec.Command("sleep", "0.1").Run()
+
+	status, ok := tm.detectSessionStatus(sessionName, "claude")
+	if !ok {
+		t.Fatal("detectSessionStatus failed to capture pane content")
+	}
+	if status != "waiting" {
+		t.Errorf("Should ignore discussed errors when prompt present, got %q", status)
 	}
 }
 

@@ -271,29 +271,8 @@ func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bo
 
 	contentLower := strings.ToLower(content)
 
-	// Check for error indicators FIRST (highest priority)
-	// These patterns indicate terminal/session startup failures
-	errorPatterns := []string{
-		"failed to start terminal",
-		"failed to restart remote session",
-		"failed to create remote tmux session",
-		"ssh connection failed",
-		"could not resolve hostname",
-		"connection refused",
-		"permission denied (publickey",
-		"no route to host",
-		"network is unreachable",
-		"operation timed out",
-		"host key verification failed",
-	}
-	for _, pattern := range errorPatterns {
-		if strings.Contains(contentLower, pattern) {
-			return "error", true
-		}
-	}
-
 	// ═══════════════════════════════════════════════════════════════════════
-	// BUSY indicators - Check these FIRST before prompt detection
+	// PRIORITY 1: BUSY indicators - Check these FIRST
 	// If busy, session is definitely "running" regardless of prompt state
 	// ═══════════════════════════════════════════════════════════════════════
 
@@ -338,11 +317,54 @@ func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bo
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════
-	// WAITING detection - Use prompt detector to check if Claude is at prompt
+	// PRIORITY 2: WAITING detection - Use prompt detector to check if at prompt
+	// If prompt is present, session is healthy and waiting for input
 	// ═══════════════════════════════════════════════════════════════════════
 	detector := tmux.NewPromptDetector(tool)
 	if detector.HasPrompt(content) {
 		return "waiting", true
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// PRIORITY 3: ERROR detection - Only check if session appears stuck
+	// Check LAST 10 non-empty lines only - real startup failures appear at bottom
+	// Don't scan scrollback - avoids false positives from discussed errors
+	// ═══════════════════════════════════════════════════════════════════════
+
+	// Extract last 10 non-empty lines for error checking
+	// Filter out blank lines to handle tmux padding
+	var nonEmptyLines []string
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			nonEmptyLines = append(nonEmptyLines, line)
+		}
+	}
+
+	errorCheckLines := nonEmptyLines
+	if len(errorCheckLines) > 10 {
+		errorCheckLines = errorCheckLines[len(errorCheckLines)-10:]
+	}
+	recentContent := strings.Join(errorCheckLines, "\n")
+	recentLower := strings.ToLower(recentContent)
+
+	// Check for SSH/connection error patterns
+	errorPatterns := []string{
+		"failed to start terminal",
+		"failed to restart remote session",
+		"failed to create remote tmux session",
+		"ssh connection failed",
+		"could not resolve hostname",
+		"connection refused",
+		"permission denied (publickey",
+		"no route to host",
+		"network is unreachable",
+		"operation timed out",
+		"host key verification failed",
+	}
+	for _, pattern := range errorPatterns {
+		if strings.Contains(recentLower, pattern) {
+			return "error", true
+		}
 	}
 
 	// Default to idle if we can't determine
