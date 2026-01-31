@@ -2001,14 +2001,8 @@ function App() {
             e.preventDefault();
             handleBackToSelector();
         }
-        // Cmd+R to add/edit custom label (only in terminal view with a session)
-        // On macOS, Ctrl+R passes through to terminal (reverse-search in bash)
-        if (appMod && e.key === 'r' && inTerminal && selectedSession) {
-            e.preventDefault();
-            logger.info('Cmd+R pressed - opening label dialog');
-            setShowLabelDialog(true);
-        }
         // Cmd+Option+R: Hard refresh to fix visual artifacts
+        // NOTE: Must be checked BEFORE Cmd+R to avoid being intercepted
         if (e.metaKey && e.altKey && e.key === 'r' && inTerminal && selectedSession) {
             e.preventDefault();
 
@@ -2019,11 +2013,16 @@ function App() {
                 })
                 .catch((err) => {
                     logger.error('[SHORTCUT] Manual refresh failed:', err);
-                    // Optional: show toast notification
-                    // showToast('Failed to refresh terminal: ' + err, 'error');
                 });
 
             return;
+        }
+        // Cmd+R to add/edit custom label (only in terminal view with a session)
+        // On macOS, Ctrl+R passes through to terminal (reverse-search in bash)
+        if (appMod && !e.altKey && e.key === 'r' && inTerminal && selectedSession) {
+            e.preventDefault();
+            logger.info('Cmd+R pressed - opening label dialog');
+            setShowLabelDialog(true);
         }
         // Shift+5 (%) to cycle session status filter (only in selector view)
         // Skip when typing in input fields
