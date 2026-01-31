@@ -1618,11 +1618,12 @@ function App() {
             await UpdateSessionCustomLabel(selectedSession.id, newLabel);
             // Update local state
             setSelectedSession(prev => ({ ...prev, customLabel: newLabel }));
+            handleTabLabelUpdated(selectedSession.id, newLabel);
         } catch (err) {
             logger.error('Failed to save session custom label:', err);
         }
         setShowLabelDialog(false);
-    }, [selectedSession]);
+    }, [selectedSession, handleTabLabelUpdated]);
 
     // Handle tab label updated from context menu
     const handleTabLabelUpdated = useCallback((sessionId, newLabel) => {
