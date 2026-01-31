@@ -287,11 +287,20 @@ func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bo
 		}
 	}
 
+	// Split content into lines and filter out blank lines for consistent detection
+	// across spinner, token, and error checks
+	lines := strings.Split(content, "\n")
+	var nonEmptyLines []string
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			nonEmptyLines = append(nonEmptyLines, line)
+		}
+	}
+
 	// Check for spinner characters in last 5 lines (indicates active processing)
 	// These are the exact braille spinner chars from cli-spinners "dots"
 	// Used by Claude Code for "Thinking...", "Flummoxing...", "Running...", etc.
 	spinnerChars := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	lines := strings.Split(content, "\n")
 	lastLines := lines
 	if len(lastLines) > 5 {
 		lastLines = lastLines[len(lastLines)-5:]
@@ -304,14 +313,20 @@ func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bo
 		}
 	}
 
-	// Check for timing indicators with "tokens" (indicates active processing)
+	// Check for timing indicators with "tokens" in last 15 non-empty lines (indicates active processing)
 	// Format: "Thinking… (45s · 1234 tokens · ...)" or "Flummoxing... (5m 53s · ↓ 5.0k tokens · ...)"
-	if strings.Contains(contentLower, "tokens") {
+	// Limit to recent lines to avoid false positives from historical scrollback
+	tokenCheckLines := nonEmptyLines
+	if len(tokenCheckLines) > 15 {
+		tokenCheckLines = tokenCheckLines[len(tokenCheckLines)-15:]
+	}
+	tokenCheckContent := strings.ToLower(strings.Join(tokenCheckLines, "\n"))
+	if strings.Contains(tokenCheckContent, "tokens") {
 		// Has tokens count - check if it's a processing indicator
-		if strings.Contains(contentLower, "thinking") ||
-			strings.Contains(contentLower, "connecting") ||
-			strings.Contains(contentLower, "flummoxing") ||
-			strings.Contains(contentLower, "running") {
+		if strings.Contains(tokenCheckContent, "thinking") ||
+			strings.Contains(tokenCheckContent, "connecting") ||
+			strings.Contains(tokenCheckContent, "flummoxing") ||
+			strings.Contains(tokenCheckContent, "running") {
 			return "running", true
 		}
 	}
@@ -331,15 +346,7 @@ func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bo
 	// Don't scan scrollback - avoids false positives from discussed errors
 	// ═══════════════════════════════════════════════════════════════════════
 
-	// Extract last 10 non-empty lines for error checking
-	// Filter out blank lines to handle tmux padding
-	var nonEmptyLines []string
-	for _, line := range lines {
-		if strings.TrimSpace(line) != "" {
-			nonEmptyLines = append(nonEmptyLines, line)
-		}
-	}
-
+	// Extract last 10 non-empty lines for error checking (reuse nonEmptyLines from above)
 	errorCheckLines := nonEmptyLines
 	if len(errorCheckLines) > 10 {
 		errorCheckLines = errorCheckLines[len(errorCheckLines)-10:]
