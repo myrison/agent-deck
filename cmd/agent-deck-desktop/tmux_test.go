@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1173,17 +1174,17 @@ func TestDetectSessionStatusReturnsErrorForSSHConnectionFailures(t *testing.T) {
 	}
 }
 
-// TestDetectSessionStatusErrorTakesPriorityOverPrompt verifies that when a
-// pane contains both an error message and a prompt (e.g., shell returned to
-// prompt after SSH failure), the error status takes priority. This ensures
-// users see the error state rather than "waiting".
-func TestDetectSessionStatusErrorTakesPriorityOverPrompt(t *testing.T) {
+// TestDetectSessionStatusPromptIndicatesRecovery verifies that when a
+// pane contains an old error message in scrollback but shows a current prompt
+// (e.g., session recovered after SSH failure), the prompt status takes priority.
+// This ensures users see the healthy "waiting" state rather than false "error".
+func TestDetectSessionStatusPromptIndicatesRecovery(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available, skipping integration test")
 	}
 
 	tm, _ := NewTmuxManager()
-	sessionName := "test_error_priority"
+	sessionName := "test_prompt_recovery"
 	tmpDir := t.TempDir()
 
 	cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
@@ -1193,7 +1194,7 @@ func TestDetectSessionStatusErrorTakesPriorityOverPrompt(t *testing.T) {
 	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
 
 	// Content that has BOTH an error message AND a Claude prompt
-	// The error check should run first and return "error"
+	// The prompt check should run first and return "waiting" (session recovered)
 	mixedContent := `ssh: connect to host server port 22: Connection refused
 RevvySwarm: SSH connection failed
 
@@ -1214,8 +1215,167 @@ $ claude
 	if !ok {
 		t.Fatal("detectSessionStatus failed to capture pane content")
 	}
+	if status != "waiting" {
+		t.Errorf("Prompt status should indicate session recovered, got %q", status)
+	}
+}
+
+// TestDetectSessionStatusIgnoresScrollbackErrors verifies that old errors in
+// scrollback history don't trigger false positive "error" status when a current
+// prompt is present. This prevents the "SSH discussion bug" where Claude discussing
+// troubleshooting causes the session to show ERROR status.
+func TestDetectSessionStatusIgnoresScrollbackErrors(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm, _ := NewTmuxManager()
+	sessionName := "test_scrollback_errors"
+	tmpDir := t.TempDir()
+
+	cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test tmux session: %v", err)
+	}
+	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+	// Simulate 30+ lines of scrollback with old SSH error, followed by current prompt
+	// Error is in line 3-4, prompt is at bottom (line 32+)
+	scrollbackContent := `$ ssh user@server
+ssh: connect to host server port 22: Connection refused
+RevvySwarm: SSH connection failed
+
+Previous output line 1
+Previous output line 2
+Previous output line 3
+Previous output line 4
+Previous output line 5
+Previous output line 6
+Previous output line 7
+Previous output line 8
+Previous output line 9
+Previous output line 10
+Previous output line 11
+Previous output line 12
+Previous output line 13
+Previous output line 14
+Previous output line 15
+Previous output line 16
+Previous output line 17
+Previous output line 18
+Previous output line 19
+Previous output line 20
+
+$ claude
+╭─────────────────────────────────────────────────────╮
+│ How can I help you today?                           │
+╰─────────────────────────────────────────────────────╯
+>`
+
+	sendCmd := exec.Command(tmuxBinaryPath, "send-keys", "-t", sessionName, "-l", scrollbackContent)
+	if err := sendCmd.Run(); err != nil {
+		t.Fatalf("Failed to send content to tmux: %v", err)
+	}
+
+	exec.Command("sleep", "0.1").Run()
+
+	status, ok := tm.detectSessionStatus(sessionName, "claude")
+	if !ok {
+		t.Fatal("detectSessionStatus failed to capture pane content")
+	}
+	if status != "waiting" {
+		t.Errorf("Should ignore scrollback errors when prompt present, got %q", status)
+	}
+}
+
+// TestDetectSessionStatusDetectsRecentSSHFailure verifies that real SSH failures
+// appearing in the last 10 lines (no prompt) correctly trigger "error" status.
+// This ensures we still catch genuine connection failures.
+func TestDetectSessionStatusDetectsRecentSSHFailure(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm, _ := NewTmuxManager()
+	sessionName := "test_recent_ssh_failure"
+	tmpDir := t.TempDir()
+
+	cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test tmux session: %v", err)
+	}
+	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+	// Recent SSH failure in last 5 lines, no prompt (session stuck)
+	recentFailure := `Connecting to remote session...
+$ ssh user@server
+ssh: connect to host server port 22: Connection refused
+RevvySwarm: SSH connection failed
+$`
+
+	sendCmd := exec.Command(tmuxBinaryPath, "send-keys", "-t", sessionName, "-l", recentFailure)
+	if err := sendCmd.Run(); err != nil {
+		t.Fatalf("Failed to send content to tmux: %v", err)
+	}
+
+	exec.Command("sleep", "0.1").Run()
+
+	status, ok := tm.detectSessionStatus(sessionName, "claude")
+	if !ok {
+		t.Fatal("detectSessionStatus failed to capture pane content")
+	}
 	if status != "error" {
-		t.Errorf("Error status should take priority over prompt detection, got %q", status)
+		t.Errorf("Should detect recent SSH failure, got %q", status)
+	}
+}
+
+// TestDetectSessionStatusIgnoresDiscussedErrors verifies that Claude's responses
+// discussing error troubleshooting (containing error keywords) don't trigger false
+// positive "error" status when a prompt is present asking for user input.
+func TestDetectSessionStatusIgnoresDiscussedErrors(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm, _ := NewTmuxManager()
+	sessionName := "test_discussed_errors"
+	tmpDir := t.TempDir()
+
+	cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test tmux session: %v", err)
+	}
+	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+	// Claude's response discussing "permission denied" troubleshooting
+	// followed by prompt asking for user input
+	discussionContent := `The "permission denied (publickey)" error indicates SSH key authentication
+failed. Here are common solutions:
+
+1. Check if your SSH key exists: ls -la ~/.ssh/
+2. Verify the key is added to ssh-agent: ssh-add -l
+3. Ensure the public key is in the server's authorized_keys
+
+Would you like me to help you debug this further?
+
+╭─────────────────────────────────────────────────────╮
+│ How can I help you today?                           │
+╰─────────────────────────────────────────────────────╯
+>`
+
+	sendCmd := exec.Command(tmuxBinaryPath, "send-keys", "-t", sessionName, "-l", discussionContent)
+	if err := sendCmd.Run(); err != nil {
+		t.Fatalf("Failed to send content to tmux: %v", err)
+	}
+
+	exec.Command("sleep", "0.1").Run()
+
+	status, ok := tm.detectSessionStatus(sessionName, "claude")
+	if !ok {
+		t.Fatal("detectSessionStatus failed to capture pane content")
+	}
+	if status != "waiting" {
+		t.Errorf("Should ignore discussed errors when prompt present, got %q", status)
 	}
 }
 
@@ -1796,6 +1956,326 @@ func TestGetGeminiSessionPathRejectsEmptyProjectPath(t *testing.T) {
 	result := tm.getGeminiSessionPath(inst)
 	if result != "" {
 		t.Errorf("Expected empty for empty project path, got %q", result)
+	}
+}
+
+// =============================================================================
+// Spinner Character Detection Tests (PR: fix/status-detection-sync)
+// =============================================================================
+
+// TestDetectSessionStatusReturnsRunningForSpinnerCharacters verifies that
+// detectSessionStatus returns "running" when braille spinner characters are
+// detected in the last 5 lines. These spinners indicate active Claude Code
+// processing (Thinking, Flummoxing, Running, etc.).
+func TestDetectSessionStatusReturnsRunningForSpinnerCharacters(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm, _ := NewTmuxManager()
+
+	// Test all braille spinner frames from cli-spinners "dots"
+	spinnerFrames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+	for i, spinner := range spinnerFrames {
+		t.Run("spinner_frame_"+string(rune('0'+i)), func(t *testing.T) {
+			sessionName := "test_spinner_" + string(rune('0'+i))
+			tmpDir := t.TempDir()
+
+			cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("Failed to create test tmux session: %v", err)
+			}
+			defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+			// Simulate Claude Code output with spinner
+			spinnerContent := fmt.Sprintf("Thinking %s (45s · 1234 tokens · ...)\n\nSome output here", spinner)
+			sendCmd := exec.Command(tmuxBinaryPath, "send-keys", "-t", sessionName, "-l", spinnerContent)
+			if err := sendCmd.Run(); err != nil {
+				t.Fatalf("Failed to send content to tmux: %v", err)
+			}
+
+			exec.Command("sleep", "0.1").Run()
+
+			status, ok := tm.detectSessionStatus(sessionName, "claude")
+			if !ok {
+				t.Fatal("detectSessionStatus failed to capture pane content")
+			}
+			if status != "running" {
+				t.Errorf("Spinner character %q should indicate 'running' status, got %q", spinner, status)
+			}
+		})
+	}
+}
+
+// TestDetectSessionStatusSpinnerInLastFiveLinesOnly verifies that spinner
+// detection only looks at the last 5 lines. Spinners earlier in the output
+// should not trigger "running" status.
+func TestDetectSessionStatusSpinnerInLastFiveLinesOnly(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm, _ := NewTmuxManager()
+	sessionName := "test_spinner_scope"
+	tmpDir := t.TempDir()
+
+	cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test tmux session: %v", err)
+	}
+	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+	// Content with spinner far back (line 1) and prompt at bottom
+	// The spinner is beyond the "last 5 lines" window
+	oldSpinnerContent := `Old activity: Thinking ⠋ (done)
+line2
+line3
+line4
+line5
+line6
+line7
+╭─────────────────────────────────────────────────────╮
+│ How can I help you today?                           │
+╰─────────────────────────────────────────────────────╯
+>`
+
+	sendCmd := exec.Command(tmuxBinaryPath, "send-keys", "-t", sessionName, "-l", oldSpinnerContent)
+	if err := sendCmd.Run(); err != nil {
+		t.Fatalf("Failed to send content to tmux: %v", err)
+	}
+
+	exec.Command("sleep", "0.1").Run()
+
+	status, ok := tm.detectSessionStatus(sessionName, "claude")
+	if !ok {
+		t.Fatal("detectSessionStatus failed to capture pane content")
+	}
+	// Should detect prompt (waiting), not the old spinner (which is outside last 5 lines)
+	if status != "waiting" {
+		t.Errorf("Old spinner outside last 5 lines should not trigger 'running', got %q", status)
+	}
+}
+
+// =============================================================================
+// Token-Based Activity Detection Tests (PR: fix/status-detection-sync)
+// =============================================================================
+
+// TestDetectSessionStatusReturnsRunningForTokenIndicators verifies that
+// detectSessionStatus returns "running" when token count appears with
+// processing indicators like "thinking", "connecting", "flummoxing", or "running".
+func TestDetectSessionStatusReturnsRunningForTokenIndicators(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm, _ := NewTmuxManager()
+
+	testCases := []struct {
+		name    string
+		content string
+	}{
+		{
+			"thinking with tokens",
+			"Thinking… (45s · 1234 tokens · gpt-4)",
+		},
+		{
+			"connecting with tokens",
+			"Connecting to API (5s · 100 tokens · ...)",
+		},
+		{
+			"flummoxing with tokens",
+			"Flummoxing... (5m 53s · ↓ 5.0k tokens · claude-opus)",
+		},
+		{
+			"running with tokens",
+			"Running tool (30s · 2500 tokens · processing)",
+		},
+		{
+			"case insensitive thinking",
+			"THINKING (10s · 500 TOKENS)",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			sessionName := "test_tokens_" + strings.ReplaceAll(tc.name, " ", "_")
+			tmpDir := t.TempDir()
+
+			cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("Failed to create test tmux session: %v", err)
+			}
+			defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+			sendCmd := exec.Command(tmuxBinaryPath, "send-keys", "-t", sessionName, "-l", tc.content)
+			if err := sendCmd.Run(); err != nil {
+				t.Fatalf("Failed to send content to tmux: %v", err)
+			}
+
+			exec.Command("sleep", "0.1").Run()
+
+			status, ok := tm.detectSessionStatus(sessionName, "claude")
+			if !ok {
+				t.Fatal("detectSessionStatus failed to capture pane content")
+			}
+			if status != "running" {
+				t.Errorf("%q should indicate 'running' status, got %q", tc.name, status)
+			}
+		})
+	}
+}
+
+// TestDetectSessionStatusTokensWithoutIndicatorDoesNotTriggerRunning verifies
+// that having "tokens" in the output without a processing indicator (thinking,
+// connecting, flummoxing, running) does NOT trigger "running" status.
+// This prevents false positives from historical output mentioning tokens.
+func TestDetectSessionStatusTokensWithoutIndicatorDoesNotTriggerRunning(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm, _ := NewTmuxManager()
+	sessionName := "test_tokens_no_indicator"
+	tmpDir := t.TempDir()
+
+	cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test tmux session: %v", err)
+	}
+	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+	// Content mentions "tokens" but without active processing indicators
+	// This could be part of a completed response or documentation
+	ambiguousContent := `Previous response used 5000 tokens.
+API supports up to 200k tokens.
+
+╭─────────────────────────────────────────────────────╮
+│ How can I help you today?                           │
+╰─────────────────────────────────────────────────────╯
+>`
+
+	sendCmd := exec.Command(tmuxBinaryPath, "send-keys", "-t", sessionName, "-l", ambiguousContent)
+	if err := sendCmd.Run(); err != nil {
+		t.Fatalf("Failed to send content to tmux: %v", err)
+	}
+
+	exec.Command("sleep", "0.1").Run()
+
+	status, ok := tm.detectSessionStatus(sessionName, "claude")
+	if !ok {
+		t.Fatal("detectSessionStatus failed to capture pane content")
+	}
+	// Should detect prompt as "waiting", not be fooled by "tokens" mention
+	if status != "waiting" {
+		t.Errorf("Mention of 'tokens' without indicator should not trigger 'running', got %q", status)
+	}
+}
+
+// =============================================================================
+// Busy Indicator Priority Tests (PR: fix/status-detection-sync)
+// =============================================================================
+
+// TestDetectSessionStatusBusyIndicatorsTakePriorityOverPrompt verifies that
+// when both busy indicators (ctrl+c to interrupt, spinner, tokens) and a prompt
+// are present, the busy indicators take priority and return "running" status.
+// This prevents misdetecting active processing as "waiting".
+func TestDetectSessionStatusBusyIndicatorsTakePriorityOverPrompt(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm, _ := NewTmuxManager()
+
+	testCases := []struct {
+		name    string
+		content string
+	}{
+		{
+			"ctrl+c with prompt",
+			"Thinking ⠋\n\nctrl+c to interrupt\n\n> ",
+		},
+		{
+			"esc to interrupt with prompt",
+			"Processing...\nesc to interrupt\n\n> Some output\n> ",
+		},
+		{
+			"tokens indicator with prompt",
+			"Running (30s · 1500 tokens)\n\n╭──────────╮\n│ Prompt │\n╰──────────╯\n> ",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			sessionName := "test_priority_" + strings.ReplaceAll(tc.name, " ", "_")
+			tmpDir := t.TempDir()
+
+			cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("Failed to create test tmux session: %v", err)
+			}
+			defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+			sendCmd := exec.Command(tmuxBinaryPath, "send-keys", "-t", sessionName, "-l", tc.content)
+			if err := sendCmd.Run(); err != nil {
+				t.Fatalf("Failed to send content to tmux: %v", err)
+			}
+
+			exec.Command("sleep", "0.1").Run()
+
+			status, ok := tm.detectSessionStatus(sessionName, "claude")
+			if !ok {
+				t.Fatal("detectSessionStatus failed to capture pane content")
+			}
+			if status != "running" {
+				t.Errorf("%q: busy indicator should take priority over prompt, got status %q", tc.name, status)
+			}
+		})
+	}
+}
+
+// TestDetectSessionStatusRemovedThinkingFromBusyIndicators verifies that the
+// word "thinking" alone (without tokens or spinner) does NOT trigger "running"
+// status. PR removed "thinking" from busyIndicators list to reduce false positives.
+func TestDetectSessionStatusRemovedThinkingFromBusyIndicators(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available, skipping integration test")
+	}
+
+	tm, _ := NewTmuxManager()
+	sessionName := "test_thinking_not_busy"
+	tmpDir := t.TempDir()
+
+	cmd := exec.Command(tmuxBinaryPath, "new-session", "-d", "-s", sessionName, "-c", tmpDir)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test tmux session: %v", err)
+	}
+	defer exec.Command(tmuxBinaryPath, "kill-session", "-t", sessionName).Run()
+
+	// Content with "thinking" in past tense or as part of output
+	// This should NOT be treated as a busy indicator without spinner/tokens
+	thinkingContent := `I'm thinking about your request...
+[Output from previous run]
+
+╭─────────────────────────────────────────────────────╮
+│ How can I help you today?                           │
+╰─────────────────────────────────────────────────────╯
+>`
+
+	sendCmd := exec.Command(tmuxBinaryPath, "send-keys", "-t", sessionName, "-l", thinkingContent)
+	if err := sendCmd.Run(); err != nil {
+		t.Fatalf("Failed to send content to tmux: %v", err)
+	}
+
+	exec.Command("sleep", "0.1").Run()
+
+	status, ok := tm.detectSessionStatus(sessionName, "claude")
+	if !ok {
+		t.Fatal("detectSessionStatus failed to capture pane content")
+	}
+	// Should detect prompt as "waiting", not "thinking" word as busy
+	if status != "waiting" {
+		t.Errorf("Word 'thinking' without spinner/tokens should not indicate 'running', got %q", status)
 	}
 }
 

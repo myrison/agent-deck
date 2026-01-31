@@ -271,8 +271,83 @@ func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bo
 
 	contentLower := strings.ToLower(content)
 
-	// Check for error indicators FIRST (highest priority)
-	// These patterns indicate terminal/session startup failures
+	// ═══════════════════════════════════════════════════════════════════════
+	// PRIORITY 1: BUSY indicators - Check these FIRST
+	// If busy, session is definitely "running" regardless of prompt state
+	// ═══════════════════════════════════════════════════════════════════════
+
+	// Check for explicit interrupt messages (most reliable)
+	busyIndicators := []string{
+		"ctrl+c to interrupt",
+		"esc to interrupt",
+	}
+	for _, indicator := range busyIndicators {
+		if strings.Contains(contentLower, indicator) {
+			return "running", true
+		}
+	}
+
+	// Check for spinner characters in last 5 lines (indicates active processing)
+	// These are the exact braille spinner chars from cli-spinners "dots"
+	// Used by Claude Code for "Thinking...", "Flummoxing...", "Running...", etc.
+	spinnerChars := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	lines := strings.Split(content, "\n")
+	lastLines := lines
+	if len(lastLines) > 5 {
+		lastLines = lastLines[len(lastLines)-5:]
+	}
+	for _, line := range lastLines {
+		for _, spinner := range spinnerChars {
+			if strings.Contains(line, spinner) {
+				return "running", true
+			}
+		}
+	}
+
+	// Check for timing indicators with "tokens" (indicates active processing)
+	// Format: "Thinking… (45s · 1234 tokens · ...)" or "Flummoxing... (5m 53s · ↓ 5.0k tokens · ...)"
+	if strings.Contains(contentLower, "tokens") {
+		// Has tokens count - check if it's a processing indicator
+		if strings.Contains(contentLower, "thinking") ||
+			strings.Contains(contentLower, "connecting") ||
+			strings.Contains(contentLower, "flummoxing") ||
+			strings.Contains(contentLower, "running") {
+			return "running", true
+		}
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// PRIORITY 2: WAITING detection - Use prompt detector to check if at prompt
+	// If prompt is present, session is healthy and waiting for input
+	// ═══════════════════════════════════════════════════════════════════════
+	detector := tmux.NewPromptDetector(tool)
+	if detector.HasPrompt(content) {
+		return "waiting", true
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// PRIORITY 3: ERROR detection - Only check if session appears stuck
+	// Check LAST 10 non-empty lines only - real startup failures appear at bottom
+	// Don't scan scrollback - avoids false positives from discussed errors
+	// ═══════════════════════════════════════════════════════════════════════
+
+	// Extract last 10 non-empty lines for error checking
+	// Filter out blank lines to handle tmux padding
+	var nonEmptyLines []string
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			nonEmptyLines = append(nonEmptyLines, line)
+		}
+	}
+
+	errorCheckLines := nonEmptyLines
+	if len(errorCheckLines) > 10 {
+		errorCheckLines = errorCheckLines[len(errorCheckLines)-10:]
+	}
+	recentContent := strings.Join(errorCheckLines, "\n")
+	recentLower := strings.ToLower(recentContent)
+
+	// Check for SSH/connection error patterns
 	errorPatterns := []string{
 		"failed to start terminal",
 		"failed to restart remote session",
@@ -287,26 +362,8 @@ func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bo
 		"host key verification failed",
 	}
 	for _, pattern := range errorPatterns {
-		if strings.Contains(contentLower, pattern) {
+		if strings.Contains(recentLower, pattern) {
 			return "error", true
-		}
-	}
-
-	// Use the prompt detector from internal/tmux
-	detector := tmux.NewPromptDetector(tool)
-	if detector.HasPrompt(content) {
-		return "waiting", true
-	}
-
-	// If no prompt detected, check for busy indicators
-	busyIndicators := []string{
-		"ctrl+c to interrupt",
-		"esc to interrupt",
-		"thinking",
-	}
-	for _, indicator := range busyIndicators {
-		if strings.Contains(contentLower, indicator) {
-			return "running", true
 		}
 	}
 
