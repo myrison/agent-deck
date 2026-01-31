@@ -1257,6 +1257,51 @@ func (t *Terminal) triggerIdleRefresh() {
 	t.mu.Unlock()
 }
 
+// TriggerManualRefresh forces a full terminal refresh via Cmd+Option+R shortcut
+// Similar to idle refresh, but user-triggered and has no guards
+func (t *Terminal) TriggerManualRefresh() error {
+	t.mu.Lock()
+	if t.closed {
+		t.mu.Unlock()
+		return fmt.Errorf("terminal closed")
+	}
+	session := t.tmuxSession
+	ctx := t.ctx
+	sessionID := t.sessionID
+	t.mu.Unlock()
+
+	if session == "" {
+		return fmt.Errorf("no tmux session")
+	}
+
+	// Capture full scrollback (same as idle refresh)
+	cmd := exec.Command(tmuxBinaryPath, "capture-pane", "-t", session, "-p", "-e", "-S", "-", "-E", "-")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("capture-pane failed: %w", err)
+	}
+
+	// Sanitize and normalize (same as idle refresh)
+	content := sanitizeHistoryForXterm(string(output))
+	content = normalizeCRLF(content)
+
+	// Emit event to frontend
+	if ctx != nil {
+		runtime.EventsEmit(ctx, "terminal:manual-refresh",
+			TerminalEvent{SessionID: sessionID, Data: content})
+	}
+
+	// Reset counters and tracker (same as idle refresh)
+	t.mu.Lock()
+	t.linesSinceLastRefresh = 0
+	if t.historyTracker != nil {
+		t.historyTracker.Reset()
+	}
+	t.mu.Unlock()
+
+	return nil
+}
+
 // findLastValidUTF8Boundary finds the last position where UTF-8 is complete.
 // Returns the byte index up to which all UTF-8 sequences are complete.
 // Any bytes after this index are part of an incomplete multi-byte sequence.

@@ -23,7 +23,7 @@ import HostPicker, { LOCAL_HOST_ID } from './HostPicker';
 import DeleteSessionDialog from './DeleteSessionDialog';
 import Toast from './Toast';
 import { BranchIcon } from './ToolIcon';
-import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames, DeleteSession, OpenNewWindow, GetOpenTabState, SaveOpenTabState, HasScanPaths, GetSetupDismissed, GetShowActivityRibbon, GetShowContextMeter, RefreshSessionStatuses, ResetTerminalViewport } from '../wailsjs/go/main/App';
+import { ListSessions, DiscoverProjects, CreateSession, CreateRemoteSession, RecordProjectUsage, GetQuickLaunchFavorites, AddQuickLaunchFavorite, GetQuickLaunchBarVisibility, SetQuickLaunchBarVisibility, GetGitBranch, IsGitWorktree, GetSessionMetadata, MarkSessionAccessed, GetDefaultLaunchConfig, UpdateSessionCustomLabel, GetFontSize, SetFontSize, GetScrollSpeed, GetSavedLayouts, SaveLayout, DeleteSavedLayout, StartRemoteTmuxSession, BrowseLocalDirectory, GetSSHHostDisplayNames, DeleteSession, OpenNewWindow, GetOpenTabState, SaveOpenTabState, HasScanPaths, GetSetupDismissed, GetShowActivityRibbon, GetShowContextMeter, RefreshSessionStatuses, ResetTerminalViewport, TriggerManualTerminalRefresh } from '../wailsjs/go/main/App';
 import { createLogger } from './logger';
 import { DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE } from './constants/terminal';
 import { shouldInterceptShortcut, hasAppModifier } from './utils/platform';
@@ -2007,6 +2007,23 @@ function App() {
             e.preventDefault();
             logger.info('Cmd+R pressed - opening label dialog');
             setShowLabelDialog(true);
+        }
+        // Cmd+Option+R: Hard refresh to fix visual artifacts
+        if (e.metaKey && e.altKey && e.key === 'r' && inTerminal && selectedSession) {
+            e.preventDefault();
+
+            // Call backend to trigger full refresh
+            TriggerManualTerminalRefresh(selectedSession.id)
+                .then(() => {
+                    logger.info('[SHORTCUT] Manual refresh triggered successfully');
+                })
+                .catch((err) => {
+                    logger.error('[SHORTCUT] Manual refresh failed:', err);
+                    // Optional: show toast notification
+                    // showToast('Failed to refresh terminal: ' + err, 'error');
+                });
+
+            return;
         }
         // Shift+5 (%) to cycle session status filter (only in selector view)
         // Skip when typing in input fields
