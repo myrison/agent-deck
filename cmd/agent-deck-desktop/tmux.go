@@ -287,14 +287,14 @@ func (tm *TmuxManager) detectSessionStatus(tmuxSession, tool string) (string, bo
 		}
 	}
 
-	// Check for spinner characters in last 5 lines (indicates active processing)
+	// Check for spinner characters in last 25 lines (indicates active processing)
 	// These are the exact braille spinner chars from cli-spinners "dots"
 	// Used by Claude Code for "Thinking...", "Flummoxing...", "Running...", etc.
 	spinnerChars := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 	lines := strings.Split(content, "\n")
 	lastLines := lines
-	if len(lastLines) > 5 {
-		lastLines = lastLines[len(lastLines)-5:]
+	if len(lastLines) > 25 {
+		lastLines = lastLines[len(lastLines)-25:]
 	}
 	for _, line := range lastLines {
 		for _, spinner := range spinnerChars {
