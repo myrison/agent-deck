@@ -8,6 +8,32 @@ DESKTOP_DIR="$REPO_DIR/cmd/agent-deck-desktop"
 BUILD_DIR="$DESKTOP_DIR/build/bin"
 WAILS_JSON="$DESKTOP_DIR/wails.json"
 APP_NAME="RevvySwarm.app"
+CONFIG_FILE="$HOME/.agent-deck/config.toml"
+BACKUP_DIR="$HOME/.agent-deck/backups"
+
+# Create backup of config.toml before building
+backup_config() {
+    if [ -f "$CONFIG_FILE" ]; then
+        mkdir -p "$BACKUP_DIR"
+        TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
+        BACKUP_FILE="$BACKUP_DIR/config.toml.backup-$TIMESTAMP"
+
+        echo "📦 Backing up config.toml to $BACKUP_FILE"
+        cp "$CONFIG_FILE" "$BACKUP_FILE"
+
+        # Rotate old backups (keep only last 7 days)
+        echo "🗑️  Removing backups older than 7 days..."
+        find "$BACKUP_DIR" -name "config.toml.backup-*" -type f -mtime +7 -delete
+
+        BACKUP_COUNT=$(find "$BACKUP_DIR" -name "config.toml.backup-*" -type f | wc -l | tr -d ' ')
+        echo "📊 Total backups: $BACKUP_COUNT"
+    else
+        echo "⚠️  No config.toml found at $CONFIG_FILE (skipping backup)"
+    fi
+}
+
+# Run backup
+backup_config
 
 # Production wails.json config
 PROD_CONFIG='{
