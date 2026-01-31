@@ -125,7 +125,7 @@
     color: var(--text-dimmed);
     cursor: pointer;
     font-size: var(--font-2xl);
-    transition: border-color 0.1s, color 0.1s;
+    transition: border-color 0.2s, color 0.2s;
 }
 
 /* Single favorite: add button spans only 1 row */

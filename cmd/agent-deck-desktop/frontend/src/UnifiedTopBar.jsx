@@ -408,7 +408,7 @@ export default function UnifiedTopBar({
             {/* Quick Launch Section - 2-row grid with vertical-first stacking */}
             {hasFavorites && (
                 <div className={`quick-launch-section${favorites.length === 1 ? ' single-favorite' : ''}`}>
-                    {favorites.map((fav) => (
+                    {favorites.map((fav, index) => (
                         <button
                             key={fav.path}
                             className="quick-launch-item"
@@ -417,7 +417,7 @@ export default function UnifiedTopBar({
                             onMouseEnter={(e) => showTooltip(e, getFavoriteTooltipContent(fav))}
                             onMouseLeave={hideTooltip}
                         >
-                            <span className="quick-launch-star">★</span>
+                            {index === 0 && <span className="quick-launch-star">★</span>}
                             <span
                                 className="quick-launch-icon"
                                 style={{ backgroundColor: getToolColor(fav.tool) }}
@@ -435,7 +435,8 @@ export default function UnifiedTopBar({
                     <button
                         className="quick-launch-add"
                         onClick={onOpenPaletteForPinning}
-                        title="Add favorite"
+                        onMouseEnter={(e) => showTooltip(e, 'Add favorite')}
+                        onMouseLeave={hideTooltip}
                     >
                         +
                     </button>
