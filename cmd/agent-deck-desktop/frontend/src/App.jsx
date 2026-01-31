@@ -2003,8 +2003,11 @@ function App() {
         }
         // Cmd+Option+R: Hard refresh to fix visual artifacts
         // NOTE: Must be checked BEFORE Cmd+R to avoid being intercepted
-        if (e.metaKey && e.altKey && e.key === 'r' && inTerminal && selectedSession) {
+        // Use e.code instead of e.key because Option+R produces '®' on macOS
+        if (e.metaKey && e.altKey && e.code === 'KeyR' && inTerminal && selectedSession) {
             e.preventDefault();
+
+            logger.info('[SHORTCUT] Cmd+Option+R pressed - triggering manual refresh');
 
             // Call backend to trigger full refresh
             TriggerManualTerminalRefresh(selectedSession.id)

@@ -192,6 +192,8 @@ export function TestSSHConnectionWithParams(arg1:string,arg2:string,arg3:number,
 
 export function ToggleGroupExpanded(arg1:string,arg2:boolean):Promise<void>;
 
+export function TriggerManualTerminalRefresh(arg1:string):Promise<void>;
+
 export function UpdateQuickLaunchFavoriteName(arg1:string,arg2:string):Promise<void>;
 
 export function UpdateQuickLaunchShortcut(arg1:string,arg2:string):Promise<void>;
