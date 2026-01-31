@@ -68,7 +68,7 @@ func TestPoolShouldPool(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewPool failed: %v", err)
 			}
-			defer pool.Shutdown()
+			defer func() { _ = pool.Shutdown() }()
 
 			result := pool.ShouldPool(tt.mcpName)
 			if result != tt.shouldPool {
@@ -89,7 +89,7 @@ func TestPoolIsRunningReturnsFalseForNonexistent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPool failed: %v", err)
 	}
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown() }()
 
 	// Nonexistent proxy should not be running
 	if pool.IsRunning("nonexistent-mcp") {
@@ -107,7 +107,7 @@ func TestPoolGetSocketPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPool failed: %v", err)
 	}
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown() }()
 
 	// Nonexistent proxy should return empty path
 	path := pool.GetSocketPath("nonexistent")
@@ -169,7 +169,7 @@ func TestPoolListServersReturnsSlice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPool failed: %v", err)
 	}
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown() }()
 
 	servers := pool.ListServers()
 	if servers == nil {
@@ -218,7 +218,7 @@ func TestPoolRegisterExternalSocketIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPool failed: %v", err)
 	}
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown() }()
 
 	tmpDir := t.TempDir()
 	socketPath := filepath.Join(tmpDir, "test.sock")

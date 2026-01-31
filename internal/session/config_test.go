@@ -68,8 +68,8 @@ func TestLoadConfigReturnsDefaultWhenNotExists(t *testing.T) {
 	// Create a temporary directory and set HOME to it
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", origHome)
-	os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+	_ = os.Setenv("HOME", tmpHome)
 
 	config, err := LoadConfig()
 	if err != nil {
@@ -93,8 +93,8 @@ func TestLoadConfigReturnsDefaultWhenNotExists(t *testing.T) {
 func TestSaveAndLoadConfigRoundTrip(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", origHome)
-	os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+	_ = os.Setenv("HOME", tmpHome)
 
 	// Create a config with specific values
 	original := &Config{
@@ -127,8 +127,8 @@ func TestSaveAndLoadConfigRoundTrip(t *testing.T) {
 func TestSaveConfigCreatesDirectory(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", origHome)
-	os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+	_ = os.Setenv("HOME", tmpHome)
 
 	config := &Config{
 		DefaultProfile: "test",
@@ -154,8 +154,8 @@ func TestSaveConfigCreatesDirectory(t *testing.T) {
 func TestLoadConfigHandlesCorruptedFile(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", origHome)
-	os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+	_ = os.Setenv("HOME", tmpHome)
 
 	// Create agent-deck directory
 	agentDeckDir := filepath.Join(tmpHome, ".agent-deck")
@@ -182,8 +182,8 @@ func TestLoadConfigHandlesCorruptedFile(t *testing.T) {
 func TestListProfilesReturnsEmptyWhenNoProfiles(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", origHome)
-	os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+	_ = os.Setenv("HOME", tmpHome)
 
 	profiles, err := ListProfiles()
 	if err != nil {
@@ -205,8 +205,8 @@ func TestListProfilesReturnsEmptyWhenNoProfiles(t *testing.T) {
 func TestListProfilesOnlyReturnsValidProfiles(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", origHome)
-	os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+	_ = os.Setenv("HOME", tmpHome)
 
 	profilesDir := filepath.Join(tmpHome, ".agent-deck", ProfilesDirName)
 	if err := os.MkdirAll(profilesDir, 0700); err != nil {
@@ -248,8 +248,8 @@ func TestListProfilesOnlyReturnsValidProfiles(t *testing.T) {
 func TestProfileExistsReturnsFalseForNonexistent(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", origHome)
-	os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+	_ = os.Setenv("HOME", tmpHome)
 
 	exists, err := ProfileExists("nonexistent-profile")
 	if err != nil {
@@ -265,8 +265,8 @@ func TestProfileExistsReturnsFalseForNonexistent(t *testing.T) {
 func TestProfileExistsReturnsTrueForValid(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", origHome)
-	os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+	_ = os.Setenv("HOME", tmpHome)
 
 	// Create a valid profile
 	profileDir, err := GetProfileDir("test-profile")
@@ -300,8 +300,8 @@ func TestProfileExistsReturnsTrueForValid(t *testing.T) {
 func TestLoadConfigSetsDefaultProfileWhenEmpty(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", origHome)
-	os.Setenv("HOME", tmpHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+	_ = os.Setenv("HOME", tmpHome)
 
 	// Manually write a config with empty DefaultProfile
 	agentDeckDir := filepath.Join(tmpHome, ".agent-deck")
