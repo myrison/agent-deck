@@ -183,64 +183,60 @@ export default function SessionPicker({ projectPath, projectName, sessions, onSe
                         </div>
                     </div>
                 ) : (
-                    <>
+                    <div className="session-picker-sections-wrapper">
                         {sessions && sessions.length > 0 && (
                             <div className="session-picker-section">
                                 <div className="session-picker-section-title">Existing Sessions</div>
-                                <div className="session-picker-options">
-                                    {sessions.map((session, index) => {
-                                        const status = getStatusIndicator(session.status);
-                                        return (
-                                            <button
-                                                key={session.id}
-                                                className={`session-picker-option ${index === selectedIndex ? 'selected' : ''}`}
-                                                onClick={() => handleSelect(session)}
-                                                onMouseEnter={() => setSelectedIndex(index)}
-                                            >
-                                                <span className="session-picker-tool-icon">
-                                                    <ToolIcon tool={session.tool} size={16} />
-                                                </span>
-                                                <span className={`session-picker-status ${status.className}`}>
-                                                    {status.symbol}
-                                                </span>
-                                                <div className="session-picker-info">
-                                                    <div className="session-picker-label">
-                                                        {getDisplayLabel(session)}
-                                                    </div>
-                                                    <div className="session-picker-meta">
-                                                        {getStatusLabel(session.status, session.waitingSince).label}
-                                                    </div>
+                                {sessions.map((session, index) => {
+                                    const status = getStatusIndicator(session.status);
+                                    return (
+                                        <button
+                                            key={session.id}
+                                            className={`session-picker-option ${index === selectedIndex ? 'selected' : ''}`}
+                                            onClick={() => handleSelect(session)}
+                                            onMouseEnter={() => setSelectedIndex(index)}
+                                        >
+                                            <span className="session-picker-tool-icon">
+                                                <ToolIcon tool={session.tool} size={16} />
+                                            </span>
+                                            <span className={`session-picker-status ${status.className}`}>
+                                                {status.symbol}
+                                            </span>
+                                            <div className="session-picker-info">
+                                                <div className="session-picker-label">
+                                                    {getDisplayLabel(session)}
                                                 </div>
-                                                <span className={`session-picker-host ${session.isRemote ? 'remote' : 'local'}`}>
-                                                    {getHostBadge(session)}
-                                                </span>
-                                                <span className="session-picker-shortcut">{index + 1}</span>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
+                                                <div className="session-picker-meta">
+                                                    {getStatusLabel(session.status, session.waitingSince).label}
+                                                </div>
+                                            </div>
+                                            <span className={`session-picker-host ${session.isRemote ? 'remote' : 'local'}`}>
+                                                {getHostBadge(session)}
+                                            </span>
+                                            <span className="session-picker-shortcut">{index + 1}</span>
+                                        </button>
+                                    );
+                                })}
                             </div>
                         )}
 
-                        <div className="session-picker-section">
-                            <div className="session-picker-options">
-                                <button
-                                    className={`session-picker-option session-picker-new ${selectedIndex === newSessionIndex ? 'selected' : ''}`}
-                                    onClick={() => handleCreateNew()}
-                                    onMouseEnter={() => setSelectedIndex(newSessionIndex)}
-                                >
-                                    <span className="session-picker-new-icon">+</span>
-                                    <div className="session-picker-info">
-                                        <div className="session-picker-label">New Session</div>
-                                        <div className="session-picker-meta">
-                                            <kbd>⌘↵</kbd> to add label
-                                        </div>
+                        <div className="session-picker-section session-picker-new">
+                            <button
+                                className={`session-picker-option ${selectedIndex === newSessionIndex ? 'selected' : ''}`}
+                                onClick={() => handleCreateNew()}
+                                onMouseEnter={() => setSelectedIndex(newSessionIndex)}
+                            >
+                                <span className="session-picker-new-icon">+</span>
+                                <div className="session-picker-info">
+                                    <div className="session-picker-label">New Session</div>
+                                    <div className="session-picker-meta">
+                                        <kbd>⌘↵</kbd> to add label
                                     </div>
-                                    <span className="session-picker-shortcut">{newSessionIndex + 1}</span>
-                                </button>
-                            </div>
+                                </div>
+                                <span className="session-picker-shortcut">{newSessionIndex + 1}</span>
+                            </button>
                         </div>
-                    </>
+                    </div>
                 )}
 
                 <div className="session-picker-footer">
