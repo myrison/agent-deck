@@ -163,6 +163,7 @@ export default function CommandMenu({
     const fuse = useMemo(() => new Fuse([...dedupedSessions, ...projectItems, ...allActions], {
         keys: [
             { name: 'title', weight: 0.4 },
+            { name: 'customLabel', weight: 0.4 },
             { name: 'projectPath', weight: 0.3 },
             { name: 'tool', weight: 0.1 },
             { name: 'description', weight: 0.2 },
