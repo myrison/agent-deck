@@ -518,6 +518,10 @@ func (tm *TmuxManager) convertInstancesToSessionInfos(instances []*session.Insta
 		if !isRemote && !exists {
 			// Local session without running tmux is "exited"
 			status = "exited"
+			// Persist the exited status to storage if it changed
+			if string(inst.Status) != "exited" {
+				updates[inst.ID] = session.FieldUpdate{Status: &status}
+			}
 		} else if !isRemote && exists {
 			// Use pre-detected status from parallel detection
 			if detected, ok := detectedResults[inst.TmuxSession]; ok {
@@ -1586,6 +1590,10 @@ func (tm *TmuxManager) RefreshSessionStatuses(sessionIDs []string) ([]StatusUpda
 		if !isRemote && !exists {
 			// Local session without running tmux is "exited"
 			status = "exited"
+			// Persist the exited status to storage if it changed
+			if string(inst.Status) != "exited" {
+				updates[inst.ID] = session.FieldUpdate{Status: &status}
+			}
 		} else if !isRemote && exists {
 			// Use pre-detected status from parallel detection
 			if detected, ok := detectedResults[inst.TmuxSession]; ok {
