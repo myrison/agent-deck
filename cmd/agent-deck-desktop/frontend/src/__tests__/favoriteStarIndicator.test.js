@@ -87,14 +87,15 @@ function formatShortcut(shortcut) {
 
 /**
  * Checks if a favorite item button should render a star badge.
- * In UnifiedTopBar.jsx line 420, ALL favorite items get a star badge.
+ * In UnifiedTopBar.jsx line 420, only the FIRST favorite (index === 0) gets a star badge.
+ * This change was made to reduce visual clutter in the quick launch section.
  *
- * @param {Object} fav - Favorite item
- * @returns {boolean} Always true for favorites
+ * @param {number} index - Index of the favorite in the list
+ * @returns {boolean} True only for the first favorite (index 0)
  */
-function shouldRenderStarBadge(fav) {
-    // All favorites in the quick launch bar get a star badge
-    return true;
+function shouldRenderStarBadge(index) {
+    // Only the first favorite in the quick launch bar gets a star badge
+    return index === 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -295,48 +296,28 @@ describe('generateFavoriteTooltipContent (mirrors UnifiedTopBar.jsx lines 145-16
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('shouldRenderStarBadge (mirrors UnifiedTopBar.jsx line 420)', () => {
-    describe('star badge presence', () => {
-        it('renders star badge for all favorites', () => {
-            const favorites = [
-                { name: 'Project 1', path: '/path1', tool: 'claude' },
-                { name: 'Project 2', path: '/path2', tool: 'gemini' },
-                { name: 'Project 3', path: '/path3', tool: 'opencode' }
-            ];
+    describe('star badge presence - only first favorite', () => {
+        it('renders star badge only for first favorite (index 0)', () => {
+            expect(shouldRenderStarBadge(0)).toBe(true);
+            expect(shouldRenderStarBadge(1)).toBe(false);
+            expect(shouldRenderStarBadge(2)).toBe(false);
+        });
 
-            favorites.forEach(fav => {
-                expect(shouldRenderStarBadge(fav)).toBe(true);
+        it('does not render star badge for second or subsequent favorites', () => {
+            const indices = [1, 2, 3, 4, 5];
+
+            indices.forEach(index => {
+                expect(shouldRenderStarBadge(index)).toBe(false);
             });
         });
 
-        it('renders star badge regardless of tool type', () => {
-            const tools = ['claude', 'gemini', 'opencode', 'unknown'];
+        it('renders star badge for first item regardless of list size', () => {
+            // Single favorite
+            expect(shouldRenderStarBadge(0)).toBe(true);
 
-            tools.forEach(tool => {
-                const fav = { name: 'Project', path: '/path', tool };
-                expect(shouldRenderStarBadge(fav)).toBe(true);
-            });
-        });
-
-        it('renders star badge even without shortcut', () => {
-            const fav = {
-                name: 'Project',
-                path: '/path',
-                tool: 'claude'
-                // no shortcut
-            };
-
-            expect(shouldRenderStarBadge(fav)).toBe(true);
-        });
-
-        it('renders star badge even with shortcut', () => {
-            const fav = {
-                name: 'Project',
-                path: '/path',
-                tool: 'claude',
-                shortcut: 'Cmd+1'
-            };
-
-            expect(shouldRenderStarBadge(fav)).toBe(true);
+            // Still only first shows star even with many favorites
+            expect(shouldRenderStarBadge(0)).toBe(true);
+            expect(shouldRenderStarBadge(9)).toBe(false);
         });
     });
 });
@@ -346,7 +327,7 @@ describe('shouldRenderStarBadge (mirrors UnifiedTopBar.jsx line 420)', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('favorite star indicator integration scenarios', () => {
-    it('favorite with both badge and tooltip indicator has consistent star symbol', () => {
+    it('first favorite has both badge and tooltip star indicator with consistent symbol', () => {
         const fav = {
             name: 'My Project',
             path: '/path/to/project',
@@ -354,8 +335,8 @@ describe('favorite star indicator integration scenarios', () => {
             shortcut: 'Cmd+1'
         };
 
-        // Both badge and tooltip should use the same star symbol
-        const hasBadge = shouldRenderStarBadge(fav);
+        // First favorite (index 0) has badge, tooltip always has star
+        const hasBadge = shouldRenderStarBadge(0);
         const tooltip = generateFavoriteTooltipContent(fav);
         const tooltipStar = tooltip.children[0].children[0].text;
 
@@ -378,18 +359,18 @@ describe('favorite star indicator integration scenarios', () => {
         expect(header.children[0].className).toBe('tooltip-favorite-star');
     });
 
-    it('multiple favorites all get star indicators', () => {
+    it('only first favorite gets star badge, but all get star in tooltip', () => {
         const favorites = [
             { name: 'Alpha', path: '/alpha', tool: 'claude' },
             { name: 'Beta', path: '/beta', tool: 'gemini', shortcut: 'Cmd+1' },
             { name: 'Gamma', path: '/gamma', tool: 'opencode' }
         ];
 
-        favorites.forEach(fav => {
-            // Each should have badge
-            expect(shouldRenderStarBadge(fav)).toBe(true);
+        favorites.forEach((fav, index) => {
+            // Only first (index 0) should have badge
+            expect(shouldRenderStarBadge(index)).toBe(index === 0);
 
-            // Each tooltip should have star header
+            // All tooltips should still have star header (star identifies favorites section)
             const tooltip = generateFavoriteTooltipContent(fav);
             expect(tooltip.children[0].className).toBe('tooltip-favorite-header');
             expect(tooltip.children[0].children[0].text).toBe('★');
