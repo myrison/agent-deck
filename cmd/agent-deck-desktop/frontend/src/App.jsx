@@ -1610,6 +1610,19 @@ function App() {
         setShowSettings(true);
     }, []);
 
+    // Focus the active terminal pane (used after modal close)
+    const focusActiveTerminal = useCallback(() => {
+        // Small delay to ensure modal is fully unmounted
+        setTimeout(() => {
+            const paneId = activeTab?.activePaneId;
+            const terminal = searchRefs.current?.[paneId]?.terminal;
+            if (terminal) {
+                terminal.focus();
+                logger.debug('[FOCUS] Restored focus to terminal', { paneId });
+            }
+        }, 50);
+    }, [activeTab?.activePaneId]);
+
     // Handle saving custom label for current session
     const handleSaveSessionCustomLabel = useCallback(async (newLabel) => {
         if (!selectedSession) return;
@@ -1622,7 +1635,8 @@ function App() {
             logger.error('Failed to save session custom label:', err);
         }
         setShowLabelDialog(false);
-    }, [selectedSession]);
+        focusActiveTerminal();
+    }, [selectedSession, focusActiveTerminal]);
 
     // Handle tab label updated from context menu
     const handleTabLabelUpdated = useCallback((sessionId, newLabel) => {
@@ -2001,15 +2015,13 @@ function App() {
             e.preventDefault();
             handleBackToSelector();
         }
-        // Cmd+Option+R: Hard refresh to fix visual artifacts
-        // NOTE: Must be checked BEFORE Cmd+R to avoid being intercepted
-        // Use e.code instead of e.key because Option+R produces '®' on macOS
-        if (e.metaKey && e.altKey && e.code === 'KeyR' && inTerminal && selectedSession) {
+        // Cmd+R: Hard refresh to fix visual artifacts
+        // On macOS, Ctrl+R passes through to terminal (reverse-search in bash)
+        if (appMod && e.key === 'r' && inTerminal && selectedSession) {
             e.preventDefault();
 
-            logger.info('[SHORTCUT] Cmd+Option+R pressed - triggering manual refresh');
+            logger.info('[SHORTCUT] Cmd+R pressed - triggering manual refresh');
 
-            // Call backend to trigger full refresh
             TriggerManualTerminalRefresh(selectedSession.id)
                 .then(() => {
                     logger.info('[SHORTCUT] Manual refresh triggered successfully');
@@ -2020,12 +2032,12 @@ function App() {
 
             return;
         }
-        // Cmd+R to add/edit custom label (only in terminal view with a session)
-        // On macOS, Ctrl+R passes through to terminal (reverse-search in bash)
-        if (appMod && !e.altKey && e.key === 'r' && inTerminal && selectedSession) {
+        // Cmd+L: Add/edit custom label for the session
+        if (appMod && e.key === 'l' && inTerminal && selectedSession) {
             e.preventDefault();
-            logger.info('Cmd+R pressed - opening label dialog');
+            logger.info('[SHORTCUT] Cmd+L pressed - opening label dialog');
             setShowLabelDialog(true);
+            return;
         }
         // Shift+5 (%) to cycle session status filter (only in selector view)
         // Skip when typing in input fields
@@ -2601,7 +2613,10 @@ function App() {
                     title={selectedSession.customLabel ? 'Edit Custom Label' : 'Add Custom Label'}
                     placeholder="Enter label..."
                     onSave={handleSaveSessionCustomLabel}
-                    onCancel={() => setShowLabelDialog(false)}
+                    onCancel={() => {
+                        setShowLabelDialog(false);
+                        focusActiveTerminal();
+                    }}
                 />
             )}
             {showDeleteDialog && selectedSession && (
