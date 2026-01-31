@@ -172,6 +172,10 @@ export default function SessionPicker({ projectPath, projectName, sessions, onSe
                             onChange={(e) => setCustomLabel(e.target.value)}
                             placeholder="e.g., bugfix, feature, exploration"
                             maxLength={30}
+                            autoComplete="off"
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck="false"
                         />
                         <div className="session-picker-label-actions">
                             <button onClick={() => { setShowLabelInput(false); setCustomLabel(''); }}>
